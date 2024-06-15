@@ -74,6 +74,7 @@ struct AppConfig
 {
     NSRect windowRect;
     NSSize windowMinSize;
+    float sidepanelWidth;
     MTLClearColor clearColor;
     std::filesystem::path assetsPath;
     std::string fontCharacterMap;
@@ -204,7 +205,9 @@ struct App
 
     // window and view
     NSWindow* window;
+    NSSplitView* splitView;
     MTKView* view;
+    NSView* sidepanel;
     MetalViewDelegate* viewDelegate;
 
     // metal objects
@@ -347,19 +350,36 @@ void onLaunch(App* app)
         defer:NO];
     [window setMinSize:app->config->windowMinSize];
     [window setTitle:@"bored_c"];
-    [window setBackgroundColor:[NSColor blackColor]];
+    [window setBackgroundColor:[NSColor systemPinkColor]];
     [window center];
     app->window = window;
     [window retain];
 
+    // create split view
+    NSSplitView* splitView = [[NSSplitView alloc] initWithFrame:window.contentView.frame];
+    [window setContentView:splitView];
+    [splitView setVertical:YES];
+    [splitView setDividerStyle:NSSplitViewDividerStylePaneSplitter];
+    [splitView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    app->splitView = splitView;
+    [splitView retain];
+
     // create metal kit view and add to window
-    MTKView* view = [[MTKView alloc] initWithFrame:window.frame device:device];
+    MTKView* view = [[MTKView alloc] initWithFrame:splitView.frame device:device];
     view.delegate = viewDelegate;
     view.clearColor = app->config->clearColor;
-    [window setContentView:view];
+    [splitView addSubview:view];
     [window makeFirstResponder:view];
     app->view = view;
     [view retain];
+
+    // create custom UI
+    NSButton* button = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, app->config->sidepanelWidth, splitView.frame.size.height)];
+    [splitView addSubview:button];
+    app->sidepanel = button;
+    [button retain];
+
+    [splitView adjustSubviews];
 
     // create command queue
     {
@@ -490,6 +510,8 @@ void onTerminate(App* app)
     [app->uiRenderPipelineState release];
     [app->depthStencilState release];
     [app->view release];
+    [app->sidepanel release];
+    [app->splitView release];
     [app->window release];
     [app->commandQueue release];
     [app->device release];
@@ -671,8 +693,9 @@ int main(int argc, char const* argv[])
     char const* assetsFolder = argv[1];
 
     AppConfig config{
-        .windowRect = NSMakeRect(0, 0, 800, 600),
+        .windowRect = NSMakeRect(0, 0, 1200, 800),
         .windowMinSize = NSSize{100.0f, 50.0f},
+        .sidepanelWidth = 300.0f,
         .clearColor = MTLClearColorMake(0.5, 0.5, 0.5, 1.0),
         .assetsPath = argv[1],
         .fontCharacterMap = fontCharacterMap,
