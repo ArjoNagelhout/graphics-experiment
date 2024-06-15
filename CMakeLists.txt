@@ -19,3 +19,5 @@ target_link_libraries(bored_c
         "-framework Metal"
         "-framework MetalKit"
 )
+
+add_subdirectory(external)

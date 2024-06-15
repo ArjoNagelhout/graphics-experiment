@@ -87,8 +87,6 @@ struct VertexData
     simd_float4 color;
 };
 
-
-
 struct App
 {
     AppConfig* config;
@@ -105,6 +103,7 @@ struct App
     id <MTLDepthStencilState> depthStencilState;
     id <MTLRenderPipelineState> renderPipelineState;
     id <MTLBuffer> vertexBuffer;
+    id <MTLTexture> texture;
 };
 
 void onLaunch(App* app)
@@ -219,6 +218,15 @@ void onLaunch(App* app)
         id <MTLBuffer> buffer = [device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
         app->vertexBuffer = buffer;
         [buffer retain];
+    }
+
+    // create texture
+    {
+        std::filesystem::path path = app->config->assetsPath / "shader.metal";
+        assert(std::filesystem::exists(path));
+
+        MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
+        [device newTextureWithDescriptor:descriptor];
     }
 
     // make window active
