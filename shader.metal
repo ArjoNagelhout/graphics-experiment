@@ -12,14 +12,17 @@ struct RasterizerData
 struct VertexData
 {
     float4 position;
+    float4 color;
 };
 
 vertex RasterizerData
 main_vertex(uint vertexID [[vertex_id]],
-             constant VertexData *vertices [[buffer(0)]])
+            device VertexData const* vertices [[buffer(0)]])
 {
     RasterizerData out;
-    out.color = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    device VertexData const& data = vertices[vertexID];
+    out.position = data.position;
+    out.color = data.color;
     return out;
 }
 

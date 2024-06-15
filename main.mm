@@ -10,10 +10,12 @@
 
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 #import "Cocoa/Cocoa.h"
 #import "MetalKit/MTKView.h"
 #import "Metal/MTLDevice.h"
+#import "simd/simd.h"
 
 struct App;
 
@@ -70,6 +72,12 @@ struct AppConfig
     MTLClearColor clearColor;
 };
 
+struct VertexData
+{
+    simd_float4 position;
+    simd_float4 color;
+};
+
 struct App
 {
     AppConfig* config;
@@ -85,6 +93,7 @@ struct App
     id <MTLCommandQueue> commandQueue;
     id <MTLDepthStencilState> depthStencilState;
     id <MTLRenderPipelineState> renderPipelineState;
+    id <MTLBuffer> vertexBuffer;
 };
 
 void onLaunch(App* app)
@@ -119,7 +128,7 @@ void onLaunch(App* app)
 
     // create shader library
     {
-        // get shader file
+        // read shader source from metal source file (Metal Shading Language, MSL)
         std::ifstream file("/Users/arjonagelhout/Documents/Experiments/metal-experiment/shader.metal");
         std::stringstream buffer;
         buffer << file.rdbuf();
@@ -158,6 +167,20 @@ void onLaunch(App* app)
         [renderPipelineState retain];
     }
 
+    // create vertex buffer
+    {
+        std::vector<VertexData> vertices{
+            {.position = {0.5f, -0.5f, 0.0f, 1.0f}, .color = {1.0f, 0.0f, 0.0f, 1.0f}},
+            {.position = {-0.5f, -0.5f, 0.0f, 1.0f}, .color = {0.0f, 0.0f, 1.0f, 1.0f}},
+            {.position = {0.0f, 0.5f, 0.0f, 1.0f}, .color = {1.0f, 1.0f, 0.0f, 1.0f}}
+        };
+
+        MTLResourceOptions options = MTLResourceStorageModeShared;
+        id <MTLBuffer> buffer = [device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
+        app->vertexBuffer = buffer;
+        [buffer retain];
+    }
+
     // create window
     NSWindow* window = [[NSWindow alloc]
         initWithContentRect:app->config->windowRect
@@ -184,6 +207,7 @@ void onLaunch(App* app)
 
 void onTerminate(App* app)
 {
+    [app->vertexBuffer release];
     [app->renderPipelineState release];
     [app->depthStencilState release];
     [app->view release];
@@ -202,12 +226,12 @@ void onDraw(App* app)
     id <MTLRenderCommandEncoder> encoder = [cmd renderCommandEncoderWithDescriptor:renderPass];
 
     [encoder setFrontFacingWinding:MTLWindingClockwise];
-    [encoder setCullMode:MTLCullModeBack];
+    [encoder setCullMode:MTLCullModeNone];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setDepthStencilState:app->depthStencilState];
-
     [encoder setRenderPipelineState:app->renderPipelineState];
-
+    [encoder setVertexBuffer:app->vertexBuffer offset:0 atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder endEncoding];
     [cmd presentDrawable:app->view.currentDrawable];
     [cmd commit];
