@@ -2,25 +2,12 @@
 
 using namespace metal;
 
-// Vertex shader outputs and fragment shader inputs
-struct RasterizerData
-{
-    float4 position [[position]];
-    float4 color;
-    float2 uv0;
-};
-
-struct VertexData
-{
-    float4 position;
-    float4 color;
-    float2 uv0;
-};
-
 vertex RasterizerData
 main_vertex(
     uint vertexID [[vertex_id]],
-    device VertexData const* vertices [[buffer(0)]])
+    device VertexData const* vertices [[buffer(0)]],
+    device CameraData const& camera [[buffer(1)]],
+    device InstanceData const& instance [[buffer(2)]])
 {
     RasterizerData out;
     device VertexData const& data = vertices[vertexID];
@@ -36,5 +23,6 @@ fragment half4 main_fragment(
 {
     constexpr sampler s(address::repeat, filter::nearest);
 
+    return half4(1.0f, 0.0f, 1.0f, 1.0f);
     return tex.sample(s, in.uv0);
 }

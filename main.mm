@@ -21,6 +21,11 @@
 // UI has a pixel resolution that needs to be converted to NDC
 // meshes in the 3D scene should be converted using perspective projection
 
+// now let's create a simple 3D scene
+// for that we need:
+// - perspective projection, camera data, new shader
+// - import 3D mesh (obj?)
+
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -33,6 +38,13 @@
 #import "simd/simd.h"
 
 #include "lodepng.h"
+
+#define GLM_ENABLE_EXPERIMENTAL
+
+#include "glm/glm.hpp"
+#include "glm/detail/type_quat.hpp"
+#include "glm/gtx/transform.hpp"
+#include "glm/gtx/quaternion.hpp"
 
 struct App;
 
@@ -90,6 +102,9 @@ struct AppConfig
     MTLClearColor clearColor;
     std::filesystem::path assetsPath;
     std::string fontCharacterMap;
+    float cameraFov;
+    float cameraNear;
+    float cameraFar;
 };
 
 struct VertexData
@@ -137,23 +152,6 @@ struct RectMinMaxi
     uint32_t maxY;
 };
 
-// a rect defined by x and y, and width and height
-struct RectSizef
-{
-    float x;
-    float y;
-    float width;
-    float height;
-};
-
-struct RectSizei
-{
-    uint32_t x;
-    uint32_t y;
-    uint32_t width;
-    uint32_t height;
-};
-
 // texture coordinates: (top left = 0, 0) (bottom right = 1, 1)
 RectMinMaxf getTextureCoordsForSprite(id <MTLTexture> texture, Sprite* sprite)
 {
@@ -199,6 +197,13 @@ void createSprites(TextureAtlas* atlas, uint32_t spriteWidth, uint32_t spriteHei
     }
 }
 
+struct Camera
+{
+    glm::vec3 position;
+    glm::quat rotation;
+    glm::vec3 scale;
+};
+
 struct App
 {
     AppConfig* config;
@@ -213,11 +218,108 @@ struct App
     id <MTLLibrary> library; // shader library
     id <MTLCommandQueue> commandQueue;
     id <MTLDepthStencilState> depthStencilState;
-    id <MTLRenderPipelineState> renderPipelineState;
+    id <MTLRenderPipelineState> uiRenderPipelineState;
+    id <MTLRenderPipelineState> threeDRenderPipelineState;
 
-    TextureAtlas atlas;
+    // font rendering
+    TextureAtlas fontAtlas;
     Font font;
+
+    // axes
+    id <MTLBuffer> axesVertexBuffer;
+    id <MTLBuffer> axesIndexBuffer;
+    size_t axesVertexCount;
+    size_t axesIndexCount;
+    MTLIndexType axesIndexType;
+
+    // 3D
+    Camera camera;
 };
+
+id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertexFunctionName, NSString* fragmentFunctionName)
+{
+    // use function specialization to create shader variants
+    id <MTLFunction> vertexFunction = [app->library newFunctionWithName:vertexFunctionName];
+    assert(vertexFunction != nullptr);
+    id <MTLFunction> fragmentFunction = [app->library newFunctionWithName:fragmentFunctionName];
+    assert(fragmentFunction != nullptr);
+
+    MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+    descriptor.vertexFunction = vertexFunction;
+    descriptor.fragmentFunction = fragmentFunction;
+    id <CAMetalDrawable> drawable = [app->view currentDrawable];
+    descriptor.colorAttachments[0].pixelFormat = drawable.texture.pixelFormat;
+
+    NSError* error = nullptr;
+    id <MTLRenderPipelineState> renderPipelineState = [app->device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+    if (error)
+    {
+        std::cout << [error.debugDescription cStringUsingEncoding:NSUTF8StringEncoding] << std::endl;
+    }
+    [vertexFunction release];
+    [fragmentFunction release];
+    return renderPipelineState;
+}
+
+void createAxes(App* app)
+{
+    std::vector<VertexData> vertices;
+    std::vector<uint32_t> indices;
+    std::vector<uint32_t> indicesTemplate{
+        0, 1, 2, 1, 3, 2
+    };
+
+    float w = 0.25f; // width
+    float l = 10.0f; // length
+
+    simd_float4 red = {1, 0, 0, 1};
+    simd_float4 green = {0, 1, 0, 1};
+    simd_float4 blue = {0, 0, 1, 1};
+
+    // positions
+    vertices = {
+        // x
+        {.position = {l, -w, 0, 1}, .color = red},
+        {.position = {l, +w, 0, 1}, .color = red},
+        {.position = {0, -w, 0, 1}, .color = red},
+        {.position = {0, +w, 0, 1}, .color = red},
+
+        // y
+        {.position = {-w, l, 0, 1}, .color = green},
+        {.position = {+w, l, 0, 1}, .color = green},
+        {.position = {-w, 0, 0, 1}, .color = green},
+        {.position = {+w, 0, 0, 1}, .color = green},
+
+        // z
+        {.position = {-w, 0, l, 1}, .color = blue},
+        {.position = {+w, 0, l, 1}, .color = blue},
+        {.position = {-w, 0, 0, 1}, .color = blue},
+        {.position = {+w, 0, 0, 1}, .color = blue},
+    };
+
+    for (int i = 0; i <= 2; i++)
+    {
+        // indices
+        for (auto& index: indicesTemplate)
+        {
+            indices.emplace_back(index + 4 * i);
+        }
+    }
+
+    // create vertex buffer
+    MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
+    app->axesVertexBuffer = [app->device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
+    [app->axesVertexBuffer retain];
+    app->axesVertexCount = vertices.size();
+
+    app->axesIndexBuffer = [app->device newBufferWithBytes:indices.data() length:indices.size() * sizeof(uint32_t) options:options];
+    [app->axesIndexBuffer retain];
+    app->axesIndexCount = indices.size();
+
+    // 16 bits = 2 bytes
+    // 32 bits = 4 bytes
+    app->axesIndexType = MTLIndexTypeUInt32;
+}
 
 void onLaunch(App* app)
 {
@@ -274,11 +376,21 @@ void onLaunch(App* app)
     // create shader library
     {
         // read shader source from metal source file (Metal Shading Language, MSL)
-        std::filesystem::path path = app->config->assetsPath / "shader.metal";
-        assert(std::filesystem::exists(path));
-        std::ifstream file(path);
+        std::filesystem::path shadersPath = app->config->assetsPath / "shaders";
+        std::vector<std::filesystem::path> paths{
+            shadersPath / "shader_common.h",
+            shadersPath / "shader_3d.metal",
+            shadersPath / "shader_ui.metal"
+        };
         std::stringstream buffer;
-        buffer << file.rdbuf();
+        for (std::filesystem::path& path: paths)
+        {
+            assert(std::filesystem::exists(path));
+            std::ifstream file(path);
+            buffer << file.rdbuf();
+            buffer << "\n";
+        }
+
         std::string s = buffer.str();
         NSString* shaderSource = [NSString stringWithCString:s.c_str()];
 
@@ -293,32 +405,14 @@ void onLaunch(App* app)
         [library retain];
     }
 
-    // create render pipeline state
-    {
-        // use function specialization to create shader variants
-        id <MTLFunction> vertexFunction = [app->library newFunctionWithName:@"main_vertex"];
-        assert(vertexFunction != nullptr);
-        id <MTLFunction> fragmentFunction = [app->library newFunctionWithName:@"main_fragment"];
-        assert(fragmentFunction != nullptr);
+    // create render pipeline states
+    id <MTLRenderPipelineState> uiRenderPipelineState = createRenderPipelineState(app, @"ui_vertex", @"ui_fragment");
+    [uiRenderPipelineState retain];
+    app->uiRenderPipelineState = uiRenderPipelineState;
 
-        MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
-        descriptor.vertexFunction = vertexFunction;
-        descriptor.fragmentFunction = fragmentFunction;
-        id <CAMetalDrawable> drawable = [app->view currentDrawable];
-        descriptor.colorAttachments[0].pixelFormat = drawable.texture.pixelFormat;
-
-        NSError* error = nullptr;
-        id <MTLRenderPipelineState> renderPipelineState = [device newRenderPipelineStateWithDescriptor:descriptor error:&error];
-        if (error)
-        {
-            std::cout << [error.debugDescription cStringUsingEncoding:NSUTF8StringEncoding] << std::endl;
-        }
-        app->renderPipelineState = renderPipelineState;
-        [renderPipelineState retain];
-
-        [vertexFunction release];
-        [fragmentFunction release];
-    }
+    id <MTLRenderPipelineState> threeDRenderPipelineState = createRenderPipelineState(app, @"main_vertex", @"main_fragment");
+    [threeDRenderPipelineState retain];
+    app->threeDRenderPipelineState = threeDRenderPipelineState;
 
     // import texture atlas
     {
@@ -363,19 +457,22 @@ void onLaunch(App* app)
             bytesPerRow:width * strideInBytes
             bytesPerImage:0]; // only single image
 
-        app->atlas.texture = texture;
+        app->fontAtlas.texture = texture;
         [texture retain];
 
         // create sprites from texture
         uint32_t spriteSize = 32;
-        createSprites(&app->atlas, spriteSize, spriteSize, width / spriteSize, height / spriteSize);
+        createSprites(&app->fontAtlas, spriteSize, spriteSize, width / spriteSize, height / spriteSize);
     }
 
     // create font
     {
-        app->font.atlas = &app->atlas;
+        app->font.atlas = &app->fontAtlas;
         createFontMap(&app->font, app->config->fontCharacterMap);
     }
+
+    // create axes
+    createAxes(app);
 
     // make window active
     [window makeKeyAndOrderFront:NSApp];
@@ -383,7 +480,9 @@ void onLaunch(App* app)
 
 void onTerminate(App* app)
 {
-    [app->renderPipelineState release];
+
+    [app->threeDRenderPipelineState release];
+    [app->uiRenderPipelineState release];
     [app->depthStencilState release];
     [app->view release];
     [app->window release];
@@ -430,7 +529,7 @@ void drawText(App* app, std::string const& text, std::vector<VertexData>* vertic
         if (character == '\n')
         {
             line++;
-            i=0;
+            i = 0;
             continue;
         }
         size_t index = app->font.map[character];
@@ -441,7 +540,7 @@ void drawText(App* app, std::string const& text, std::vector<VertexData>* vertic
             .maxY = y + line * characterSize + characterSize
         };
         RectMinMaxf positionCoords = getNormalizedPositionCoords(app, position);
-        RectMinMaxf textureCoords = getTextureCoordsForSprite(app->atlas.texture, &app->atlas.sprites[index]);
+        RectMinMaxf textureCoords = getTextureCoordsForSprite(app->fontAtlas.texture, &app->fontAtlas.sprites[index]);
 
         // create quad at pixel positions
         addQuad(app, vertices, positionCoords, textureCoords);
@@ -455,8 +554,6 @@ void onDraw(App* app)
     // main render loop
     MTLRenderPassDescriptor* renderPass = [app->view currentRenderPassDescriptor];
     assert(renderPass);
-    renderPass.colorAttachments[0].loadAction = MTLLoadActionClear;
-    renderPass.colorAttachments[0].storeAction = MTLStoreActionStore;
 
     id <MTLCommandBuffer> cmd = [app->commandQueue commandBuffer];
     assert(cmd);
@@ -467,8 +564,48 @@ void onDraw(App* app)
     [encoder setCullMode:MTLCullModeBack];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setDepthStencilState:app->depthStencilState];
-    [encoder setRenderPipelineState:app->renderPipelineState];
-    [encoder setFragmentTexture:app->atlas.texture atIndex:0];
+
+    // update camera position
+    {
+        Camera& camera = app->camera;
+        CGSize size = app->view.frame.size;
+        glm::mat4 projection = glm::perspective(glm::radians(app->config->cameraFov),
+                                                (float)(size.width / size.height),
+                                                app->config->cameraNear, app->config->cameraFar);
+
+        glm::mat4 translation = glm::translate(glm::mat4(1), camera.position);
+        glm::mat4 rotation = glm::toMat4(camera.rotation);
+        glm::mat4 scale = glm::scale(camera.scale);
+
+        glm::mat4 cameraTransform = translation * rotation * scale;
+        glm::mat4 view = glm::inverse(cameraTransform);
+
+        glm::mat4 viewProjection = view * projection;
+
+        [encoder setVertexBytes:&viewProjection length:sizeof(glm::mat4) atIndex:1];
+    }
+
+    [encoder setRenderPipelineState:app->threeDRenderPipelineState];
+
+    // draw axes
+    {
+        [encoder setVertexBuffer:app->axesVertexBuffer offset:0 atIndex:0];
+        [encoder
+            drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+            indexCount:app->axesIndexCount
+            indexType:app->axesIndexType
+            indexBuffer:app->axesIndexBuffer
+            indexBufferOffset:0
+            instanceCount:1
+            baseVertex:0
+            baseInstance:0
+        ];
+    }
+
+    // draw UI
+
+    [encoder setRenderPipelineState:app->uiRenderPipelineState];
+    [encoder setFragmentTexture:app->fontAtlas.texture atIndex:0];
 
     // draw text
     id <MTLBuffer> textBuffer;
@@ -476,13 +613,13 @@ void onDraw(App* app)
         // 6 vertices for each character in the string
         std::vector<VertexData> vertices;
 
-        std::filesystem::path path = app->config->assetsPath / "shader.metal";
+        std::filesystem::path path = app->config->assetsPath / "shaders" / "shader_common.h";
         assert(std::filesystem::exists(path));
         std::ifstream file(path);
         std::stringstream buffer;
         buffer << file.rdbuf();
         std::string s = buffer.str();
-        drawText(app, s, &vertices, 0, 0, 14);
+        drawText(app, s, &vertices, 0, 0, 10);
 
         // create vertex buffer
         MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
@@ -519,7 +656,10 @@ int main(int argc, char const* argv[])
         .windowMinSize = NSSize{100.0f, 50.0f},
         .clearColor = MTLClearColorMake(0.5, 0.5, 0.5, 1.0),
         .assetsPath = argv[1],
-        .fontCharacterMap = fontCharacterMap
+        .fontCharacterMap = fontCharacterMap,
+        .cameraFov = 60.0f,
+        .cameraNear = 0.1f,
+        .cameraFar = 1000.0f
     };
     App app{
         .config = &config
