@@ -25,6 +25,8 @@
 #import "Metal/MTLDrawable.h"
 #import "simd/simd.h"
 
+#include "lodepng.h"
+
 struct App;
 
 void onLaunch(App*);
@@ -222,11 +224,50 @@ void onLaunch(App* app)
 
     // create texture
     {
-        std::filesystem::path path = app->config->assetsPath / "shader.metal";
+        std::filesystem::path path = app->config->assetsPath / "texturemap.png";
         assert(std::filesystem::exists(path));
 
+        // import png using lodepng
+        std::vector<unsigned char> png;
+        unsigned int width;
+        unsigned int height;
+        lodepng::State state;
+        lodepng::load_file(png, path.c_str());
+
+        std::vector<unsigned char> image;
+        unsigned int error = lodepng::decode(image, width, height, state, png);
+        if (error != 0)
+        {
+            std::cout << lodepng_error_text(error) << std::endl;
+        }
+        LodePNGColorMode color = state.info_png.color;
+        assert(color.bitdepth == 8);
+        assert(color.colortype == LCT_RGBA);
+        MTLPixelFormat pixelFormat = MTLPixelFormatRGBA8Unorm;
+
         MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
-        [device newTextureWithDescriptor:descriptor];
+        descriptor.width = width;
+        descriptor.height = height;
+        descriptor.pixelFormat = pixelFormat;
+        descriptor.arrayLength = 1;
+        descriptor.textureType = MTLTextureType2D;
+        descriptor.usage = MTLTextureUsageShaderRead;
+        id <MTLTexture> texture = [device newTextureWithDescriptor:descriptor];
+
+        size_t strideInBytes = 4;
+
+        //texture replaceRegion:
+        MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+        [texture
+            replaceRegion:region
+            mipmapLevel:0
+            slice:0
+            withBytes:image.data()
+            bytesPerRow:width * strideInBytes
+            bytesPerImage:0]; // only single image
+
+        app->texture = texture;
+        [texture retain];
     }
 
     // make window active
