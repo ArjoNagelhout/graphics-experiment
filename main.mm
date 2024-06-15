@@ -118,6 +118,7 @@ void onLaunch(App* app)
         defer:NO];
     [window setTitle:@"bored_c"];
     [window setBackgroundColor:[NSColor blackColor]];
+    [window center];
     app->window = window;
     [window retain];
 
@@ -243,7 +244,7 @@ void onDraw(App* app)
     [encoder setDepthStencilState:app->depthStencilState];
     [encoder setRenderPipelineState:app->renderPipelineState];
     [encoder setVertexBuffer:app->vertexBuffer offset:0 atIndex:0];
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:9];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder endEncoding];
     assert(app->view.currentDrawable);
     [cmd presentDrawable:app->view.currentDrawable];
