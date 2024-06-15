@@ -1,3 +1,7 @@
+// todo:
+// - [ ] switch between scene navigation and text input
+// - [ ] camera controlssss yayy
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
