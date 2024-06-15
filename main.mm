@@ -8,9 +8,16 @@
 
 // we use MTKView
 
+// we want to render text
+// spritesheet?
+// vector text rendering
+// SDF
+// let's use simplest method: spritesheet
+
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <filesystem>
 
 #import "Cocoa/Cocoa.h"
 #import "MetalKit/MTKView.h"
@@ -71,6 +78,7 @@ struct AppConfig
 {
     NSRect windowRect;
     MTLClearColor clearColor;
+    std::filesystem::path assetsPath;
 };
 
 struct VertexData
@@ -78,6 +86,8 @@ struct VertexData
     simd_float4 position;
     simd_float4 color;
 };
+
+
 
 struct App
 {
@@ -151,7 +161,9 @@ void onLaunch(App* app)
     // create shader library
     {
         // read shader source from metal source file (Metal Shading Language, MSL)
-        std::ifstream file("/Users/arjonagelhout/Documents/Experiments/metal-experiment/shader.metal");
+        std::filesystem::path path = app->config->assetsPath / "shader.metal";
+        assert(std::filesystem::exists(path));
+        std::ifstream file(path);
         std::stringstream buffer;
         buffer << file.rdbuf();
         std::string s = buffer.str();
@@ -256,11 +268,15 @@ void onSizeChanged(App* app, CGSize size)
 
 }
 
-int main()
+int main(int argc, char const* argv[])
 {
+    assert(argc == 2); // we expect one additional argument: the assets folder
+    char const* assetsFolder = argv[1];
+
     AppConfig config{
         .windowRect = NSMakeRect(0, 0, 800, 600),
-        .clearColor = MTLClearColorMake(0.5, 0.5, 0.5, 1.0)
+        .clearColor = MTLClearColorMake(0.5, 0.5, 0.5, 1.0),
+        .assetsPath = argv[1]
     };
     App app{
         .config = &config
