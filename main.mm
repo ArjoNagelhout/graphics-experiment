@@ -70,6 +70,10 @@ void onSizeChanged(App*, CGSize size);
 
 @end
 
+@interface TextViewDelegate : NSObject <NSTextViewDelegate>
+@property(unsafe_unretained, nonatomic) App* app;
+@end
+
 struct AppConfig
 {
     NSRect windowRect;
@@ -207,8 +211,9 @@ struct App
     NSWindow* window;
     NSSplitView* splitView;
     MTKView* view;
-    NSView* sidepanel;
     MetalViewDelegate* viewDelegate;
+    NSView* sidepanel;
+    TextViewDelegate* textViewDelegate;
 
     // metal objects
     id <MTLDevice> device;
@@ -227,7 +232,19 @@ struct App
 
     // 3D
     Camera camera;
+
+    std::string currentText = "What";
 };
+
+@implementation TextViewDelegate
+// https://developer.apple.com/documentation/appkit/nstextdidchangenotification
+- (void)textDidChange:(NSNotification*)obj
+{
+    auto* v = (NSTextView*)(obj.object);
+    NSString* aa = [[v textStorage] string];
+    _app->currentText = [aa cStringUsingEncoding:NSUTF8StringEncoding];
+}
+@end
 
 Mesh createMesh(App* app, std::vector<VertexData>* vertices, std::vector<uint32_t>* indices)
 {
@@ -331,12 +348,6 @@ void createAxes(App* app)
 
 void onLaunch(App* app)
 {
-    // create metal kit view delegate
-    MetalViewDelegate* viewDelegate = [[MetalViewDelegate alloc] init];
-    viewDelegate.app = app;
-    app->viewDelegate = viewDelegate;
-    [viewDelegate retain];
-
     // create MTLDevice
     id <MTLDevice> device = MTLCreateSystemDefaultDevice();
     app->device = device;
@@ -364,20 +375,44 @@ void onLaunch(App* app)
     app->splitView = splitView;
     [splitView retain];
 
-    // create metal kit view and add to window
-    MTKView* view = [[MTKView alloc] initWithFrame:splitView.frame device:device];
-    view.delegate = viewDelegate;
-    view.clearColor = app->config->clearColor;
-    [splitView addSubview:view];
-    [window makeFirstResponder:view];
-    app->view = view;
-    [view retain];
+    // create metal kit view delegate
+    {
+        MetalViewDelegate* viewDelegate = [[MetalViewDelegate alloc] init];
+        viewDelegate.app = app;
+        app->viewDelegate = viewDelegate;
+        [viewDelegate retain];
+    }
 
-    // create custom UI
-    NSButton* button = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, app->config->sidepanelWidth, splitView.frame.size.height)];
-    [splitView addSubview:button];
-    app->sidepanel = button;
-    [button retain];
+    // create metal kit view and add to window
+    {
+        MTKView* view = [[MTKView alloc] initWithFrame:splitView.frame device:device];
+        view.delegate = app->viewDelegate;
+        view.clearColor = app->config->clearColor;
+        [splitView addSubview:view];
+        [window makeFirstResponder:view];
+        app->view = view;
+        [view retain];
+    }
+
+    // create text field delegate
+    {
+        TextViewDelegate* textViewDelegate = [[TextViewDelegate alloc] init];
+        app->textViewDelegate = textViewDelegate;
+        textViewDelegate.app = app;
+        [textViewDelegate retain];
+    }
+
+    // create UI sidepanel
+    {
+        NSTextView* textView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, app->config->sidepanelWidth, splitView.frame.size.height)];
+        [textView setDelegate:app->textViewDelegate];
+        //[textField setUsesSingleLineMode:NO];
+        [textView setAutomaticTextCompletionEnabled:NO];
+        //textField set
+        [splitView addSubview:textView];
+        app->sidepanel = textView;
+        [textView retain];
+    }
 
     [splitView adjustSubviews];
 
@@ -654,13 +689,7 @@ void onDraw(App* app)
         // 6 vertices for each character in the string
         std::vector<VertexData> vertices;
 
-        std::filesystem::path path = app->config->assetsPath / "shaders" / "shader_common.h";
-        assert(std::filesystem::exists(path));
-        std::ifstream file(path);
-        std::stringstream buffer;
-        buffer << file.rdbuf();
-        std::string s = buffer.str();
-        drawText(app, s, &vertices, 0, 0, 10);
+        drawText(app, app->currentText, &vertices, 0, 0, 30);
 
         // create vertex buffer
         MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
