@@ -214,7 +214,6 @@ struct App
     id <MTLCommandQueue> commandQueue;
     id <MTLDepthStencilState> depthStencilState;
     id <MTLRenderPipelineState> renderPipelineState;
-    id <MTLBuffer> vertexBuffer;
 
     TextureAtlas atlas;
     Font font;
@@ -321,23 +320,6 @@ void onLaunch(App* app)
         [fragmentFunction release];
     }
 
-    // create vertex buffer
-    {
-        std::vector<VertexData> vertices{
-            {.position = {-1.0f, 1.0f, 0.0f, 1.0f}, .uv0 = {0.0f, 0.0f}},
-            {.position = {1.0f, 1.0f, 0.0f, 1.0f}, .uv0 = {1.0f, 0.0f}},
-            {.position = {1.0f, -1.0f, 0.0f, 1.0f}, .uv0 = {1.0f, 1.0f}},
-            {.position = {-1.0f, 1.0f, 0.0f, 1.0f}, .uv0 = {0.0f, 0.0f}},
-            {.position = {1.0f, -1.0f, 0.0f, 1.0f}, .uv0 = {1.0f, 1.0f}},
-            {.position = {-1.0f, -1.0f, 0.0f, 1.0f}, .uv0 = {0.0f, 1.0f}}
-        };
-
-        MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-        id <MTLBuffer> buffer = [device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
-        app->vertexBuffer = buffer;
-        [buffer retain];
-    }
-
     // import texture atlas
     {
         std::filesystem::path path = app->config->assetsPath / "texturemap.png";
@@ -401,7 +383,6 @@ void onLaunch(App* app)
 
 void onTerminate(App* app)
 {
-    [app->vertexBuffer release];
     [app->renderPipelineState release];
     [app->depthStencilState release];
     [app->view release];
@@ -443,14 +424,21 @@ void drawText(App* app, std::string const& text, std::vector<VertexData>* vertic
     vertices->reserve(vertices->size() + text.size() * 6);
 
     uint32_t i = 0;
+    uint32_t line = 0;
     for (char character: text)
     {
+        if (character == '\n')
+        {
+            line++;
+            i=0;
+            continue;
+        }
         size_t index = app->font.map[character];
         auto position = RectMinMaxi{
             .minX = x + i * characterSize,
-            .minY = y,
+            .minY = y + line * characterSize,
             .maxX = x + i * characterSize + characterSize,
-            .maxY = y + characterSize
+            .maxY = y + line * characterSize + characterSize
         };
         RectMinMaxf positionCoords = getNormalizedPositionCoords(app, position);
         RectMinMaxf textureCoords = getTextureCoordsForSprite(app->atlas.texture, &app->atlas.sprites[index]);
@@ -480,19 +468,21 @@ void onDraw(App* app)
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setDepthStencilState:app->depthStencilState];
     [encoder setRenderPipelineState:app->renderPipelineState];
-    //[encoder setVertexBuffer:app->vertexBuffer offset:0 atIndex:0];
     [encoder setFragmentTexture:app->atlas.texture atIndex:0];
-    //[encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
 
     // draw text
     id <MTLBuffer> textBuffer;
     {
         // 6 vertices for each character in the string
         std::vector<VertexData> vertices;
-        drawText(app, "This is a small piece of text", &vertices, 0, 0, 32);
-        drawText(app, "Another message", &vertices, 0, 32, 64);
-        drawText(app, "Amazing", &vertices, 0, 32 + 64, 128);
-        drawText(app, "if (something == true) { std::cout << \"wow\" << std::endl; }", &vertices, 0, 32 + 64 + 128 + 10, 16);
+
+        std::filesystem::path path = app->config->assetsPath / "shader.metal";
+        assert(std::filesystem::exists(path));
+        std::ifstream file(path);
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        std::string s = buffer.str();
+        drawText(app, s, &vertices, 0, 0, 14);
 
         // create vertex buffer
         MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
