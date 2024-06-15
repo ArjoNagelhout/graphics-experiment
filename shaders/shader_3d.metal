@@ -7,9 +7,7 @@ vertex RasterizerData main_vertex(
     RasterizerData out;
     device VertexData const& data = vertices[vertexID];
 
-    out.position = camera.viewProjection * data.position;
-    //out.position = data.position;
-    //out.position = instance.localToWorld * data.position;
+    out.position = camera.viewProjection * instance.localToWorld * data.position;
 
     out.color = data.color;
     out.uv0 = data.uv0;

@@ -1,6 +1,7 @@
 // todo:
 // - [ ] switch between scene navigation and text input
 // - [ ] camera controlssss yayy
+// - [ ] create a grid, custom shader? yes
 
 #include <iostream>
 #include <fstream>
@@ -237,6 +238,9 @@ struct App
     // 3D
     Camera camera;
 
+    // silly timer
+    float time = 0.0f;
+
     std::string currentText;
 };
 
@@ -365,7 +369,7 @@ void onLaunch(App* app)
         defer:NO];
     [window setMinSize:app->config->windowMinSize];
     [window setTitle:@"bored_c"];
-    [window setBackgroundColor:[NSColor systemPinkColor]];
+    [window setBackgroundColor:[NSColor blueColor]];
     [window center];
     app->window = window;
     [window retain];
@@ -619,6 +623,7 @@ void onDraw(App* app)
     // main render loop
     MTLRenderPassDescriptor* renderPass = [app->view currentRenderPassDescriptor];
     assert(renderPass);
+    renderPass.colorAttachments[0].loadAction = MTLLoadActionClear;
 
     id <MTLCommandBuffer> cmd = [app->commandQueue commandBuffer];
     assert(cmd);
@@ -630,11 +635,20 @@ void onDraw(App* app)
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setDepthStencilState:app->depthStencilState];
 
+    app->time += 0.05f;
+    if (app->time > 2*pi)
+    {
+        app->time -= 2*pi;
+    }
+
     // update camera position
     {
         Camera& camera = app->camera;
 
-        camera.position = glm::vec3{0.3f, 0.3f, -1.0f};
+        float currentX = 0.5f * sin(app->time);
+        float currentY = 0.25f * cos(app->time);
+
+        camera.position = glm::vec3{currentX, currentY, -1.0f};
         camera.rotation = glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
         camera.scale = glm::vec3{1, 1, 1};
 
@@ -662,9 +676,20 @@ void onDraw(App* app)
     // draw axes
     {
         [encoder setCullMode:MTLCullModeNone];
-        glm::vec3 position = glm::vec3(0.0f, 0.0f, 0.0f);
+        float angle = app->time;
+
+        glm::vec3 t = glm::vec3(0, 0, 0);
+        glm::quat r = glm::angleAxis(angle, glm::vec3(0, 1, 0));
+        glm::vec3 s = glm::vec3(1, 1, 1);
+
+        glm::mat4 translation = glm::translate(glm::mat4(1), t);
+        glm::mat4 rotation = glm::toMat4(r);
+        glm::mat4 scale = glm::scale(s);
+
+        glm::mat4 transform = translation * rotation * scale;
+
         InstanceData instance{
-            .localToWorld = glm::translate(glm::mat4(1), position)
+            .localToWorld = transform
         };
         [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
         [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
