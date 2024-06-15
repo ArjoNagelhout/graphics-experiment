@@ -87,6 +87,7 @@ struct VertexData
 {
     simd_float4 position;
     simd_float4 color;
+    simd_float2 uv0;
 };
 
 struct App
@@ -211,9 +212,9 @@ void onLaunch(App* app)
     // create vertex buffer
     {
         std::vector<VertexData> vertices{
-            {.position = {0.5f, -0.5f, 0.0f, 1.0f}, .color = {1.0f, 0.0f, 0.0f, 1.0f}},
-            {.position = {-0.5f, -0.5f, 0.0f, 1.0f}, .color = {0.0f, 0.0f, 1.0f, 1.0f}},
-            {.position = {0.0f, 0.5f, 0.0f, 1.0f}, .color = {1.0f, 1.0f, 0.0f, 1.0f}}
+            {.position = {-1.0f, 1.0f, 0.0f, 1.0f}, .uv0 = {0.0f, 0.0f}},
+            {.position = {1.0f, 1.0f, 0.0f, 1.0f}, .uv0 = {1.0f, 0.0f}},
+            {.position = {1.0f, -1.0f, 0.0f, 1.0f}, .uv0 = {1.0f, 1.0f}}
         };
 
         MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
@@ -305,6 +306,7 @@ void onDraw(App* app)
     [encoder setDepthStencilState:app->depthStencilState];
     [encoder setRenderPipelineState:app->renderPipelineState];
     [encoder setVertexBuffer:app->vertexBuffer offset:0 atIndex:0];
+    [encoder setFragmentTexture:app->texture atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder endEncoding];
     assert(app->view.currentDrawable);
