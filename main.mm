@@ -42,7 +42,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_LEFT_HANDED
-#define GLM_FORCE_PRECISION_LOWP_FLOAT
+//#define GLM_FORCE_PRECISION_LOWP_FLOAT
+//#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
 
 #include "glm/glm.hpp"
 #include "glm/detail/type_quat.hpp"
@@ -380,7 +381,7 @@ void onLaunch(App* app)
     {
         MTLDepthStencilDescriptor* descriptor = [[MTLDepthStencilDescriptor alloc] init];
         descriptor.depthWriteEnabled = YES;
-        descriptor.depthCompareFunction = MTLCompareFunctionAlways;
+        descriptor.depthCompareFunction = MTLCompareFunctionLess;
         id <MTLDepthStencilState> depthStencilState = [device newDepthStencilStateWithDescriptor:descriptor];
         app->depthStencilState = depthStencilState;
         [depthStencilState retain];
@@ -583,8 +584,8 @@ void onDraw(App* app)
     {
         Camera& camera = app->camera;
 
-        camera.position = glm::vec3{0, 0, -1.0f};
-        camera.rotation = glm::quat{1.0f, 0, 0, 0};
+        camera.position = glm::vec3{0.3f, 0.3f, -1.0f};
+        camera.rotation = glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
         camera.scale = glm::vec3{1, 1, 1};
 
         CGSize size = app->view.frame.size;
@@ -600,7 +601,7 @@ void onDraw(App* app)
         glm::mat4 view = glm::inverse(cameraTransform);
 
         CameraData cameraData{
-            .viewProjection = glm::transpose(projection * view)
+            .viewProjection = projection * view
         };
 
         [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:1];
@@ -610,9 +611,10 @@ void onDraw(App* app)
 
     // draw axes
     {
-        glm::vec3 position = glm::vec3(0.0f, 0.0f, -10.0f);
+        [encoder setCullMode:MTLCullModeNone];
+        glm::vec3 position = glm::vec3(0.0f, 0.0f, 0.0f);
         InstanceData instance{
-            .localToWorld = glm::transpose(glm::translate(glm::mat4(1), position))
+            .localToWorld = glm::translate(glm::mat4(1), position)
         };
         [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
         [encoder setVertexBuffer:app->axesVertexBuffer offset:0 atIndex:0];
@@ -630,6 +632,7 @@ void onDraw(App* app)
 
     // draw UI
 
+    [encoder setCullMode:MTLCullModeBack];
     [encoder setRenderPipelineState:app->uiRenderPipelineState];
     [encoder setFragmentTexture:app->fontAtlas.texture atIndex:0];
 
