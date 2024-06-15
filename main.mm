@@ -21,8 +21,6 @@
 #include "glm/gtx/transform.hpp"
 #include "glm/gtx/quaternion.hpp"
 
-// simplest engine I could think of
-
 struct App;
 
 void onLaunch(App*);
@@ -191,6 +189,15 @@ struct Camera
     glm::vec3 scale;
 };
 
+struct Mesh
+{
+    id <MTLBuffer> vertexBuffer;
+    id <MTLBuffer> indexBuffer;
+    MTLIndexType indexType;
+    size_t vertexCount;
+    size_t indexCount;
+};
+
 struct App
 {
     AppConfig* config;
@@ -213,15 +220,38 @@ struct App
     Font font;
 
     // axes
-    id <MTLBuffer> axesVertexBuffer;
-    id <MTLBuffer> axesIndexBuffer;
-    size_t axesVertexCount;
-    size_t axesIndexCount;
-    MTLIndexType axesIndexType;
+    Mesh axes;
 
     // 3D
     Camera camera;
 };
+
+Mesh createMesh(App* app, std::vector<VertexData>* vertices, std::vector<uint32_t>* indices)
+{
+    Mesh mesh{};
+
+    // create vertex buffer
+    MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
+    mesh.vertexBuffer = [app->device newBufferWithBytes:vertices->data() length:vertices->size() * sizeof(VertexData) options:options];
+    [mesh.vertexBuffer retain];
+    mesh.vertexCount = vertices->size();
+
+    // create index buffer
+    mesh.indexBuffer = [app->device newBufferWithBytes:indices->data() length:indices->size() * sizeof(uint32_t) options:options];
+    [mesh.indexBuffer retain];
+    mesh.indexCount = indices->size();
+
+    // 16 bits = 2 bytes
+    // 32 bits = 4 bytes
+    mesh.indexType = MTLIndexTypeUInt32;
+    return mesh;
+}
+
+void destroyMesh(Mesh* mesh)
+{
+    assert(mesh->vertexBuffer != nullptr);
+    assert(mesh->indexBuffer != nullptr);
+}
 
 id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertexFunctionName, NSString* fragmentFunctionName)
 {
@@ -293,19 +323,7 @@ void createAxes(App* app)
         }
     }
 
-    // create vertex buffer
-    MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-    app->axesVertexBuffer = [app->device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
-    [app->axesVertexBuffer retain];
-    app->axesVertexCount = vertices.size();
-
-    app->axesIndexBuffer = [app->device newBufferWithBytes:indices.data() length:indices.size() * sizeof(uint32_t) options:options];
-    [app->axesIndexBuffer retain];
-    app->axesIndexCount = indices.size();
-
-    // 16 bits = 2 bytes
-    // 32 bits = 4 bytes
-    app->axesIndexType = MTLIndexTypeUInt32;
+    app->axes = createMesh(app, &vertices, &indices);
 }
 
 void onLaunch(App* app)
@@ -467,8 +485,7 @@ void onLaunch(App* app)
 
 void onTerminate(App* app)
 {
-    [app->axesVertexBuffer release];
-    [app->axesIndexBuffer release];
+    destroyMesh(&app->axes);
     [app->threeDRenderPipelineState release];
     [app->uiRenderPipelineState release];
     [app->depthStencilState release];
@@ -493,10 +510,10 @@ void addQuad(App* app, std::vector<VertexData>* vertices, RectMinMaxf position, 
     vertices->emplace_back(bottomLeft);
 }
 
-// NDC: (top left = -1, 1), (bottom right = 1, -1)
-// z: from 0 (near) to 1 (far)
 RectMinMaxf getNormalizedPositionCoords(App* app, RectMinMaxi rect)
 {
+    // NDC: (top left = -1, 1), (bottom right = 1, -1)
+    // z: from 0 (near) to 1 (far)
     CGSize viewSize = app->view.frame.size;
     return RectMinMaxf{
         .minX = -1.0f + (float)rect.minX / (float)viewSize.width * 2.0f,
@@ -590,12 +607,12 @@ void onDraw(App* app)
             .localToWorld = glm::translate(glm::mat4(1), position)
         };
         [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
-        [encoder setVertexBuffer:app->axesVertexBuffer offset:0 atIndex:0];
+        [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
         [encoder
             drawIndexedPrimitives:MTLPrimitiveTypeTriangle
-            indexCount:app->axesIndexCount
-            indexType:app->axesIndexType
-            indexBuffer:app->axesIndexBuffer
+            indexCount:app->axes.indexCount
+            indexType:app->axes.indexType
+            indexBuffer:app->axes.indexBuffer
             indexBufferOffset:0
             instanceCount:1
             baseVertex:0
