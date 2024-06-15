@@ -14,6 +14,13 @@
 // SDF
 // let's use simplest method: spritesheet
 
+// how do we draw a piece of text?:
+// 1. create vertex buffer with correct size (two triangles per letter)
+// 2.
+
+// UI has a pixel resolution that needs to be converted to NDC
+// meshes in the 3D scene should be converted using perspective projection
+
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -82,6 +89,7 @@ struct AppConfig
     NSSize windowMinSize;
     MTLClearColor clearColor;
     std::filesystem::path assetsPath;
+    std::string fontCharacterMap;
 };
 
 struct VertexData
@@ -90,6 +98,81 @@ struct VertexData
     simd_float4 color;
     simd_float2 uv0;
 };
+
+// sprite sheet
+struct Sprite
+{
+    uint32_t x;
+    uint32_t y;
+    uint32_t width;
+    uint32_t height;
+};
+
+struct TextureAtlas
+{
+    id <MTLTexture> texture;
+    std::vector<Sprite> sprites;
+};
+
+struct Font
+{
+    std::unordered_map<char, size_t> map; // mapping of character to index in atlas
+    TextureAtlas* atlas;
+};
+
+// a rect defined by min and max coordinates
+struct RectCoords
+{
+    float minX;
+    float minY;
+    float maxX;
+    float maxY;
+};
+
+// texture coordinates: (top left = 0, 0) (bottom right = 1, 1)
+RectCoords getTextureCoordsForSprite(id <MTLTexture> texture, Sprite* sprite)
+{
+    float minX = (float)sprite->x / (float)texture.width;
+    float minY = (float)sprite->y / (float)texture.height;
+    float width = (float)sprite->width / (float)texture.width;
+    float height = (float)sprite->height / (float)texture.height;
+
+    return RectCoords{
+        .minX = minX,
+        .minY = minY,
+        .maxX = minX + width,
+        .maxY = minY + height
+    };
+}
+
+void createFontMap(Font* font, std::string const& characterMap)
+{
+    font->map.clear();
+    size_t index = 0;
+    for (char character: characterMap)
+    {
+        font->map[character] = index;
+        index++;
+    }
+}
+
+void createSprites(TextureAtlas* atlas, uint32_t spriteWidth, uint32_t spriteHeight, uint32_t xSpriteCount, uint32_t ySpriteCount)
+{
+    atlas->sprites.clear();
+    atlas->sprites.resize(xSpriteCount * ySpriteCount);
+    for (uint32_t xIndex = 0; xIndex < xSpriteCount; xIndex++)
+    {
+        for (uint32_t yIndex = 0; yIndex < ySpriteCount; yIndex++)
+        {
+            atlas->sprites[yIndex * xSpriteCount + xIndex] = Sprite{
+                .x = xIndex * spriteWidth,
+                .y = yIndex * spriteHeight,
+                .width = spriteWidth,
+                .height = spriteHeight
+            };
+        }
+    }
+}
 
 struct App
 {
@@ -107,7 +190,9 @@ struct App
     id <MTLDepthStencilState> depthStencilState;
     id <MTLRenderPipelineState> renderPipelineState;
     id <MTLBuffer> vertexBuffer;
-    id <MTLTexture> texture;
+
+    TextureAtlas atlas;
+    Font font;
 };
 
 void onLaunch(App* app)
@@ -178,7 +263,7 @@ void onLaunch(App* app)
         id <MTLLibrary> library = [device newLibraryWithSource:shaderSource options:options error:&error];
         if (error)
         {
-            std::cout << error.debugDescription.cString << std::endl;
+            std::cout << [error.debugDescription cStringUsingEncoding:NSUTF8StringEncoding] << std::endl;
         }
         app->library = library;
         [library retain];
@@ -202,7 +287,7 @@ void onLaunch(App* app)
         id <MTLRenderPipelineState> renderPipelineState = [device newRenderPipelineStateWithDescriptor:descriptor error:&error];
         if (error)
         {
-            std::cout << error.debugDescription.cString << std::endl;
+            std::cout << [error.debugDescription cStringUsingEncoding:NSUTF8StringEncoding] << std::endl;
         }
         app->renderPipelineState = renderPipelineState;
         [renderPipelineState retain];
@@ -228,7 +313,7 @@ void onLaunch(App* app)
         [buffer retain];
     }
 
-    // create texture
+    // import texture atlas
     {
         std::filesystem::path path = app->config->assetsPath / "texturemap.png";
         assert(std::filesystem::exists(path));
@@ -262,7 +347,6 @@ void onLaunch(App* app)
 
         size_t strideInBytes = 4; // for each component 1 byte = 8 bits
 
-        //texture replaceRegion:
         MTLRegion region = MTLRegionMake2D(0, 0, width, height);
         [texture
             replaceRegion:region
@@ -272,8 +356,18 @@ void onLaunch(App* app)
             bytesPerRow:width * strideInBytes
             bytesPerImage:0]; // only single image
 
-        app->texture = texture;
+        app->atlas.texture = texture;
         [texture retain];
+
+        // create sprites from texture
+        uint32_t spriteSize = 32;
+        createSprites(&app->atlas, spriteSize, spriteSize, width / spriteSize, height / spriteSize);
+    }
+
+    // create font
+    {
+        app->font.atlas = &app->atlas;
+        createFontMap(&app->font, app->config->fontCharacterMap);
     }
 
     // make window active
@@ -290,6 +384,32 @@ void onTerminate(App* app)
     [app->commandQueue release];
     [app->device release];
     [app->viewDelegate release];
+}
+
+void addQuad(App* app, std::vector<VertexData>* vertices, RectCoords position, RectCoords uv)
+{
+    VertexData topLeft{.position = {position.minX, position.minY, 0.0f, 1.0f}, .uv0 = {uv.minX, uv.minY}};
+    VertexData topRight{.position = {position.maxX, position.minY, 0.0f, 1.0f}, .uv0 = {uv.maxX, uv.minY}};
+    VertexData bottomLeft{.position = {position.minX, position.maxY, 0.0f, 1.0f}, .uv0 = {uv.minX, uv.maxY}};
+    VertexData bottomRight{.position = {position.maxX, position.maxY, 0.0f, 1.0f}, .uv0 = {uv.maxX, uv.maxY}};
+    vertices->emplace_back(topLeft);
+    vertices->emplace_back(topRight);
+    vertices->emplace_back(bottomRight);
+    vertices->emplace_back(topLeft);
+    vertices->emplace_back(bottomRight);
+    vertices->emplace_back(bottomLeft);
+}
+
+// NDC: (top left = -1, 1), (bottom right = 1, -1)
+// z: from 0 (near) to 1 (far)
+RectCoords getNormalizedCoords(App* app)
+{
+    return RectCoords{
+        .minX = -1.0f,
+        .minY = 1.0f,
+        .maxX = 0.0f,
+        .maxY = 0.0f
+    };
 }
 
 void onDraw(App* app)
@@ -311,18 +431,47 @@ void onDraw(App* app)
     [encoder setDepthStencilState:app->depthStencilState];
     [encoder setRenderPipelineState:app->renderPipelineState];
     [encoder setVertexBuffer:app->vertexBuffer offset:0 atIndex:0];
-    [encoder setFragmentTexture:app->texture atIndex:0];
+    [encoder setFragmentTexture:app->atlas.texture atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+
+    // draw text
+    id <MTLBuffer> textBuffer;
+    {
+        // draw a singular character
+        char character = '!';
+        size_t index = app->font.map[character];
+
+        RectCoords positionCoords = getNormalizedCoords(app);
+        RectCoords textureCoords = getTextureCoordsForSprite(app->atlas.texture, &app->atlas.sprites[index]);
+
+        std::vector<VertexData> vertices;
+        // create quad at pixel positions
+        addQuad(app, &vertices, positionCoords, textureCoords);
+
+        // create vertex buffer
+        MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
+        textBuffer = [app->device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
+        [textBuffer retain];
+
+        // draw
+        [encoder setVertexBuffer:textBuffer offset:0 atIndex:0];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
+    }
+
     [encoder endEncoding];
     assert(app->view.currentDrawable);
     [cmd presentDrawable:app->view.currentDrawable];
     [cmd commit];
+
+    [textBuffer release];
 }
 
 void onSizeChanged(App* app, CGSize size)
 {
 
 }
+
+std::string fontCharacterMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZ.,!?/_[]{}'\"()&^#@%*=+-;:<>~`abcdefghijklmnopqrstuvwxyz0123456789";
 
 int main(int argc, char const* argv[])
 {
@@ -334,6 +483,7 @@ int main(int argc, char const* argv[])
         .windowMinSize = NSSize{100.0f, 50.0f},
         .clearColor = MTLClearColorMake(0.5, 0.5, 0.5, 1.0),
         .assetsPath = argv[1],
+        .fontCharacterMap = fontCharacterMap
     };
     App app{
         .config = &config
