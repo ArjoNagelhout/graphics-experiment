@@ -233,7 +233,7 @@ struct App
     // 3D
     Camera camera;
 
-    std::string currentText = "What";
+    std::string currentText;
 };
 
 @implementation TextViewDelegate
@@ -406,9 +406,8 @@ void onLaunch(App* app)
     {
         NSTextView* textView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, app->config->sidepanelWidth, splitView.frame.size.height)];
         [textView setDelegate:app->textViewDelegate];
-        //[textField setUsesSingleLineMode:NO];
         [textView setAutomaticTextCompletionEnabled:NO];
-        //textField set
+        [textView setString:[[NSString alloc] initWithCString:app->currentText.c_str()]];
         [splitView addSubview:textView];
         app->sidepanel = textView;
         [textView retain];
@@ -689,7 +688,7 @@ void onDraw(App* app)
         // 6 vertices for each character in the string
         std::vector<VertexData> vertices;
 
-        drawText(app, app->currentText, &vertices, 0, 0, 30);
+        drawText(app, app->currentText, &vertices, 0, 0, 14);
 
         // create vertex buffer
         MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
@@ -714,12 +713,12 @@ void onSizeChanged(App* app, CGSize size)
 
 }
 
-std::string fontCharacterMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZ.,!?/_[]{}'\"()&^#@%*=+-;:<>~`abcdefghijklmnopqrstuvwxyz0123456789 ";
-
 int main(int argc, char const* argv[])
 {
     assert(argc == 2); // we expect one additional argument: the assets folder
     char const* assetsFolder = argv[1];
+
+    std::string fontCharacterMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZ.,!?/_[]{}'\"()&^#@%*=+-;:<>~`abcdefghijklmnopqrstuvwxyz0123456789 ";
 
     AppConfig config{
         .windowRect = NSMakeRect(0, 0, 1200, 800),
@@ -732,8 +731,17 @@ int main(int argc, char const* argv[])
         .cameraNear = 0.1f,
         .cameraFar = 1000.0f
     };
+
+    // load text
+    std::stringstream buffer;
+    std::filesystem::path path(config.assetsPath / "shaders" / "shader_common.h");
+    assert(std::filesystem::exists(path));
+    std::ifstream file(path);
+    buffer << file.rdbuf();
+
     App app{
         .config = &config,
+        .currentText = buffer.str()
     };
 
     AppDelegate* appDelegate = [[AppDelegate alloc] init];
