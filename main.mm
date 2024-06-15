@@ -1,8 +1,3 @@
-// todo:
-// - [ ] switch between scene navigation and text input
-// - [ ] camera controlssss yayy
-// - [ ] create a grid, custom shader? yes
-
 #include <iostream>
 #include <fstream>
 #include <sstream>
