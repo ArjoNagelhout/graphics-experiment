@@ -438,6 +438,30 @@ RectMinMaxf getNormalizedPositionCoords(App* app, RectMinMaxi rect)
     };
 }
 
+void drawText(App* app, std::string const& text, std::vector<VertexData>* vertices, uint32_t x, uint32_t y, uint32_t characterSize)
+{
+    vertices->reserve(vertices->size() + text.size() * 6);
+
+    uint32_t i = 0;
+    for (char character: text)
+    {
+        size_t index = app->font.map[character];
+        auto position = RectMinMaxi{
+            .minX = x + i * characterSize,
+            .minY = y,
+            .maxX = x + i * characterSize + characterSize,
+            .maxY = y + characterSize
+        };
+        RectMinMaxf positionCoords = getNormalizedPositionCoords(app, position);
+        RectMinMaxf textureCoords = getTextureCoordsForSprite(app->atlas.texture, &app->atlas.sprites[index]);
+
+        // create quad at pixel positions
+        addQuad(app, vertices, positionCoords, textureCoords);
+
+        i++;
+    }
+}
+
 void onDraw(App* app)
 {
     // main render loop
@@ -456,39 +480,19 @@ void onDraw(App* app)
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setDepthStencilState:app->depthStencilState];
     [encoder setRenderPipelineState:app->renderPipelineState];
-    [encoder setVertexBuffer:app->vertexBuffer offset:0 atIndex:0];
+    //[encoder setVertexBuffer:app->vertexBuffer offset:0 atIndex:0];
     [encoder setFragmentTexture:app->atlas.texture atIndex:0];
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+    //[encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
 
     // draw text
-    std::string message = "This is a piece of text?";
     id <MTLBuffer> textBuffer;
     {
         // 6 vertices for each character in the string
-        std::vector<VertexData> vertices(message.size() * 6);
-
-        uint32_t x = 0;
-        uint32_t y = 0;
-        uint32_t characterSize = 32;
-
-        uint32_t i = 0;
-        for (char character: message)
-        {
-            size_t index = app->font.map[character];
-            auto position = RectMinMaxi{
-                .minX = x + i * characterSize,
-                .minY = 0,
-                .maxX = x + i * characterSize + characterSize,
-                .maxY = characterSize
-            };
-            RectMinMaxf positionCoords = getNormalizedPositionCoords(app, position);
-            RectMinMaxf textureCoords = getTextureCoordsForSprite(app->atlas.texture, &app->atlas.sprites[index]);
-
-            // create quad at pixel positions
-            addQuad(app, &vertices, positionCoords, textureCoords);
-
-            i++;
-        }
+        std::vector<VertexData> vertices;
+        drawText(app, "This is a small piece of text", &vertices, 0, 0, 32);
+        drawText(app, "Another message", &vertices, 0, 32, 64);
+        drawText(app, "Amazing", &vertices, 0, 32 + 64, 128);
+        drawText(app, "if (something == true) { std::cout << \"wow\" << std::endl; }", &vertices, 0, 32 + 64 + 128 + 10, 16);
 
         // create vertex buffer
         MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
