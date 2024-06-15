@@ -15,6 +15,7 @@
 #import "Cocoa/Cocoa.h"
 #import "MetalKit/MTKView.h"
 #import "Metal/MTLDevice.h"
+#import "Metal/MTLDrawable.h"
 #import "simd/simd.h"
 
 struct App;
@@ -109,6 +110,26 @@ void onLaunch(App* app)
     app->device = device;
     [device retain];
 
+    // create window
+    NSWindow* window = [[NSWindow alloc]
+        initWithContentRect:app->config->windowRect
+        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+        backing:NSBackingStoreBuffered
+        defer:NO];
+    [window setTitle:@"bored_c"];
+    [window setBackgroundColor:[NSColor blackColor]];
+    app->window = window;
+    [window retain];
+
+    // create metal kit view and add to window
+    MTKView* view = [[MTKView alloc] initWithFrame:window.frame device:device];
+    view.delegate = viewDelegate;
+    view.clearColor = app->config->clearColor;
+    [window setContentView:view];
+    [window makeFirstResponder:view];
+    app->view = view;
+    [view retain];
+
     // create command queue
     {
         id <MTLCommandQueue> commandQueue = [device newCommandQueue];
@@ -120,7 +141,7 @@ void onLaunch(App* app)
     {
         MTLDepthStencilDescriptor* descriptor = [[MTLDepthStencilDescriptor alloc] init];
         descriptor.depthWriteEnabled = YES;
-        descriptor.depthCompareFunction = MTLCompareFunctionGreater;
+        descriptor.depthCompareFunction = MTLCompareFunctionAlways;
         id <MTLDepthStencilState> depthStencilState = [device newDepthStencilStateWithDescriptor:descriptor];
         app->depthStencilState = depthStencilState;
         [depthStencilState retain];
@@ -157,6 +178,9 @@ void onLaunch(App* app)
         MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
         descriptor.vertexFunction = vertexFunction;
         descriptor.fragmentFunction = fragmentFunction;
+        id <CAMetalDrawable> drawable = [app->view currentDrawable];
+        descriptor.colorAttachments[0].pixelFormat = drawable.texture.pixelFormat;
+
         NSError* error = nullptr;
         id <MTLRenderPipelineState> renderPipelineState = [device newRenderPipelineStateWithDescriptor:descriptor error:&error];
         if (error)
@@ -165,6 +189,9 @@ void onLaunch(App* app)
         }
         app->renderPipelineState = renderPipelineState;
         [renderPipelineState retain];
+
+        [vertexFunction release];
+        [fragmentFunction release];
     }
 
     // create vertex buffer
@@ -175,31 +202,11 @@ void onLaunch(App* app)
             {.position = {0.0f, 0.5f, 0.0f, 1.0f}, .color = {1.0f, 1.0f, 0.0f, 1.0f}}
         };
 
-        MTLResourceOptions options = MTLResourceStorageModeShared;
+        MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
         id <MTLBuffer> buffer = [device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
         app->vertexBuffer = buffer;
         [buffer retain];
     }
-
-    // create window
-    NSWindow* window = [[NSWindow alloc]
-        initWithContentRect:app->config->windowRect
-        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
-        backing:NSBackingStoreBuffered
-        defer:NO];
-    [window setTitle:@"bored_c"];
-    [window setBackgroundColor:[NSColor blackColor]];
-    app->window = window;
-    [window retain];
-
-    // create metal kit view and add to window
-    MTKView* view = [[MTKView alloc] initWithFrame:window.frame device:device];
-    view.delegate = viewDelegate;
-    view.clearColor = app->config->clearColor;
-    [window setContentView:view];
-    [window makeFirstResponder:view];
-    app->view = view;
-    [view retain];
 
     // make window active
     [window makeKeyAndOrderFront:NSApp];
@@ -221,9 +228,14 @@ void onDraw(App* app)
 {
     // main render loop
     MTLRenderPassDescriptor* renderPass = [app->view currentRenderPassDescriptor];
+    assert(renderPass);
+    renderPass.colorAttachments[0].loadAction = MTLLoadActionClear;
+    renderPass.colorAttachments[0].storeAction = MTLStoreActionStore;
 
     id <MTLCommandBuffer> cmd = [app->commandQueue commandBuffer];
+    assert(cmd);
     id <MTLRenderCommandEncoder> encoder = [cmd renderCommandEncoderWithDescriptor:renderPass];
+    assert(encoder);
 
     [encoder setFrontFacingWinding:MTLWindingClockwise];
     [encoder setCullMode:MTLCullModeNone];
@@ -231,8 +243,9 @@ void onDraw(App* app)
     [encoder setDepthStencilState:app->depthStencilState];
     [encoder setRenderPipelineState:app->renderPipelineState];
     [encoder setVertexBuffer:app->vertexBuffer offset:0 atIndex:0];
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:9];
     [encoder endEncoding];
+    assert(app->view.currentDrawable);
     [cmd presentDrawable:app->view.currentDrawable];
     [cmd commit];
 }
