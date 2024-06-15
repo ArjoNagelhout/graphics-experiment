@@ -79,6 +79,7 @@ void onSizeChanged(App*, CGSize size);
 struct AppConfig
 {
     NSRect windowRect;
+    NSSize windowMinSize;
     MTLClearColor clearColor;
     std::filesystem::path assetsPath;
 };
@@ -125,9 +126,10 @@ void onLaunch(App* app)
     // create window
     NSWindow* window = [[NSWindow alloc]
         initWithContentRect:app->config->windowRect
-        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
         backing:NSBackingStoreBuffered
         defer:NO];
+    [window setMinSize:app->config->windowMinSize];
     [window setTitle:@"bored_c"];
     [window setBackgroundColor:[NSColor blackColor]];
     [window center];
@@ -214,7 +216,10 @@ void onLaunch(App* app)
         std::vector<VertexData> vertices{
             {.position = {-1.0f, 1.0f, 0.0f, 1.0f}, .uv0 = {0.0f, 0.0f}},
             {.position = {1.0f, 1.0f, 0.0f, 1.0f}, .uv0 = {1.0f, 0.0f}},
-            {.position = {1.0f, -1.0f, 0.0f, 1.0f}, .uv0 = {1.0f, 1.0f}}
+            {.position = {1.0f, -1.0f, 0.0f, 1.0f}, .uv0 = {1.0f, 1.0f}},
+            {.position = {-1.0f, 1.0f, 0.0f, 1.0f}, .uv0 = {0.0f, 0.0f}},
+            {.position = {1.0f, -1.0f, 0.0f, 1.0f}, .uv0 = {1.0f, 1.0f}},
+            {.position = {-1.0f, -1.0f, 0.0f, 1.0f}, .uv0 = {0.0f, 1.0f}}
         };
 
         MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
@@ -255,7 +260,7 @@ void onLaunch(App* app)
         descriptor.usage = MTLTextureUsageShaderRead;
         id <MTLTexture> texture = [device newTextureWithDescriptor:descriptor];
 
-        size_t strideInBytes = 4;
+        size_t strideInBytes = 4; // for each component 1 byte = 8 bits
 
         //texture replaceRegion:
         MTLRegion region = MTLRegionMake2D(0, 0, width, height);
@@ -301,13 +306,13 @@ void onDraw(App* app)
     assert(encoder);
 
     [encoder setFrontFacingWinding:MTLWindingClockwise];
-    [encoder setCullMode:MTLCullModeNone];
+    [encoder setCullMode:MTLCullModeBack];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setDepthStencilState:app->depthStencilState];
     [encoder setRenderPipelineState:app->renderPipelineState];
     [encoder setVertexBuffer:app->vertexBuffer offset:0 atIndex:0];
     [encoder setFragmentTexture:app->texture atIndex:0];
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
     [encoder endEncoding];
     assert(app->view.currentDrawable);
     [cmd presentDrawable:app->view.currentDrawable];
@@ -326,8 +331,9 @@ int main(int argc, char const* argv[])
 
     AppConfig config{
         .windowRect = NSMakeRect(0, 0, 800, 600),
+        .windowMinSize = NSSize{100.0f, 50.0f},
         .clearColor = MTLClearColorMake(0.5, 0.5, 0.5, 1.0),
-        .assetsPath = argv[1]
+        .assetsPath = argv[1],
     };
     App app{
         .config = &config
