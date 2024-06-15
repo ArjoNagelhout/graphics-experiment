@@ -1,3 +1,4 @@
+#include <metal_stdlib>
 using namespace metal;
 
 // Vertex shader outputs and fragment shader inputs
@@ -22,5 +23,5 @@ struct CameraData
 
 struct InstanceData
 {
-
+    float4x4 localToWorld;
 };

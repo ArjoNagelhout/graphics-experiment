@@ -1,9 +1,4 @@
-#include <metal_stdlib>
-
-using namespace metal;
-
-vertex RasterizerData
-ui_vertex(
+vertex RasterizerData ui_vertex(
     uint vertexID [[vertex_id]],
     device VertexData const* vertices [[buffer(0)]],
     device CameraData const& camera [[buffer(1)]],

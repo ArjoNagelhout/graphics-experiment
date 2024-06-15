@@ -40,6 +40,9 @@
 #include "lodepng.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_FORCE_LEFT_HANDED
+#define GLM_FORCE_PRECISION_LOWP_FLOAT
 
 #include "glm/glm.hpp"
 #include "glm/detail/type_quat.hpp"
@@ -112,6 +115,16 @@ struct VertexData
     simd_float4 position;
     simd_float4 color;
     simd_float2 uv0;
+};
+
+struct CameraData
+{
+    glm::mat4 viewProjection;
+};
+
+struct InstanceData
+{
+    glm::mat4 localToWorld;
 };
 
 // sprite sheet
@@ -269,8 +282,8 @@ void createAxes(App* app)
         0, 1, 2, 1, 3, 2
     };
 
-    float w = 0.25f; // width
-    float l = 10.0f; // length
+    float w = 0.05f; // width
+    float l = 0.75f; // length
 
     simd_float4 red = {1, 0, 0, 1};
     simd_float4 green = {0, 1, 0, 1};
@@ -480,7 +493,8 @@ void onLaunch(App* app)
 
 void onTerminate(App* app)
 {
-
+    [app->axesVertexBuffer release];
+    [app->axesIndexBuffer release];
     [app->threeDRenderPipelineState release];
     [app->uiRenderPipelineState release];
     [app->depthStencilState release];
@@ -568,6 +582,11 @@ void onDraw(App* app)
     // update camera position
     {
         Camera& camera = app->camera;
+
+        camera.position = glm::vec3{0, 0, -1.0f};
+        camera.rotation = glm::quat{1.0f, 0, 0, 0};
+        camera.scale = glm::vec3{1, 1, 1};
+
         CGSize size = app->view.frame.size;
         glm::mat4 projection = glm::perspective(glm::radians(app->config->cameraFov),
                                                 (float)(size.width / size.height),
@@ -580,15 +599,22 @@ void onDraw(App* app)
         glm::mat4 cameraTransform = translation * rotation * scale;
         glm::mat4 view = glm::inverse(cameraTransform);
 
-        glm::mat4 viewProjection = view * projection;
+        CameraData cameraData{
+            .viewProjection = glm::transpose(projection * view)
+        };
 
-        [encoder setVertexBytes:&viewProjection length:sizeof(glm::mat4) atIndex:1];
+        [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:1];
     }
 
     [encoder setRenderPipelineState:app->threeDRenderPipelineState];
 
     // draw axes
     {
+        glm::vec3 position = glm::vec3(0.0f, 0.0f, -10.0f);
+        InstanceData instance{
+            .localToWorld = glm::transpose(glm::translate(glm::mat4(1), position))
+        };
+        [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
         [encoder setVertexBuffer:app->axesVertexBuffer offset:0 atIndex:0];
         [encoder
             drawIndexedPrimitives:MTLPrimitiveTypeTriangle
@@ -662,7 +688,7 @@ int main(int argc, char const* argv[])
         .cameraFar = 1000.0f
     };
     App app{
-        .config = &config
+        .config = &config,
     };
 
     AppDelegate* appDelegate = [[AppDelegate alloc] init];

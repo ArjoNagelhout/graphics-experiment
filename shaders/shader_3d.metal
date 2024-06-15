@@ -1,9 +1,4 @@
-#include <metal_stdlib>
-
-using namespace metal;
-
-vertex RasterizerData
-main_vertex(
+vertex RasterizerData main_vertex(
     uint vertexID [[vertex_id]],
     device VertexData const* vertices [[buffer(0)]],
     device CameraData const& camera [[buffer(1)]],
@@ -11,8 +6,13 @@ main_vertex(
 {
     RasterizerData out;
     device VertexData const& data = vertices[vertexID];
-    out.position = data.position;
-    out.color = data.color;
+
+    //float4x4 localToWorld = instance.localToWorld;
+    //out.position = camera.viewProjection * data.position;
+    //out.position = data.position;
+    //out.position = instance.localToWorld * data.position;
+
+    //out.color = data.color;
     out.uv0 = data.uv0;
     return out;
 }
@@ -23,6 +23,6 @@ fragment half4 main_fragment(
 {
     constexpr sampler s(address::repeat, filter::nearest);
 
-    return half4(1.0f, 0.0f, 1.0f, 1.0f);
+    return half4(in.color);
     return tex.sample(s, in.uv0);
 }
