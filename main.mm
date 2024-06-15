@@ -121,7 +121,7 @@ struct Font
 };
 
 // a rect defined by min and max coordinates
-struct RectCoords
+struct RectMinMaxf
 {
     float minX;
     float minY;
@@ -129,15 +129,40 @@ struct RectCoords
     float maxY;
 };
 
+struct RectMinMaxi
+{
+    uint32_t minX;
+    uint32_t minY;
+    uint32_t maxX;
+    uint32_t maxY;
+};
+
+// a rect defined by x and y, and width and height
+struct RectSizef
+{
+    float x;
+    float y;
+    float width;
+    float height;
+};
+
+struct RectSizei
+{
+    uint32_t x;
+    uint32_t y;
+    uint32_t width;
+    uint32_t height;
+};
+
 // texture coordinates: (top left = 0, 0) (bottom right = 1, 1)
-RectCoords getTextureCoordsForSprite(id <MTLTexture> texture, Sprite* sprite)
+RectMinMaxf getTextureCoordsForSprite(id <MTLTexture> texture, Sprite* sprite)
 {
     float minX = (float)sprite->x / (float)texture.width;
     float minY = (float)sprite->y / (float)texture.height;
     float width = (float)sprite->width / (float)texture.width;
     float height = (float)sprite->height / (float)texture.height;
 
-    return RectCoords{
+    return RectMinMaxf{
         .minX = minX,
         .minY = minY,
         .maxX = minX + width,
@@ -386,7 +411,7 @@ void onTerminate(App* app)
     [app->viewDelegate release];
 }
 
-void addQuad(App* app, std::vector<VertexData>* vertices, RectCoords position, RectCoords uv)
+void addQuad(App* app, std::vector<VertexData>* vertices, RectMinMaxf position, RectMinMaxf uv)
 {
     VertexData topLeft{.position = {position.minX, position.minY, 0.0f, 1.0f}, .uv0 = {uv.minX, uv.minY}};
     VertexData topRight{.position = {position.maxX, position.minY, 0.0f, 1.0f}, .uv0 = {uv.maxX, uv.minY}};
@@ -402,13 +427,14 @@ void addQuad(App* app, std::vector<VertexData>* vertices, RectCoords position, R
 
 // NDC: (top left = -1, 1), (bottom right = 1, -1)
 // z: from 0 (near) to 1 (far)
-RectCoords getNormalizedCoords(App* app)
+RectMinMaxf getNormalizedPositionCoords(App* app, RectMinMaxi rect)
 {
-    return RectCoords{
-        .minX = -1.0f,
-        .minY = 1.0f,
-        .maxX = 0.0f,
-        .maxY = 0.0f
+    CGSize viewSize = app->view.frame.size;
+    return RectMinMaxf{
+        .minX = -1.0f + (float)rect.minX / (float)viewSize.width * 2.0f,
+        .minY = 1.0f - (float)rect.minY / (float)viewSize.height * 2.0f,
+        .maxX = -1.0f + (float)rect.maxX / (float)viewSize.width * 2.0f,
+        .maxY = 1.0f - (float)rect.maxY / (float)viewSize.height * 2.0f
     };
 }
 
@@ -435,18 +461,34 @@ void onDraw(App* app)
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
 
     // draw text
+    std::string message = "This is a piece of text?";
     id <MTLBuffer> textBuffer;
     {
-        // draw a singular character
-        char character = '!';
-        size_t index = app->font.map[character];
+        // 6 vertices for each character in the string
+        std::vector<VertexData> vertices(message.size() * 6);
 
-        RectCoords positionCoords = getNormalizedCoords(app);
-        RectCoords textureCoords = getTextureCoordsForSprite(app->atlas.texture, &app->atlas.sprites[index]);
+        uint32_t x = 0;
+        uint32_t y = 0;
+        uint32_t characterSize = 32;
 
-        std::vector<VertexData> vertices;
-        // create quad at pixel positions
-        addQuad(app, &vertices, positionCoords, textureCoords);
+        uint32_t i = 0;
+        for (char character: message)
+        {
+            size_t index = app->font.map[character];
+            auto position = RectMinMaxi{
+                .minX = x + i * characterSize,
+                .minY = 0,
+                .maxX = x + i * characterSize + characterSize,
+                .maxY = characterSize
+            };
+            RectMinMaxf positionCoords = getNormalizedPositionCoords(app, position);
+            RectMinMaxf textureCoords = getTextureCoordsForSprite(app->atlas.texture, &app->atlas.sprites[index]);
+
+            // create quad at pixel positions
+            addQuad(app, &vertices, positionCoords, textureCoords);
+
+            i++;
+        }
 
         // create vertex buffer
         MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
@@ -471,7 +513,7 @@ void onSizeChanged(App* app, CGSize size)
 
 }
 
-std::string fontCharacterMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZ.,!?/_[]{}'\"()&^#@%*=+-;:<>~`abcdefghijklmnopqrstuvwxyz0123456789";
+std::string fontCharacterMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZ.,!?/_[]{}'\"()&^#@%*=+-;:<>~`abcdefghijklmnopqrstuvwxyz0123456789 ";
 
 int main(int argc, char const* argv[])
 {
