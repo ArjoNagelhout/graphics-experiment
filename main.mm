@@ -1,0 +1,240 @@
+#include <iostream>
+
+// what to build:
+// a simple game
+
+// how to render to the screen:
+// Metal?
+
+// we use MTKView
+
+#include <fstream>
+#include <sstream>
+
+#import "Cocoa/Cocoa.h"
+#import "MetalKit/MTKView.h"
+#import "Metal/MTLDevice.h"
+
+struct App;
+
+void onLaunch(App*);
+
+void onTerminate(App*);
+
+void onDraw(App*);
+
+void onSizeChanged(App*, CGSize size);
+
+// implements NSApplicationDelegate protocol
+// @interface means defining a subclass
+@interface AppDelegate : NSObject <NSApplicationDelegate>
+@property(unsafe_unretained, nonatomic) App* app;
+@end
+
+@implementation AppDelegate
+- (void)applicationDidFinishLaunching:(NSNotification*)notification {
+    auto* app = (NSApplication*)notification.object;
+    [app setActivationPolicy:NSApplicationActivationPolicyRegular];
+    [app activateIgnoringOtherApps:YES];
+
+    onLaunch(_app);
+}
+
+- (void)applicationWillTerminate:(NSNotification*)notification {
+    onTerminate(_app);
+}
+
+- (bool)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender {
+    return YES;
+}
+@end
+
+@interface MetalViewDelegate : NSObject <MTKViewDelegate>
+@property(unsafe_unretained, nonatomic) App* app;
+@end
+
+@implementation MetalViewDelegate
+- (void)drawInMTKView:(MTKView*)view {
+    onDraw(_app);
+}
+
+- (void)mtkView:(nonnull MTKView*)view drawableSizeWillChange:(CGSize)size {
+    onSizeChanged(_app, size);
+}
+
+@end
+
+struct AppConfig
+{
+    NSRect windowRect;
+    MTLClearColor clearColor;
+};
+
+struct App
+{
+    AppConfig* config;
+
+    // window and view
+    NSWindow* window;
+    MTKView* view;
+    MetalViewDelegate* viewDelegate;
+
+    // metal objects
+    id <MTLDevice> device;
+    id <MTLLibrary> library; // shader library
+    id <MTLCommandQueue> commandQueue;
+    id <MTLDepthStencilState> depthStencilState;
+    id <MTLRenderPipelineState> renderPipelineState;
+};
+
+void onLaunch(App* app)
+{
+    // create metal kit view delegate
+    MetalViewDelegate* viewDelegate = [[MetalViewDelegate alloc] init];
+    viewDelegate.app = app;
+    app->viewDelegate = viewDelegate;
+    [viewDelegate retain];
+
+    // create MTLDevice
+    id <MTLDevice> device = MTLCreateSystemDefaultDevice();
+    app->device = device;
+    [device retain];
+
+    // create command queue
+    {
+        id <MTLCommandQueue> commandQueue = [device newCommandQueue];
+        app->commandQueue = commandQueue;
+        [commandQueue retain];
+    }
+
+    // create depth stencil state
+    {
+        MTLDepthStencilDescriptor* descriptor = [[MTLDepthStencilDescriptor alloc] init];
+        descriptor.depthWriteEnabled = YES;
+        descriptor.depthCompareFunction = MTLCompareFunctionGreater;
+        id <MTLDepthStencilState> depthStencilState = [device newDepthStencilStateWithDescriptor:descriptor];
+        app->depthStencilState = depthStencilState;
+        [depthStencilState retain];
+    }
+
+    // create shader library
+    {
+        // get shader file
+        std::ifstream file("/Users/arjonagelhout/Documents/Experiments/metal-experiment/shader.metal");
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        std::string s = buffer.str();
+        NSString* shaderSource = [NSString stringWithCString:s.c_str()];
+
+        NSError* error = nullptr;
+        MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
+        id <MTLLibrary> library = [device newLibraryWithSource:shaderSource options:options error:&error];
+        if (error)
+        {
+            std::cout << error.debugDescription.cString << std::endl;
+        }
+        app->library = library;
+        [library retain];
+    }
+
+    // create render pipeline state
+    {
+        // use function specialization to create shader variants
+        id <MTLFunction> vertexFunction = [app->library newFunctionWithName:@"main_vertex"];
+        assert(vertexFunction != nullptr);
+        id <MTLFunction> fragmentFunction = [app->library newFunctionWithName:@"main_fragment"];
+        assert(fragmentFunction != nullptr);
+
+        MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+        descriptor.vertexFunction = vertexFunction;
+        descriptor.fragmentFunction = fragmentFunction;
+        NSError* error = nullptr;
+        id <MTLRenderPipelineState> renderPipelineState = [device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+        if (error)
+        {
+            std::cout << error.debugDescription.cString << std::endl;
+        }
+        app->renderPipelineState = renderPipelineState;
+        [renderPipelineState retain];
+    }
+
+    // create window
+    NSWindow* window = [[NSWindow alloc]
+        initWithContentRect:app->config->windowRect
+        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+        backing:NSBackingStoreBuffered
+        defer:NO];
+    [window setTitle:@"bored_c"];
+    [window setBackgroundColor:[NSColor blackColor]];
+    app->window = window;
+    [window retain];
+
+    // create metal kit view and add to window
+    MTKView* view = [[MTKView alloc] initWithFrame:window.frame device:device];
+    view.delegate = viewDelegate;
+    view.clearColor = app->config->clearColor;
+    [window setContentView:view];
+    [window makeFirstResponder:view];
+    app->view = view;
+    [view retain];
+
+    // make window active
+    [window makeKeyAndOrderFront:NSApp];
+}
+
+void onTerminate(App* app)
+{
+    [app->renderPipelineState release];
+    [app->depthStencilState release];
+    [app->view release];
+    [app->window release];
+    [app->commandQueue release];
+    [app->device release];
+    [app->viewDelegate release];
+}
+
+void onDraw(App* app)
+{
+    // main render loop
+    MTLRenderPassDescriptor* renderPass = [app->view currentRenderPassDescriptor];
+
+    id <MTLCommandBuffer> cmd = [app->commandQueue commandBuffer];
+    id <MTLRenderCommandEncoder> encoder = [cmd renderCommandEncoderWithDescriptor:renderPass];
+
+    [encoder setFrontFacingWinding:MTLWindingClockwise];
+    [encoder setCullMode:MTLCullModeBack];
+    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+    [encoder setDepthStencilState:app->depthStencilState];
+
+    [encoder setRenderPipelineState:app->renderPipelineState];
+
+    [encoder endEncoding];
+    [cmd presentDrawable:app->view.currentDrawable];
+    [cmd commit];
+}
+
+void onSizeChanged(App* app, CGSize size)
+{
+
+}
+
+int main()
+{
+    AppConfig config{
+        .windowRect = NSMakeRect(0, 0, 800, 600),
+        .clearColor = MTLClearColorMake(0.5, 0.5, 0.5, 1.0)
+    };
+    App app{
+        .config = &config
+    };
+
+    AppDelegate* appDelegate = [[AppDelegate alloc] init];
+    appDelegate.app = &app;
+    [appDelegate retain];
+    NSApplication* nsApp = [NSApplication sharedApplication];
+    [nsApp setDelegate:appDelegate];
+    [nsApp run];
+    [nsApp release];
+    [appDelegate release];
+    return 0;
+}
