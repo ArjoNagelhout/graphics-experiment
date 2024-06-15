@@ -1,31 +1,4 @@
 #include <iostream>
-
-// what to build:
-// a simple game
-
-// how to render to the screen:
-// Metal?
-
-// we use MTKView
-
-// we want to render text
-// spritesheet?
-// vector text rendering
-// SDF
-// let's use simplest method: spritesheet
-
-// how do we draw a piece of text?:
-// 1. create vertex buffer with correct size (two triangles per letter)
-// 2.
-
-// UI has a pixel resolution that needs to be converted to NDC
-// meshes in the 3D scene should be converted using perspective projection
-
-// now let's create a simple 3D scene
-// for that we need:
-// - perspective projection, camera data, new shader
-// - import 3D mesh (obj?)
-
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -42,13 +15,13 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_LEFT_HANDED
-//#define GLM_FORCE_PRECISION_LOWP_FLOAT
-//#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
 
 #include "glm/glm.hpp"
 #include "glm/detail/type_quat.hpp"
 #include "glm/gtx/transform.hpp"
 #include "glm/gtx/quaternion.hpp"
+
+// simplest engine I could think of
 
 struct App;
 
@@ -283,7 +256,7 @@ void createAxes(App* app)
         0, 1, 2, 1, 3, 2
     };
 
-    float w = 0.05f; // width
+    float w = 0.01f; // width
     float l = 0.75f; // length
 
     simd_float4 red = {1, 0, 0, 1};
