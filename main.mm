@@ -726,14 +726,13 @@ void onDraw(App* app)
         [encoder setRenderPipelineState:app->threeDRenderPipelineState];
         std::vector<InstanceData> instances{
             {.localToWorld = glm::mat4(1)},
-            {.localToWorld = glm::translate(glm::vec3(0.1, 0, 0))},
+            {.localToWorld = glm::translate(glm::vec3(0.1, -0.1, 0))},
             {.localToWorld = glm::translate(glm::vec3(0.3, 0.1, 0))},
             {.localToWorld = glm::translate(glm::vec3(0.5, 0, 0.3))},
             {.localToWorld = glm::translate(glm::vec3(0.1, 0.3, 0))},
             {.localToWorld = glm::translate(glm::vec3(0.1, 0.5, 0))},
             {.localToWorld = glm::translate(glm::vec3(0.1, 0.7, 0))},
-            {.localToWorld = glm::translate(glm::vec3(0.1, 0.8, 0))},
-            {.localToWorld = glm::translate(glm::vec3(0.1, 0, 0))}
+            {.localToWorld = glm::translate(glm::vec3(0.1, 0.8, 0))}
         };
         [encoder setVertexBytes:instances.data() length:instances.size() * sizeof(InstanceData) atIndex:2];
         [encoder setVertexBuffer:app->terrain.vertexBuffer offset:0 atIndex:0];
