@@ -370,15 +370,12 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
             float x = extents.minX + (float)xIndex * xStep;
             float z = extents.minY + (float)zIndex * zStep;
             vertices[zIndex * xCount + xIndex] = VertexData{
-                .position{x, z, 0, 1}, .color{0, 1, 0, 1}
+                .position{x, 0, z, 1}, .color{0, 1, 0, 1}
             };
         }
     }
 
-    // how do we connect the vertices? what's the pattern?
-    // it's a triangle strip, so not separate vertices
-    // clockwise, so in the case of 4 * 3 it's
-    // 0, 5, 6
+    // triangle strip
 
     std::vector<uint32_t> indices{};
     for (uint32_t zIndex = 0; zIndex < zCount - 1; zIndex++)
@@ -392,7 +389,7 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
         // reset primitive
         indices.emplace_back(0xFFFFFFFF);
     }
-    
+
     return createMesh(app, &vertices, &indices);
 }
 
@@ -584,7 +581,7 @@ void onLaunch(App* app)
     app->axes = createAxes(app);
 
     // create terrain
-    app->terrain = createTerrain(app, RectMinMaxf{0, 0, 1, 1}, 4, 3);
+    app->terrain = createTerrain(app, RectMinMaxf{-2, -2, 2, 2}, 100, 100);
 
     // make window active
     [window makeKeyAndOrderFront:NSApp];
@@ -681,7 +678,7 @@ void onDraw(App* app)
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setDepthStencilState:app->depthStencilState];
 
-    app->time += 0.0025f;
+    app->time += 0.025f;
     if (app->time > 2*pi)
     {
         app->time -= 2*pi;
@@ -691,8 +688,8 @@ void onDraw(App* app)
     {
         Camera& camera = app->camera;
 
-        float currentX = 0.25f * sin(app->time);
-        float currentY = 0.05f * cos(app->time);
+        float currentX = 0.05f * sin(app->time);
+        float currentY = 0.4f + 0.05f * cos(app->time);
 
         camera.position = glm::vec3{currentX, currentY, -1.0f};
         camera.rotation = glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
@@ -720,36 +717,36 @@ void onDraw(App* app)
     [encoder setRenderPipelineState:app->threeDRenderPipelineState];
 
     // draw axes
-//    {
-//        [encoder setCullMode:MTLCullModeNone];
-//        float angle = app->time;
-//
-//        glm::vec3 t = glm::vec3(0, 0, 0);
-//        glm::quat r = glm::angleAxis(angle, glm::vec3(0, 1, 0));
-//        glm::vec3 s = glm::vec3(1, 1, 1);
-//
-//        glm::mat4 translation = glm::translate(glm::mat4(1), t);
-//        glm::mat4 rotation = glm::toMat4(r);
-//        glm::mat4 scale = glm::scale(s);
-//
-//        glm::mat4 transform = translation * rotation * scale;
-//
-//        InstanceData instance{
-//            .localToWorld = transform
-//        };
-//        [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
-//        [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
-//        [encoder
-//            drawIndexedPrimitives:MTLPrimitiveTypeTriangle
-//            indexCount:app->axes.indexCount
-//            indexType:app->axes.indexType
-//            indexBuffer:app->axes.indexBuffer
-//            indexBufferOffset:0
-//            instanceCount:1
-//            baseVertex:0
-//            baseInstance:0
-//        ];
-//    }
+    {
+        [encoder setCullMode:MTLCullModeNone];
+        float angle = app->time;
+
+        glm::vec3 t = glm::vec3(0, 0, 0);
+        glm::quat r = glm::angleAxis(angle, glm::vec3(0, 1, 0));
+        glm::vec3 s = glm::vec3(1, 1, 1);
+
+        glm::mat4 translation = glm::translate(glm::mat4(1), t);
+        glm::mat4 rotation = glm::toMat4(r);
+        glm::mat4 scale = glm::scale(s);
+
+        glm::mat4 transform = translation * rotation * scale;
+
+        InstanceData instance{
+            .localToWorld = transform
+        };
+        [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
+        [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
+        [encoder
+            drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+            indexCount:app->axes.indexCount
+            indexType:app->axes.indexType
+            indexBuffer:app->axes.indexBuffer
+            indexBufferOffset:0
+            instanceCount:1
+            baseVertex:0
+            baseInstance:0
+        ];
+    }
 
     // draw terrain
     {
@@ -757,7 +754,7 @@ void onDraw(App* app)
         [encoder setTriangleFillMode:MTLTriangleFillModeLines];
         [encoder setRenderPipelineState:app->threeDRenderPipelineState];
         std::vector<InstanceData> instances{
-            {.localToWorld = glm::scale(glm::vec3(0.5))},
+            {.localToWorld = glm::scale(glm::vec3(1))},
 //            {.localToWorld = glm::translate(glm::vec3(0.1, -0.1, 0))},
 //            {.localToWorld = glm::translate(glm::vec3(0.3, 0.1, 0))},
 //            {.localToWorld = glm::translate(glm::vec3(0.5, 0, 0.3))},
