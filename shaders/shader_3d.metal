@@ -1,11 +1,13 @@
 vertex RasterizerData main_vertex(
     uint vertexID [[vertex_id]],
+    uint instanceID [[instance_id]],
     device VertexData const* vertices [[buffer(0)]],
     device CameraData const& camera [[buffer(1)]],
-    device InstanceData const& instance [[buffer(2)]])
+    device InstanceData const* instances [[buffer(2)]])
 {
     RasterizerData out;
     device VertexData const& data = vertices[vertexID];
+    device InstanceData const& instance = instances[instanceID];
 
     out.position = camera.viewProjection * instance.localToWorld * data.position;
 

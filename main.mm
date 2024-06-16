@@ -233,6 +233,9 @@ struct App
     // 3D
     Camera camera;
 
+    // terrain
+    Mesh terrain;
+
     // silly timer
     float time = 0.0f;
 
@@ -347,6 +350,19 @@ void createAxes(App* app)
     }
 
     app->axes = createMesh(app, &vertices, &indices);
+}
+
+void createTerrain(App* app)
+{
+    std::vector<VertexData> vertices{
+        {.position = {-0.25, 0.1, 0.2, 1}, .color = {1, 0, 0, 1}},
+        {.position = {0.25, 0.1, 0.2, 1}, .color = {0, 1, 0, 1}},
+        {.position = {0, 0.5, 0.2, 1}, .color = {0, 0, 1, 0}}
+    };
+    std::vector<uint32_t> indices{
+        0, 1, 2
+    };
+    app->terrain = createMesh(app, &vertices, &indices);
 }
 
 void onLaunch(App* app)
@@ -536,12 +552,16 @@ void onLaunch(App* app)
     // create axes
     createAxes(app);
 
+    // create terrain
+    createTerrain(app);
+
     // make window active
     [window makeKeyAndOrderFront:NSApp];
 }
 
 void onTerminate(App* app)
 {
+    destroyMesh(&app->terrain);
     destroyMesh(&app->axes);
     [app->threeDRenderPipelineState release];
     [app->uiRenderPipelineState release];
@@ -630,7 +650,7 @@ void onDraw(App* app)
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setDepthStencilState:app->depthStencilState];
 
-    app->time += 0.05f;
+    app->time += 0.025f;
     if (app->time > 2*pi)
     {
         app->time -= 2*pi;
@@ -695,6 +715,35 @@ void onDraw(App* app)
             indexBuffer:app->axes.indexBuffer
             indexBufferOffset:0
             instanceCount:1
+            baseVertex:0
+            baseInstance:0
+        ];
+    }
+
+    // draw terrain
+    {
+        [encoder setCullMode:MTLCullModeNone];
+        [encoder setRenderPipelineState:app->threeDRenderPipelineState];
+        std::vector<InstanceData> instances{
+            {.localToWorld = glm::mat4(1)},
+            {.localToWorld = glm::translate(glm::vec3(0.1, 0, 0))},
+            {.localToWorld = glm::translate(glm::vec3(0.3, 0.1, 0))},
+            {.localToWorld = glm::translate(glm::vec3(0.5, 0, 0.3))},
+            {.localToWorld = glm::translate(glm::vec3(0.1, 0.3, 0))},
+            {.localToWorld = glm::translate(glm::vec3(0.1, 0.5, 0))},
+            {.localToWorld = glm::translate(glm::vec3(0.1, 0.7, 0))},
+            {.localToWorld = glm::translate(glm::vec3(0.1, 0.8, 0))},
+            {.localToWorld = glm::translate(glm::vec3(0.1, 0, 0))}
+        };
+        [encoder setVertexBytes:instances.data() length:instances.size() * sizeof(InstanceData) atIndex:2];
+        [encoder setVertexBuffer:app->terrain.vertexBuffer offset:0 atIndex:0];
+        [encoder
+            drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+            indexCount:app->terrain.indexCount
+            indexType:app->terrain.indexType
+            indexBuffer:app->terrain.indexBuffer
+            indexBufferOffset:0
+            instanceCount:instances.size()
             baseVertex:0
             baseInstance:0
         ];
