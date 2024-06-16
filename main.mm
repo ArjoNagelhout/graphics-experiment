@@ -389,16 +389,10 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
             indices.emplace_back(offset + xIndex);
             indices.emplace_back(offset + xIndex + xCount);
         }
+        // reset primitive
+        indices.emplace_back(0xFFFFFFFF);
     }
-
-    std::vector<uint32_t> indices2{
-        0, 5, 1, 6, 2, 7, 3, 8, 4, 9, 5, 10, 6, 11, 7, 12, 8, 13, 9, 14, 10, 15, 11, 16, 12, 17, 13, 18, 14, 19
-    };
-    assert(indices.size() == indices2.size());
-    for (size_t i = 0; i < indices.size(); i++)
-    {
-        assert(indices[i] == indices2[i]);
-    }
+    
     return createMesh(app, &vertices, &indices);
 }
 
