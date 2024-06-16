@@ -304,7 +304,7 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
     return renderPipelineState;
 }
 
-void createAxes(App* app)
+[[nodiscard]] Mesh createAxes(App* app)
 {
     std::vector<VertexData> vertices;
     std::vector<uint32_t> indices;
@@ -349,20 +349,57 @@ void createAxes(App* app)
         }
     }
 
-    app->axes = createMesh(app, &vertices, &indices);
+    return createMesh(app, &vertices, &indices);
 }
 
-void createTerrain(App* app)
+[[nodiscard]] Mesh createTerrain(App* app, RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdivisions)
 {
-    std::vector<VertexData> vertices{
-        {.position = {-0.25, 0.1, 0.2, 1}, .color = {1, 0, 0, 1}},
-        {.position = {0.25, 0.1, 0.2, 1}, .color = {0, 1, 0, 1}},
-        {.position = {0, 0.5, 0.2, 1}, .color = {0, 0, 1, 0}}
+    float xSize = extents.maxX - extents.minX;
+    float zSize = extents.maxY - extents.minY;
+    uint32_t xCount = xSubdivisions + 1; // amount of vertices is subdivisions + 1
+    uint32_t zCount = zSubdivisions + 1;
+    std::vector<VertexData> vertices(xCount * zCount);
+
+    float xStep = xSize / (float)xSubdivisions;
+    float zStep = zSize / (float)zSubdivisions;
+
+    for (uint32_t zIndex = 0; zIndex < zCount; zIndex++)
+    {
+        for (uint32_t xIndex = 0; xIndex < xCount; xIndex++)
+        {
+            float x = extents.minX + (float)xIndex * xStep;
+            float z = extents.minY + (float)zIndex * zStep;
+            vertices[zIndex * xCount + xIndex] = VertexData{
+                .position{x, z, 0, 1}, .color{0, 1, 0, 1}
+            };
+        }
+    }
+
+    // how do we connect the vertices? what's the pattern?
+    // it's a triangle strip, so not separate vertices
+    // clockwise, so in the case of 4 * 3 it's
+    // 0, 5, 6
+
+    std::vector<uint32_t> indices{};
+    for (uint32_t zIndex = 0; zIndex < zCount - 1; zIndex++)
+    {
+        for (uint32_t xIndex = 0; xIndex < xCount; xIndex++)
+        {
+            uint32_t offset = zIndex * xCount;
+            indices.emplace_back(offset + xIndex);
+            indices.emplace_back(offset + xIndex + xCount);
+        }
+    }
+
+    std::vector<uint32_t> indices2{
+        0, 5, 1, 6, 2, 7, 3, 8, 4, 9, 5, 10, 6, 11, 7, 12, 8, 13, 9, 14, 10, 15, 11, 16, 12, 17, 13, 18, 14, 19
     };
-    std::vector<uint32_t> indices{
-        0, 1, 2
-    };
-    app->terrain = createMesh(app, &vertices, &indices);
+    assert(indices.size() == indices2.size());
+    for (size_t i = 0; i < indices.size(); i++)
+    {
+        assert(indices[i] == indices2[i]);
+    }
+    return createMesh(app, &vertices, &indices);
 }
 
 void onLaunch(App* app)
@@ -550,10 +587,10 @@ void onLaunch(App* app)
     }
 
     // create axes
-    createAxes(app);
+    app->axes = createAxes(app);
 
     // create terrain
-    createTerrain(app);
+    app->terrain = createTerrain(app, RectMinMaxf{0, 0, 1, 1}, 4, 3);
 
     // make window active
     [window makeKeyAndOrderFront:NSApp];
@@ -650,7 +687,7 @@ void onDraw(App* app)
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setDepthStencilState:app->depthStencilState];
 
-    app->time += 0.025f;
+    app->time += 0.0025f;
     if (app->time > 2*pi)
     {
         app->time -= 2*pi;
@@ -660,8 +697,8 @@ void onDraw(App* app)
     {
         Camera& camera = app->camera;
 
-        float currentX = 0.5f * sin(app->time);
-        float currentY = 0.25f * cos(app->time);
+        float currentX = 0.25f * sin(app->time);
+        float currentY = 0.05f * cos(app->time);
 
         camera.position = glm::vec3{currentX, currentY, -1.0f};
         camera.rotation = glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
@@ -689,55 +726,56 @@ void onDraw(App* app)
     [encoder setRenderPipelineState:app->threeDRenderPipelineState];
 
     // draw axes
-    {
-        [encoder setCullMode:MTLCullModeNone];
-        float angle = app->time;
-
-        glm::vec3 t = glm::vec3(0, 0, 0);
-        glm::quat r = glm::angleAxis(angle, glm::vec3(0, 1, 0));
-        glm::vec3 s = glm::vec3(1, 1, 1);
-
-        glm::mat4 translation = glm::translate(glm::mat4(1), t);
-        glm::mat4 rotation = glm::toMat4(r);
-        glm::mat4 scale = glm::scale(s);
-
-        glm::mat4 transform = translation * rotation * scale;
-
-        InstanceData instance{
-            .localToWorld = transform
-        };
-        [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
-        [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
-        [encoder
-            drawIndexedPrimitives:MTLPrimitiveTypeTriangle
-            indexCount:app->axes.indexCount
-            indexType:app->axes.indexType
-            indexBuffer:app->axes.indexBuffer
-            indexBufferOffset:0
-            instanceCount:1
-            baseVertex:0
-            baseInstance:0
-        ];
-    }
+//    {
+//        [encoder setCullMode:MTLCullModeNone];
+//        float angle = app->time;
+//
+//        glm::vec3 t = glm::vec3(0, 0, 0);
+//        glm::quat r = glm::angleAxis(angle, glm::vec3(0, 1, 0));
+//        glm::vec3 s = glm::vec3(1, 1, 1);
+//
+//        glm::mat4 translation = glm::translate(glm::mat4(1), t);
+//        glm::mat4 rotation = glm::toMat4(r);
+//        glm::mat4 scale = glm::scale(s);
+//
+//        glm::mat4 transform = translation * rotation * scale;
+//
+//        InstanceData instance{
+//            .localToWorld = transform
+//        };
+//        [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
+//        [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
+//        [encoder
+//            drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+//            indexCount:app->axes.indexCount
+//            indexType:app->axes.indexType
+//            indexBuffer:app->axes.indexBuffer
+//            indexBufferOffset:0
+//            instanceCount:1
+//            baseVertex:0
+//            baseInstance:0
+//        ];
+//    }
 
     // draw terrain
     {
         [encoder setCullMode:MTLCullModeNone];
+        [encoder setTriangleFillMode:MTLTriangleFillModeLines];
         [encoder setRenderPipelineState:app->threeDRenderPipelineState];
         std::vector<InstanceData> instances{
-            {.localToWorld = glm::mat4(1)},
-            {.localToWorld = glm::translate(glm::vec3(0.1, -0.1, 0))},
-            {.localToWorld = glm::translate(glm::vec3(0.3, 0.1, 0))},
-            {.localToWorld = glm::translate(glm::vec3(0.5, 0, 0.3))},
-            {.localToWorld = glm::translate(glm::vec3(0.1, 0.3, 0))},
-            {.localToWorld = glm::translate(glm::vec3(0.1, 0.5, 0))},
-            {.localToWorld = glm::translate(glm::vec3(0.1, 0.7, 0))},
-            {.localToWorld = glm::translate(glm::vec3(0.1, 0.8, 0))}
+            {.localToWorld = glm::scale(glm::vec3(0.5))},
+//            {.localToWorld = glm::translate(glm::vec3(0.1, -0.1, 0))},
+//            {.localToWorld = glm::translate(glm::vec3(0.3, 0.1, 0))},
+//            {.localToWorld = glm::translate(glm::vec3(0.5, 0, 0.3))},
+//            {.localToWorld = glm::translate(glm::vec3(0.1, 0.3, 0))},
+//            {.localToWorld = glm::translate(glm::vec3(0.1, 0.5, 0))},
+//            {.localToWorld = glm::translate(glm::vec3(0.1, 0.7, 0))},
+//            {.localToWorld = glm::translate(glm::vec3(0.1, 0.8, 0))}
         };
         [encoder setVertexBytes:instances.data() length:instances.size() * sizeof(InstanceData) atIndex:2];
         [encoder setVertexBuffer:app->terrain.vertexBuffer offset:0 atIndex:0];
         [encoder
-            drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+            drawIndexedPrimitives:MTLPrimitiveTypeTriangleStrip
             indexCount:app->terrain.indexCount
             indexType:app->terrain.indexType
             indexBuffer:app->terrain.indexBuffer
@@ -751,6 +789,7 @@ void onDraw(App* app)
     // draw UI
 
     [encoder setCullMode:MTLCullModeBack];
+    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setRenderPipelineState:app->uiRenderPipelineState];
     [encoder setFragmentTexture:app->fontAtlas.texture atIndex:0];
 
