@@ -40,6 +40,8 @@ void onDraw(App*);
 
 void onSizeChanged(App*, CGSize size);
 
+uint32_t invalidIndex = 0xFFFFFFFF;
+
 // implements NSApplicationDelegate protocol
 // @interface means defining a subclass
 @interface AppDelegate : NSObject <NSApplicationDelegate>
@@ -64,6 +66,10 @@ void onSizeChanged(App*, CGSize size);
 }
 @end
 
+@interface MetalView : MTKView
+@property(unsafe_unretained, nonatomic) App* app;
+@end
+
 @interface MetalViewDelegate : NSObject <MTKViewDelegate>
 @property(unsafe_unretained, nonatomic) App* app;
 @end
@@ -76,12 +82,148 @@ void onSizeChanged(App*, CGSize size);
 - (void)mtkView:(nonnull MTKView*)view drawableSizeWillChange:(CGSize)size {
     onSizeChanged(_app, size);
 }
-
 @end
 
 @interface TextViewDelegate : NSObject <NSTextViewDelegate>
 @property(unsafe_unretained, nonatomic) App* app;
 @end
+
+/*
+ *  Summary:
+ *    Virtual keycodes
+ *
+ *  Discussion:
+ *    These constants are the virtual keycodes defined originally in
+ *    Inside Mac Volume V, pg. V-191. They identify physical keys on a
+ *    keyboard. Those constants with "ANSI" in the name are labeled
+ *    according to the key position on an ANSI-standard US keyboard.
+ *    For example, kVK_ANSI_A indicates the virtual keycode for the key
+ *    with the letter 'A' in the US keyboard layout. Other keyboard
+ *    layouts may have the 'A' key label on a different physical key;
+ *    in this case, pressing 'A' will generate a different virtual
+ *    keycode.
+ *
+ *    retrieved from /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Carbon.framework/Versions/A/Frameworks/HIToolbox.framework/Versions/A/Headers/Events.h
+ */
+enum class CocoaKeyCode : unsigned short
+{
+    kVK_ANSI_A = 0x00,
+    kVK_ANSI_S = 0x01,
+    kVK_ANSI_D = 0x02,
+    kVK_ANSI_F = 0x03,
+    kVK_ANSI_H = 0x04,
+    kVK_ANSI_G = 0x05,
+    kVK_ANSI_Z = 0x06,
+    kVK_ANSI_X = 0x07,
+    kVK_ANSI_C = 0x08,
+    kVK_ANSI_V = 0x09,
+    kVK_ANSI_B = 0x0B,
+    kVK_ANSI_Q = 0x0C,
+    kVK_ANSI_W = 0x0D,
+    kVK_ANSI_E = 0x0E,
+    kVK_ANSI_R = 0x0F,
+    kVK_ANSI_Y = 0x10,
+    kVK_ANSI_T = 0x11,
+    kVK_ANSI_1 = 0x12,
+    kVK_ANSI_2 = 0x13,
+    kVK_ANSI_3 = 0x14,
+    kVK_ANSI_4 = 0x15,
+    kVK_ANSI_6 = 0x16,
+    kVK_ANSI_5 = 0x17,
+    kVK_ANSI_Equal = 0x18,
+    kVK_ANSI_9 = 0x19,
+    kVK_ANSI_7 = 0x1A,
+    kVK_ANSI_Minus = 0x1B,
+    kVK_ANSI_8 = 0x1C,
+    kVK_ANSI_0 = 0x1D,
+    kVK_ANSI_RightBracket = 0x1E,
+    kVK_ANSI_O = 0x1F,
+    kVK_ANSI_U = 0x20,
+    kVK_ANSI_LeftBracket = 0x21,
+    kVK_ANSI_I = 0x22,
+    kVK_ANSI_P = 0x23,
+    kVK_ANSI_L = 0x25,
+    kVK_ANSI_J = 0x26,
+    kVK_ANSI_Quote = 0x27,
+    kVK_ANSI_K = 0x28,
+    kVK_ANSI_Semicolon = 0x29,
+    kVK_ANSI_Backslash = 0x2A,
+    kVK_ANSI_Comma = 0x2B,
+    kVK_ANSI_Slash = 0x2C,
+    kVK_ANSI_N = 0x2D,
+    kVK_ANSI_M = 0x2E,
+    kVK_ANSI_Period = 0x2F,
+    kVK_ANSI_Grave = 0x32,
+    kVK_ANSI_KeypadDecimal = 0x41,
+    kVK_ANSI_KeypadMultiply = 0x43,
+    kVK_ANSI_KeypadPlus = 0x45,
+    kVK_ANSI_KeypadClear = 0x47,
+    kVK_ANSI_KeypadDivide = 0x4B,
+    kVK_ANSI_KeypadEnter = 0x4C,
+    kVK_ANSI_KeypadMinus = 0x4E,
+    kVK_ANSI_KeypadEquals = 0x51,
+    kVK_ANSI_Keypad0 = 0x52,
+    kVK_ANSI_Keypad1 = 0x53,
+    kVK_ANSI_Keypad2 = 0x54,
+    kVK_ANSI_Keypad3 = 0x55,
+    kVK_ANSI_Keypad4 = 0x56,
+    kVK_ANSI_Keypad5 = 0x57,
+    kVK_ANSI_Keypad6 = 0x58,
+    kVK_ANSI_Keypad7 = 0x59,
+    kVK_ANSI_Keypad8 = 0x5B,
+    kVK_ANSI_Keypad9 = 0x5C,
+    /* keycodes for keys that are independent of keyboard layout*/
+    kVK_Return = 0x24,
+    kVK_Tab = 0x30,
+    kVK_Space = 0x31,
+    kVK_Delete = 0x33,
+    kVK_Escape = 0x35,
+    kVK_Command = 0x37,
+    kVK_Shift = 0x38,
+    kVK_CapsLock = 0x39,
+    kVK_Option = 0x3A,
+    kVK_Control = 0x3B,
+    kVK_RightCommand = 0x36,
+    kVK_RightShift = 0x3C,
+    kVK_RightOption = 0x3D,
+    kVK_RightControl = 0x3E,
+    kVK_Function = 0x3F,
+    kVK_F17 = 0x40,
+    kVK_VolumeUp = 0x48,
+    kVK_VolumeDown = 0x49,
+    kVK_Mute = 0x4A,
+    kVK_F18 = 0x4F,
+    kVK_F19 = 0x50,
+    kVK_F20 = 0x5A,
+    kVK_F5 = 0x60,
+    kVK_F6 = 0x61,
+    kVK_F7 = 0x62,
+    kVK_F3 = 0x63,
+    kVK_F8 = 0x64,
+    kVK_F9 = 0x65,
+    kVK_F11 = 0x67,
+    kVK_F13 = 0x69,
+    kVK_F16 = 0x6A,
+    kVK_F14 = 0x6B,
+    kVK_F10 = 0x6D,
+    kVK_F12 = 0x6F,
+    kVK_F15 = 0x71,
+    kVK_Help = 0x72,
+    kVK_Home = 0x73,
+    kVK_PageUp = 0x74,
+    kVK_ForwardDelete = 0x75,
+    kVK_F4 = 0x76,
+    kVK_End = 0x77,
+    kVK_F2 = 0x78,
+    kVK_PageDown = 0x79,
+    kVK_F1 = 0x7A,
+    kVK_LeftArrow = 0x7B,
+    kVK_RightArrow = 0x7C,
+    kVK_DownArrow = 0x7D,
+    kVK_UpArrow = 0x7E,
+
+    Last = kVK_UpArrow
+};
 
 struct AppConfig
 {
@@ -229,7 +371,7 @@ struct RectMinMaxi
 }
 
 // texture coordinates: (top left = 0, 0) (bottom right = 1, 1)
-RectMinMaxf getTextureCoordsForSprite(id <MTLTexture> texture, Sprite* sprite)
+RectMinMaxf spriteToTextureCoords(id <MTLTexture> texture, Sprite* sprite)
 {
     float minX = (float)sprite->x / (float)texture.width;
     float minY = (float)sprite->y / (float)texture.height;
@@ -280,16 +422,17 @@ struct Mesh
     MTLIndexType indexType;
     size_t vertexCount;
     size_t indexCount;
+    MTLPrimitiveType primitiveType;
 };
 
 struct Transform
 {
-    glm::vec3 position;
-    glm::quat rotation;
-    glm::vec3 scale;
+    glm::vec3 position{0, 0, 0};
+    glm::quat rotation{1, 0, 0, 0};
+    glm::vec3 scale{1};
 };
 
-[[nodiscard]] glm::mat4 transformToMatrix(Transform* transform)
+[[nodiscard]] glm::mat4 transformToMatrix(Transform const* transform)
 {
     glm::mat4 translation = glm::translate(glm::mat4(1), transform->position);
     glm::mat4 rotation = glm::toMat4(transform->rotation);
@@ -304,7 +447,7 @@ struct App
     // window and view
     NSWindow* window;
     NSSplitView* splitView;
-    MTKView* view;
+    MetalView* view;
     MetalViewDelegate* viewDelegate;
     NSView* sidepanel;
     TextViewDelegate* textViewDelegate;
@@ -328,6 +471,12 @@ struct App
 
     // camera
     Transform cameraTransform;
+    float cameraYaw;
+    float cameraPitch;
+    float cameraRoll;
+
+    // primitives
+    Mesh cube;
 
     // axes
     Mesh axes;
@@ -340,10 +489,13 @@ struct App
     Transform sunTransform;
     id <MTLTexture> shadowMap;
 
-    // silly timer
+    // silly periodic timer
     float time = 0.0f;
 
     std::string currentText;
+
+    // input
+    std::bitset<static_cast<size_t>(CocoaKeyCode::Last)> keys;
 };
 
 @implementation TextViewDelegate
@@ -355,7 +507,30 @@ struct App
 }
 @end
 
-Mesh createMesh(App* app, std::vector<VertexData>* vertices, std::vector<uint32_t>* indices)
+@implementation MetalView
+
+// ui responder
+- (BOOL)acceptsFirstResponder {
+    return YES;
+}
+
+- (void)keyDown:(NSEvent*)event
+{
+    _app->keys[event.keyCode] = true;
+}
+
+-(void)keyUp:(NSEvent*)event
+{
+    _app->keys[event.keyCode] = false;
+}
+@end
+
+[[nodiscard]] bool isKeyPressed(App* app, CocoaKeyCode keyCode)
+{
+    return app->keys[static_cast<unsigned short>(keyCode)];
+}
+
+Mesh createMesh(App* app, std::vector<VertexData>* vertices, std::vector<uint32_t>* indices, MTLPrimitiveType primitiveType)
 {
     Mesh mesh{};
 
@@ -373,6 +548,7 @@ Mesh createMesh(App* app, std::vector<VertexData>* vertices, std::vector<uint32_
     // 16 bits = 2 bytes
     // 32 bits = 4 bytes
     mesh.indexType = MTLIndexTypeUInt32;
+    mesh.primitiveType = primitiveType;
     return mesh;
 }
 
@@ -454,7 +630,67 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
         }
     }
 
-    return createMesh(app, &vertices, &indices);
+    return createMesh(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
+}
+
+[[nodiscard]] Mesh createCube(App* app)
+{
+    float uvmin = 0.0f;
+    float uvmax = 1.0f;
+    float s = 0.5f;
+    std::vector<VertexData> vertices{
+        {.position{0, 0, 0}},
+        {.position{1, 0, 0}},
+        {.position{1, 0, -1}},
+    };
+    std::vector<uint32_t> indices{
+        0, 1, 2
+    };
+//    std::vector<VertexData> vertices{
+//        {{-s, -s, -s}, {0, 0, 0, 1}, {uvmin, uvmin}},  // A 0
+//        {{+s, -s, -s}, {0, 0, 0, 1}, {uvmax, uvmin}},  // B 1
+//        {{+s, +s, -s}, {0, 0, 0, 1}, {uvmax, uvmax}},  // C 2
+//        {{-s, +s, -s}, {0, 0, 0, 1}, {uvmin, uvmax}},  // D 3
+//        {{-s, -s, +s}, {0, 0, 0, 1}, {uvmin, uvmin}},  // E 4
+//        {{+s, -s, +s}, {0, 0, 0, 1}, {uvmax, uvmin}},  // F 5
+//        {{+s, +s, +s}, {0, 0, 0, 1}, {uvmax, uvmax}},  // G 6
+//        {{-s, +s, +s}, {0, 0, 0, 1}, {uvmin, uvmax}},  // H 7
+//        {{-s, +s, -s}, {0, 0, 0, 1}, {uvmin, uvmin}},  // D 8
+//        {{-s, -s, -s}, {0, 0, 0, 1}, {uvmax, uvmin}},  // A 9
+//        {{-s, -s, +s}, {0, 0, 0, 1}, {uvmax, uvmax}},  // E 10
+//        {{-s, +s, +s}, {0, 0, 0, 1}, {uvmin, uvmax}},  // H 11
+//        {{+s, -s, -s}, {0, 0, 0, 1}, {uvmin, uvmin}},  // B 12
+//        {{+s, +s, -s}, {0, 0, 0, 1}, {uvmax, uvmin}},  // C 13
+//        {{+s, +s, +s}, {0, 0, 0, 1}, {uvmax, uvmax}},  // G 14
+//        {{+s, -s, +s}, {0, 0, 0, 1}, {uvmin, uvmax}},  // F 15
+//        {{-s, -s, -s}, {0, 0, 0, 1}, {uvmin, uvmin}},  // A 16
+//        {{+s, -s, -s}, {0, 0, 0, 1}, {uvmax, uvmin}},  // B 17
+//        {{+s, -s, +s}, {0, 0, 0, 1}, {uvmax, uvmax}},  // F 18
+//        {{-s, -s, +s}, {0, 0, 0, 1}, {uvmin, uvmax}},  // E 19
+//        {{+s, +s, -s}, {0, 0, 0, 1}, {uvmin, uvmin}},  // C 20
+//        {{-s, +s, -s}, {0, 0, 0, 1}, {uvmax, uvmin}},  // D 21
+//        {{-s, +s, +s}, {0, 0, 0, 1}, {uvmax, uvmax}},  // H 22
+//        {{+s, +s, +s}, {0, 0, 0, 1}, {uvmin, uvmax}},  // G 23
+//    };
+//    std::vector<uint32_t> indices{
+//        // front and back
+//        0, 3, 2,
+//        2, 1, 0,
+//        4, 5, 6,
+//        6, 7 ,4,
+//        // left and right
+//        11, 8, 9,
+//        9, 10, 11,
+//        12, 13, 14,
+//        14, 15, 12,
+//        // bottom and top
+//        16, 17, 18,
+//        18, 19, 16,
+//        20, 21, 22,
+//        22, 23, 20
+//    };
+
+    return createMesh(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }
 
 [[nodiscard]] Mesh createTerrain(App* app, RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdivisions)
@@ -475,7 +711,7 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
             float x = extents.minX + (float)xIndex * xStep;
             float z = extents.minY + (float)zIndex * zStep;
 
-            float y = 0.1f * perlin(x * 8, z * 8) + 0.5f * perlin(x, z);
+            float y = 0.1f * perlin(x * 8, z * 8) + 1.0f * perlin(x / 2, z / 2);
 
             vertices[zIndex * xCount + xIndex] = VertexData{
                 .position{x, y, z, 1}, .color{0, 1, 0, 1}
@@ -495,10 +731,10 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
             indices.emplace_back(offset + xIndex + xCount);
         }
         // reset primitive
-        indices.emplace_back(0xFFFFFFFF);
+        indices.emplace_back(invalidIndex);
     }
 
-    return createMesh(app, &vertices, &indices);
+    return createMesh(app, &vertices, &indices, MTLPrimitiveTypeTriangleStrip);
 }
 
 id <MTLTexture> importTexture(App* app, std::filesystem::path const& path)
@@ -586,7 +822,8 @@ void onLaunch(App* app)
 
     // create metal kit view and add to window
     {
-        MTKView* view = [[MTKView alloc] initWithFrame:splitView.frame device:device];
+        MetalView* view = [[MetalView alloc] initWithFrame:splitView.frame device:device];
+        view.app = app;
         view.delegate = app->viewDelegate;
         view.clearColor = app->config->clearColor;
         view.depthStencilPixelFormat = MTLPixelFormatDepth16Unorm;
@@ -746,11 +983,21 @@ void onLaunch(App* app)
         createFontMap(&app->font, app->config->fontCharacterMap);
     }
 
+    // create cube
+    app->cube = createCube(app);
+
     // create axes
     app->axes = createAxes(app);
 
+    // set camera transform
+    app->cameraTransform = {
+        .position = glm::vec3(-1.0f, 1.0f, 1.0f),
+        .rotation = glm::quat(1, 0, 0, 0),
+        .scale = glm::vec3(1, 1, 1)
+    };
+
     // create terrain
-    app->terrain = createTerrain(app, RectMinMaxf{-2, -2, 2, 2}, 100, 100);
+    app->terrain = createTerrain(app, RectMinMaxf{-4, -4, 4, 4}, 100, 100);
     app->terrainTexture = importTexture(app, app->config->assetsPath / "terrain.png");
     [app->terrainTexture retain];
 
@@ -762,6 +1009,7 @@ void onTerminate(App* app)
 {
     destroyMesh(&app->terrain);
     destroyMesh(&app->axes);
+    destroyMesh(&app->cube);
 
     [app->threeDRenderPipelineState release];
     [app->uiRenderPipelineState release];
@@ -796,7 +1044,8 @@ void addQuad(App* app, std::vector<VertexData>* vertices, RectMinMaxf position, 
     vertices->emplace_back(bottomLeft);
 }
 
-RectMinMaxf getNormalizedPositionCoords(App* app, RectMinMaxi rect)
+// from pixel coordinates to NDC (normalized device coordinates)
+RectMinMaxf pixelCoordsToNDC(App* app, RectMinMaxi rect)
 {
     // NDC: (top left = -1, 1), (bottom right = 1, -1)
     // z: from 0 (near) to 1 (far)
@@ -809,7 +1058,7 @@ RectMinMaxf getNormalizedPositionCoords(App* app, RectMinMaxi rect)
     };
 }
 
-void drawText(App* app, std::string const& text, std::vector<VertexData>* vertices, uint32_t x, uint32_t y, uint32_t characterSize)
+void addText(App* app, std::string const& text, std::vector<VertexData>* vertices, uint32_t x, uint32_t y, uint32_t characterSize)
 {
     vertices->reserve(vertices->size() + text.size() * 6);
 
@@ -830,8 +1079,8 @@ void drawText(App* app, std::string const& text, std::vector<VertexData>* vertic
             .maxX = x + i * characterSize + characterSize,
             .maxY = y + line * characterSize + characterSize
         };
-        RectMinMaxf positionCoords = getNormalizedPositionCoords(app, position);
-        RectMinMaxf textureCoords = getTextureCoordsForSprite(app->fontAtlas.texture, &app->fontAtlas.sprites[index]);
+        RectMinMaxf positionCoords = pixelCoordsToNDC(app, position);
+        RectMinMaxf textureCoords = spriteToTextureCoords(app->fontAtlas.texture, &app->fontAtlas.sprites[index]);
 
         // create quad at pixel positions
         addQuad(app, vertices, positionCoords, textureCoords);
@@ -868,9 +1117,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
 
     // set camera data
     {
-        CameraData cameraData{
-            .viewProjection = viewProjection
-        };
+        CameraData cameraData{viewProjection};
         [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:1];
     }
 
@@ -883,12 +1130,14 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
         [encoder setFragmentTexture:app->terrainTexture atIndex:0];
         std::vector<InstanceData> instances{
             {.localToWorld = glm::scale(glm::vec3(1))},
-            {.localToWorld = glm::translate(glm::vec3(0, 0, 4))},
+            {.localToWorld = glm::translate(glm::vec3(0, 0, 9))},
+            {.localToWorld = glm::translate(glm::vec3(9, 0, 9))},
+            {.localToWorld = glm::translate(glm::vec3(9, 0, 0))},
         };
         [encoder setVertexBytes:instances.data() length:instances.size() * sizeof(InstanceData) atIndex:2];
         [encoder setVertexBuffer:app->terrain.vertexBuffer offset:0 atIndex:0];
         [encoder
-            drawIndexedPrimitives:MTLPrimitiveTypeTriangleStrip
+            drawIndexedPrimitives:app->terrain.primitiveType
             indexCount:app->terrain.indexCount
             indexType:app->terrain.indexType
             indexBuffer:app->terrain.indexBuffer
@@ -909,22 +1158,42 @@ void onDraw(App* app)
         app->time -= 2.0f * (float)pi;
     }
 
-    // update sun transform
+    // update sun and camera transform
     {
-        app->sunTransform = {
-            .position = glm::vec3{0, 0, 0},
-            .rotation = glm::quat{1, 0, 0, 0},
-            .scale = glm::vec3{1}
-        };
-    }
+        float speed = 0.1f;
+        float rotationSpeed = 2.0f;
 
-    // update camera transform
-    {
-        float currentX = 0.05f * sin(app->time);
-        float currentY = 0.4f + 0.05f * cos(app->time);
-        app->cameraTransform = {
+        // update position
+        auto const dx = static_cast<float>(isKeyPressed(app, CocoaKeyCode::kVK_ANSI_D) - isKeyPressed(app, CocoaKeyCode::kVK_ANSI_A));
+        auto const dy = static_cast<float>(isKeyPressed(app, CocoaKeyCode::kVK_ANSI_E) - isKeyPressed(app, CocoaKeyCode::kVK_ANSI_Q));
+        auto const dz = static_cast<float>(isKeyPressed(app, CocoaKeyCode::kVK_ANSI_W) - isKeyPressed(app, CocoaKeyCode::kVK_ANSI_S));
+        glm::vec3 delta{dx, dy, dz};
+
+        delta *= speed;
+
+        //  update rotation
+        auto const dyaw = static_cast<float>(isKeyPressed(app, CocoaKeyCode::kVK_RightArrow) - isKeyPressed(app, CocoaKeyCode::kVK_LeftArrow));
+        auto const dpitch = static_cast<float>(isKeyPressed(app, CocoaKeyCode::kVK_UpArrow) - isKeyPressed(app, CocoaKeyCode::kVK_DownArrow));
+        auto const droll = static_cast<float>(isKeyPressed(app, CocoaKeyCode::kVK_ANSI_RightBracket) - isKeyPressed(app, CocoaKeyCode::kVK_ANSI_LeftBracket));
+        app->cameraYaw += dyaw * rotationSpeed;
+        app->cameraPitch += dpitch * rotationSpeed;
+        app->cameraRoll += droll * rotationSpeed;
+
+        glm::quat pitch = glm::angleAxis(glm::radians(-app->cameraPitch), glm::vec3(1, 0, 0));
+        glm::quat yaw = glm::angleAxis(glm::radians(app->cameraYaw), glm::vec3(0, 1, 0));
+        glm::quat roll = glm::angleAxis(glm::radians(app->cameraRoll), glm::vec3(0, 0, 1));
+        glm::quat rotation = yaw * pitch * roll;
+
+        Transform& c = app->cameraTransform;
+        c.position += rotation * delta;
+        c.rotation = rotation;
+        c.scale = glm::vec3{1, 1, 1};
+
+        float currentX = 0.5f * sin(app->time);
+        float currentY = 1.0f + 0.5f * cos(app->time);
+        app->sunTransform = {
             .position = glm::vec3{currentX, currentY, -1.0f},
-            .rotation = glm::quat{1, 0, 0, 0},
+            .rotation = glm::quat{glm::vec3{glm::radians(45.f), 0, 0}},
             .scale = glm::vec3{1, 1, 1}
         };
     }
@@ -944,7 +1213,7 @@ void onDraw(App* app)
 
         // draw scene to the shadow map, from the view of the sun
         // todo: make orthographic
-        glm::mat4 projection = glm::perspective(60.0f, 1.0f, 0.01f, 1000.0f);
+        glm::mat4 projection = glm::perspective(90.0f, 1.0f, 0.01f, 20.0f);
         glm::mat4 view = glm::inverse(transformToMatrix(&app->sunTransform));
         drawScene(app, encoder, projection * view);
 
@@ -979,7 +1248,56 @@ void onDraw(App* app)
         // clear depth buffer
         clearDepthBuffer(app, encoder);
 
-        // draw axes
+        // draw axes at sun position
+        {
+            [encoder setCullMode:MTLCullModeNone];
+            [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+            [encoder setDepthStencilState:app->depthStencilStateDefault];
+            [encoder setRenderPipelineState:app->threeDRenderPipelineState];
+
+            InstanceData instance{
+                .localToWorld = transformToMatrix(&app->sunTransform) //glm::scale(glm::translate(app->sunTransform.position), glm::vec3(3))
+            };
+            [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
+            [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
+            [encoder
+                drawIndexedPrimitives:app->axes.primitiveType
+                indexCount:app->axes.indexCount
+                indexType:app->axes.indexType
+                indexBuffer:app->axes.indexBuffer
+                indexBufferOffset:0
+                instanceCount:1
+                baseVertex:0
+                baseInstance:0
+            ];
+        }
+
+        // draw cube at sun position
+        {
+            [encoder setCullMode:MTLCullModeNone];
+            [encoder setTriangleFillMode:MTLTriangleFillModeLines];
+            [encoder setDepthStencilState:app->depthStencilStateDefault];
+            [encoder setRenderPipelineState:app->threeDRenderPipelineState];
+            //[encoder setFragmentTexture:app->terrainTexture atIndex:0];
+
+            InstanceData instance{
+                .localToWorld = transformToMatrix(&app->sunTransform) //glm::scale(glm::translate(app->sunTransform.position), glm::vec3(3))
+            };
+            [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
+            [encoder setVertexBuffer:app->cube.vertexBuffer offset:0 atIndex:0];
+            [encoder
+                drawIndexedPrimitives:app->cube.primitiveType
+                indexCount:app->cube.indexCount
+                indexType:app->cube.indexType
+                indexBuffer:app->cube.indexBuffer
+                indexBufferOffset:0
+                instanceCount:1
+                baseVertex:0
+                baseInstance:0
+            ];
+        }
+
+        // draw axes at origin
         {
             [encoder setCullMode:MTLCullModeNone];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1003,7 +1321,7 @@ void onDraw(App* app)
             [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
             [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
             [encoder
-                drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                drawIndexedPrimitives:app->axes.primitiveType
                 indexCount:app->axes.indexCount
                 indexType:app->axes.indexType
                 indexBuffer:app->axes.indexBuffer
@@ -1014,29 +1332,54 @@ void onDraw(App* app)
             ];
         }
 
-        // draw UI
+        // draw shadow map (2D, on-screen)
+        id <MTLBuffer> shadowMapVertexBuffer;
+        {
+            [encoder setCullMode:MTLCullModeBack];
+            [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+            [encoder setRenderPipelineState:app->uiRenderPipelineState];
+            [encoder setFragmentTexture:app->shadowMap atIndex:0];
 
+            RectMinMaxf position = pixelCoordsToNDC(app, {0, 28, 400, 400});
+            std::vector<VertexData> vertices;
+            addQuad(app, &vertices, position, RectMinMaxf{0, 0, 1, 1});
+
+            // create vertex buffer
+            MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
+            shadowMapVertexBuffer = [app->device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
+            [shadowMapVertexBuffer retain];
+
+            // draw shadow map
+            [encoder setVertexBuffer:shadowMapVertexBuffer offset:0 atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
+        }
+
+        // draw text (2D, on-screen)
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:app->uiRenderPipelineState];
         [encoder setFragmentTexture:app->fontAtlas.texture atIndex:0];
 
-        // draw text
         id <MTLBuffer> textBuffer;
         {
             std::vector<VertexData> vertices;
 
-            glm::vec3& pos = app->cameraTransform.position;
-            std::string a = fmt::format("camera ({0:+.3f}, {1:+.3f}, {2:+.3f})", pos.x, pos.y, pos.z);
-            drawText(app, a, &vertices, 0, 0, 14);
-            //drawText(app, app->currentText, &vertices, 0, 14, 14);
+            glm::vec3* pos = &app->cameraTransform.position;
+            std::string a = fmt::format("camera ({0:+.3f}, {1:+.3f}, {2:+.3f})", pos->x, pos->y, pos->z);
+            addText(app, a, &vertices, 0, 0, 14);
+
+            pos = &app->sunTransform.position;
+            std::string b = fmt::format("sun ({0:+.3f}, {1:+.3f}, {2:+.3f})", pos->x, pos->y, pos->z);
+            addText(app, b, &vertices, 0, 14, 14);
+
+            addText(app, app->currentText, &vertices, 600, 14, 14);
 
             // create vertex buffer
             MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
             textBuffer = [app->device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
             [textBuffer retain];
 
-            // draw
+            // draw text
             [encoder setVertexBuffer:textBuffer offset:0 atIndex:0];
             [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
         }
@@ -1047,6 +1390,7 @@ void onDraw(App* app)
         [cmd commit];
 
         [textBuffer release];
+        [shadowMapVertexBuffer release];
     }
 }
 
