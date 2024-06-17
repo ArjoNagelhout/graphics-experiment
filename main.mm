@@ -364,6 +364,8 @@ void destroyMesh(Mesh* mesh)
 {
     assert(mesh->vertexBuffer != nullptr);
     assert(mesh->indexBuffer != nullptr);
+    [mesh->vertexBuffer release];
+    [mesh->indexBuffer release];
 }
 
 id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertexFunctionName, NSString* fragmentFunctionName)
