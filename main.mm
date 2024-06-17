@@ -1,3 +1,10 @@
+// let's add perlin noise
+// how:
+// https://developer.nvidia.com/gpugems/gpugems2/part-iii-high-quality-rendering/chapter-26-implementing-improved-perlin-noise
+
+// we can do it on the GPU,
+// but for now we can also implement it on CPU.
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -142,6 +149,82 @@ struct RectMinMaxi
     uint32_t maxY;
 };
 
+// perlin noise
+// https://en.wikipedia.org/wiki/Perlin_noise
+
+// Function to linearly interpolate between a0 and a1
+// Weight w should be in the range [0.0, 1.0]
+[[nodiscard]] float perlinInterpolate(float a0, float a1, float w)
+{
+    // clamp
+    if (0.0f > w)
+    { return a0; }
+    if (1.0f < w)
+    { return a1; }
+
+    // Use Smootherstep for an even smoother result with a second derivative equal to zero on boundaries:
+    return (a1 - a0) * ((w * (w * 6.0f - 15.0f) + 10.0f) * w * w * w) + a0;
+}
+
+// Create pseudorandom direction vector
+[[nodiscard]] glm::vec2 perlinRandomGradient(int ix, int iy)
+{
+    // No precomputed gradients mean this works for any number of grid coordinates
+    const unsigned w = 8 * sizeof(unsigned);
+    const unsigned s = w / 2; // rotation width
+    unsigned a = ix, b = iy;
+    a *= 3284157443;
+    b ^= a << s | a >> (w - s);
+    b *= 1911520717;
+    a ^= b << s | b >> (w - s);
+    a *= 2048419325;
+    float random = (float)a * (3.14159265f / (float)~(~0u >> 1)); // in [0, 2*Pi]
+    return {cos(random), sin(random)};
+}
+
+// Computes the dot product of the distance and gradient vectors.
+[[nodiscard]] float perlinDotGridGradient(int ix, int iy, float x, float y)
+{
+    // Get gradient from integer coordinates
+    glm::vec2 gradient = perlinRandomGradient(ix, iy);
+
+    // Compute the distance vector
+    float dx = x - (float)ix;
+    float dy = y - (float)iy;
+
+    // Compute the dot-product
+    return (dx * gradient.x + dy * gradient.y);
+}
+
+// Compute Perlin noise at coordinates x, y
+[[nodiscard]] float perlin(float x, float y)
+{
+    // Determine grid cell coordinates
+    int x0 = (int)floor(x);
+    int x1 = x0 + 1;
+    int y0 = (int)floor(y);
+    int y1 = y0 + 1;
+
+    // Determine interpolation weights
+    // Could also use higher order polynomial/s-curve here
+    float sx = x - (float)x0;
+    float sy = y - (float)y0;
+
+    // Interpolate between grid point gradients
+    float n0, n1, ix0, ix1, value;
+
+    n0 = perlinDotGridGradient(x0, y0, x, y);
+    n1 = perlinDotGridGradient(x1, y0, x, y);
+    ix0 = perlinInterpolate(n0, n1, sx);
+
+    n0 = perlinDotGridGradient(x0, y1, x, y);
+    n1 = perlinDotGridGradient(x1, y1, x, y);
+    ix1 = perlinInterpolate(n0, n1, sx);
+
+    value = perlinInterpolate(ix0, ix1, sy);
+    return value; // Will return in range -1 to 1. To make it in range 0 to 1, multiply by 0.5 and add 0.5
+}
+
 // texture coordinates: (top left = 0, 0) (bottom right = 1, 1)
 RectMinMaxf getTextureCoordsForSprite(id <MTLTexture> texture, Sprite* sprite)
 {
@@ -219,9 +302,14 @@ struct App
     id <MTLDevice> device;
     id <MTLLibrary> library; // shader library
     id <MTLCommandQueue> commandQueue;
-    id <MTLDepthStencilState> depthStencilState;
+    id <MTLDepthStencilState> depthStencilStateDefault;
     id <MTLRenderPipelineState> uiRenderPipelineState;
     id <MTLRenderPipelineState> threeDRenderPipelineState;
+    id <MTLRenderPipelineState> terrainRenderPipelineState;
+
+    // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
+    id <MTLDepthStencilState> depthStencilStateClear;
+    id <MTLRenderPipelineState> clearDepthRenderPipelineState;
 
     // font rendering
     TextureAtlas fontAtlas;
@@ -243,9 +331,8 @@ struct App
 };
 
 @implementation TextViewDelegate
-// https://developer.apple.com/documentation/appkit/nstextdidchangenotification
-- (void)textDidChange:(NSNotification*)obj
-{
+- (void)textDidChange:(NSNotification*)obj {
+    // https://developer.apple.com/documentation/appkit/nstextdidchangenotification
     auto* v = (NSTextView*)(obj.object);
     NSString* aa = [[v textStorage] string];
     _app->currentText = [aa cStringUsingEncoding:NSUTF8StringEncoding];
@@ -369,8 +456,11 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
         {
             float x = extents.minX + (float)xIndex * xStep;
             float z = extents.minY + (float)zIndex * zStep;
+
+            float y = 0.1f * perlin(x * 8, z * 8);// + 0.1f * perlin(x * 4, z * 4);
+
             vertices[zIndex * xCount + xIndex] = VertexData{
-                .position{x, 0, z, 1}, .color{0, 1, 0, 1}
+                .position{x, y, z, 1}, .color{0, 1, 0, 1}
             };
         }
     }
@@ -435,6 +525,7 @@ void onLaunch(App* app)
         MTKView* view = [[MTKView alloc] initWithFrame:splitView.frame device:device];
         view.delegate = app->viewDelegate;
         view.clearColor = app->config->clearColor;
+        view.depthStencilPixelFormat = MTLPixelFormatDepth16Unorm;
         [splitView addSubview:view];
         [window makeFirstResponder:view];
         app->view = view;
@@ -475,7 +566,7 @@ void onLaunch(App* app)
         descriptor.depthWriteEnabled = YES;
         descriptor.depthCompareFunction = MTLCompareFunctionLess;
         id <MTLDepthStencilState> depthStencilState = [device newDepthStencilStateWithDescriptor:descriptor];
-        app->depthStencilState = depthStencilState;
+        app->depthStencilStateDefault = depthStencilState;
         [depthStencilState retain];
     }
 
@@ -486,7 +577,9 @@ void onLaunch(App* app)
         std::vector<std::filesystem::path> paths{
             shadersPath / "shader_common.h",
             shadersPath / "shader_3d.metal",
-            shadersPath / "shader_ui.metal"
+            shadersPath / "shader_ui.metal",
+            shadersPath / "shader_terrain.metal",
+            shadersPath / "shader_clear_depth.metal"
         };
         std::stringstream buffer;
         for (std::filesystem::path& path: paths)
@@ -519,6 +612,43 @@ void onLaunch(App* app)
     id <MTLRenderPipelineState> threeDRenderPipelineState = createRenderPipelineState(app, @"main_vertex", @"main_fragment");
     [threeDRenderPipelineState retain];
     app->threeDRenderPipelineState = threeDRenderPipelineState;
+
+    id <MTLRenderPipelineState> terrainRenderPipelineState = createRenderPipelineState(app, @"terrain_vertex", @"terrain_fragment");
+    [terrainRenderPipelineState retain];
+    app->terrainRenderPipelineState = terrainRenderPipelineState;
+
+    // create depth clear pipeline state and depth stencil state
+    {
+        MTLDepthStencilDescriptor* depthStencilDescriptor = [[MTLDepthStencilDescriptor alloc] init];
+        depthStencilDescriptor.depthCompareFunction = MTLCompareFunctionAlways; // always write to buffer, no depth test
+        depthStencilDescriptor.depthWriteEnabled = YES;
+        app->depthStencilStateClear = [device newDepthStencilStateWithDescriptor:depthStencilDescriptor];
+        [app->depthStencilStateClear retain];
+
+        MTLRenderPipelineDescriptor* renderPipelineDescriptor = [[MTLRenderPipelineDescriptor alloc] init];
+        renderPipelineDescriptor.depthAttachmentPixelFormat = app->view.depthStencilPixelFormat;
+        renderPipelineDescriptor.vertexFunction = [app->library newFunctionWithName:@"depth_clear_vertex"];
+        renderPipelineDescriptor.fragmentFunction = [app->library newFunctionWithName:@"depth_clear_fragment"];
+
+        MTLVertexDescriptor* vertexDescriptor = [[MTLVertexDescriptor alloc] init];
+        vertexDescriptor.attributes[0].format = MTLVertexFormatFloat2;
+        vertexDescriptor.attributes[0].offset = 0;
+        vertexDescriptor.attributes[0].bufferIndex = 0;
+        vertexDescriptor.layouts[0].stepRate = 1;
+        vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+        vertexDescriptor.layouts[0].stride = 8;
+
+        renderPipelineDescriptor.vertexDescriptor = vertexDescriptor;
+
+        NSError* error;
+        app->clearDepthRenderPipelineState = [device newRenderPipelineStateWithDescriptor:renderPipelineDescriptor error:&error];
+        if (error)
+        {
+            std::cout << [error.debugDescription cStringUsingEncoding:NSUTF8StringEncoding] << std::endl;
+            exit(1);
+        }
+        [app->clearDepthRenderPipelineState retain];
+    }
 
     // import texture atlas
     {
@@ -593,7 +723,9 @@ void onTerminate(App* app)
     destroyMesh(&app->axes);
     [app->threeDRenderPipelineState release];
     [app->uiRenderPipelineState release];
-    [app->depthStencilState release];
+    [app->depthStencilStateDefault release];
+    [app->depthStencilStateClear release];
+    [app->clearDepthRenderPipelineState release];
     [app->view release];
     [app->sidepanel release];
     [app->splitView release];
@@ -661,6 +793,28 @@ void drawText(App* app, std::string const& text, std::vector<VertexData>* vertic
     }
 }
 
+// sets: triangle fill mode, cull mode, depth stencil state and render pipeline state
+void clearDepthBuffer(App* app, id <MTLRenderCommandEncoder> encoder)
+{
+    // Set up the pipeline and depth/stencil state to write a clear value to only the depth buffer.
+    [encoder setDepthStencilState:app->depthStencilStateClear];
+    [encoder setRenderPipelineState:app->clearDepthRenderPipelineState];
+
+    // Normalized Device Coordinates of a tristrip we'll draw to clear the buffer
+    // (the vertex shader set in pipelineDepthClear ignores all transforms and just passes these through)
+    float clearCoords[8] = {
+        -1, -1,
+        1, -1,
+        -1, 1,
+        1, 1
+    };
+
+    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+    [encoder setCullMode:MTLCullModeNone];
+    [encoder setVertexBytes:clearCoords length:sizeof(float) * 8 atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+}
+
 void onDraw(App* app)
 {
     // main render loop
@@ -675,13 +829,11 @@ void onDraw(App* app)
 
     [encoder setFrontFacingWinding:MTLWindingClockwise];
     [encoder setCullMode:MTLCullModeBack];
-    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-    [encoder setDepthStencilState:app->depthStencilState];
 
     app->time += 0.025f;
-    if (app->time > 2*pi)
+    if (app->time > 2.0f * (float)pi)
     {
-        app->time -= 2*pi;
+        app->time -= 2.0f * (float)pi;
     }
 
     // update camera position
@@ -714,11 +866,41 @@ void onDraw(App* app)
         [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:1];
     }
 
-    [encoder setRenderPipelineState:app->threeDRenderPipelineState];
+    // draw terrain
+    {
+        [encoder setCullMode:MTLCullModeBack];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setRenderPipelineState:app->terrainRenderPipelineState];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setFragmentTexture:app->fontAtlas.texture atIndex:0];
+        std::vector<InstanceData> instances{
+            {.localToWorld = glm::scale(glm::vec3(1))},
+            {.localToWorld = glm::translate(glm::vec3(0, 0, 4))},
+            {.localToWorld = glm::translate(glm::vec3(0.01f, 1, 0))}
+        };
+        [encoder setVertexBytes:instances.data() length:instances.size() * sizeof(InstanceData) atIndex:2];
+        [encoder setVertexBuffer:app->terrain.vertexBuffer offset:0 atIndex:0];
+        [encoder
+            drawIndexedPrimitives:MTLPrimitiveTypeTriangleStrip
+            indexCount:app->terrain.indexCount
+            indexType:app->terrain.indexType
+            indexBuffer:app->terrain.indexBuffer
+            indexBufferOffset:0
+            instanceCount:instances.size()
+            baseVertex:0
+            baseInstance:0
+        ];
+    }
+
+    // clear depth buffer
+    clearDepthBuffer(app, encoder);
 
     // draw axes
     {
         [encoder setCullMode:MTLCullModeNone];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setRenderPipelineState:app->threeDRenderPipelineState];
         float angle = app->time;
 
         glm::vec3 t = glm::vec3(0, 0, 0);
@@ -732,7 +914,7 @@ void onDraw(App* app)
         glm::mat4 transform = translation * rotation * scale;
 
         InstanceData instance{
-            .localToWorld = transform
+            .localToWorld = glm::mat4(1) //transform
         };
         [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
         [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
@@ -743,35 +925,6 @@ void onDraw(App* app)
             indexBuffer:app->axes.indexBuffer
             indexBufferOffset:0
             instanceCount:1
-            baseVertex:0
-            baseInstance:0
-        ];
-    }
-
-    // draw terrain
-    {
-        [encoder setCullMode:MTLCullModeNone];
-        [encoder setTriangleFillMode:MTLTriangleFillModeLines];
-        [encoder setRenderPipelineState:app->threeDRenderPipelineState];
-        std::vector<InstanceData> instances{
-            {.localToWorld = glm::scale(glm::vec3(1))},
-//            {.localToWorld = glm::translate(glm::vec3(0.1, -0.1, 0))},
-//            {.localToWorld = glm::translate(glm::vec3(0.3, 0.1, 0))},
-//            {.localToWorld = glm::translate(glm::vec3(0.5, 0, 0.3))},
-//            {.localToWorld = glm::translate(glm::vec3(0.1, 0.3, 0))},
-//            {.localToWorld = glm::translate(glm::vec3(0.1, 0.5, 0))},
-//            {.localToWorld = glm::translate(glm::vec3(0.1, 0.7, 0))},
-//            {.localToWorld = glm::translate(glm::vec3(0.1, 0.8, 0))}
-        };
-        [encoder setVertexBytes:instances.data() length:instances.size() * sizeof(InstanceData) atIndex:2];
-        [encoder setVertexBuffer:app->terrain.vertexBuffer offset:0 atIndex:0];
-        [encoder
-            drawIndexedPrimitives:MTLPrimitiveTypeTriangleStrip
-            indexCount:app->terrain.indexCount
-            indexType:app->terrain.indexType
-            indexBuffer:app->terrain.indexBuffer
-            indexBufferOffset:0
-            instanceCount:instances.size()
             baseVertex:0
             baseInstance:0
         ];
