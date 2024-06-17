@@ -457,9 +457,12 @@ struct App
     id <MTLLibrary> library; // shader library
     id <MTLCommandQueue> commandQueue;
     id <MTLDepthStencilState> depthStencilStateDefault;
+
+    // shaders
     id <MTLRenderPipelineState> uiRenderPipelineState;
     id <MTLRenderPipelineState> threeDRenderPipelineState;
     id <MTLRenderPipelineState> terrainRenderPipelineState;
+    id <MTLRenderPipelineState> threeDTexturedRenderPipelineState;
 
     // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
     id <MTLDepthStencilState> depthStencilStateClear;
@@ -493,6 +496,9 @@ struct App
     float time = 0.0f;
 
     std::string currentText;
+
+    // icons
+    id <MTLTexture> iconSunTexture;
 
     // input
     std::bitset<static_cast<size_t>(CocoaKeyCode::Last)> keys;
@@ -615,10 +621,10 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
         {.position = {+w, 0, 0, 1}, .color = green},
 
         // z
-        {.position = {-w, 0, l, 1}, .color = blue},
-        {.position = {+w, 0, l, 1}, .color = blue},
-        {.position = {-w, 0, 0, 1}, .color = blue},
-        {.position = {+w, 0, 0, 1}, .color = blue},
+        {.position = {0, -w, l, 1}, .color = blue},
+        {.position = {0, +w, l, 1}, .color = blue},
+        {.position = {0, -w, 0, 1}, .color = blue},
+        {.position = {0, +w, 0, 1}, .color = blue},
     };
 
     for (int i = 0; i <= 2; i++)
@@ -639,56 +645,48 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
     float uvmax = 1.0f;
     float s = 0.5f;
     std::vector<VertexData> vertices{
-        {.position{0, 0, 0}},
-        {.position{1, 0, 0}},
-        {.position{1, 0, -1}},
+        {.position{-s, -s, -s, 1}, .uv0{uvmin, uvmin}},  // A 0
+        {.position{+s, -s, -s, 1}, .uv0{uvmax, uvmin}},  // B 1
+        {.position{+s, +s, -s, 1}, .uv0{uvmax, uvmax}},  // C 2
+        {.position{-s, +s, -s, 1}, .uv0{uvmin, uvmax}},  // D 3
+        {.position{-s, -s, +s, 1}, .uv0{uvmin, uvmin}},  // E 4
+        {.position{+s, -s, +s, 1}, .uv0{uvmax, uvmin}},  // F 5
+        {.position{+s, +s, +s, 1}, .uv0{uvmax, uvmax}},  // G 6
+        {.position{-s, +s, +s, 1}, .uv0{uvmin, uvmax}},  // H 7
+        {.position{-s, +s, -s, 1}, .uv0{uvmin, uvmin}},  // D 8
+        {.position{-s, -s, -s, 1}, .uv0{uvmax, uvmin}},  // A 9
+        {.position{-s, -s, +s, 1}, .uv0{uvmax, uvmax}},  // E 10
+        {.position{-s, +s, +s, 1}, .uv0{uvmin, uvmax}},  // H 11
+        {.position{+s, -s, -s, 1}, .uv0{uvmin, uvmin}},  // B 12
+        {.position{+s, +s, -s, 1}, .uv0{uvmax, uvmin}},  // C 13
+        {.position{+s, +s, +s, 1}, .uv0{uvmax, uvmax}},  // G 14
+        {.position{+s, -s, +s, 1}, .uv0{uvmin, uvmax}},  // F 15
+        {.position{-s, -s, -s, 1}, .uv0{uvmin, uvmin}},  // A 16
+        {.position{+s, -s, -s, 1}, .uv0{uvmax, uvmin}},  // B 17
+        {.position{+s, -s, +s, 1}, .uv0{uvmax, uvmax}},  // F 18
+        {.position{-s, -s, +s, 1}, .uv0{uvmin, uvmax}},  // E 19
+        {.position{+s, +s, -s, 1}, .uv0{uvmin, uvmin}},  // C 20
+        {.position{-s, +s, -s, 1}, .uv0{uvmax, uvmin}},  // D 21
+        {.position{-s, +s, +s, 1}, .uv0{uvmax, uvmax}},  // H 22
+        {.position{+s, +s, +s, 1}, .uv0{uvmin, uvmax}},  // G 23
     };
     std::vector<uint32_t> indices{
-        0, 1, 2
+        // front and back
+        0, 3, 2,
+        2, 1, 0,
+        4, 5, 6,
+        6, 7 ,4,
+        // left and right
+        11, 8, 9,
+        9, 10, 11,
+        12, 13, 14,
+        14, 15, 12,
+        // bottom and top
+        16, 17, 18,
+        18, 19, 16,
+        20, 21, 22,
+        22, 23, 20
     };
-//    std::vector<VertexData> vertices{
-//        {{-s, -s, -s}, {0, 0, 0, 1}, {uvmin, uvmin}},  // A 0
-//        {{+s, -s, -s}, {0, 0, 0, 1}, {uvmax, uvmin}},  // B 1
-//        {{+s, +s, -s}, {0, 0, 0, 1}, {uvmax, uvmax}},  // C 2
-//        {{-s, +s, -s}, {0, 0, 0, 1}, {uvmin, uvmax}},  // D 3
-//        {{-s, -s, +s}, {0, 0, 0, 1}, {uvmin, uvmin}},  // E 4
-//        {{+s, -s, +s}, {0, 0, 0, 1}, {uvmax, uvmin}},  // F 5
-//        {{+s, +s, +s}, {0, 0, 0, 1}, {uvmax, uvmax}},  // G 6
-//        {{-s, +s, +s}, {0, 0, 0, 1}, {uvmin, uvmax}},  // H 7
-//        {{-s, +s, -s}, {0, 0, 0, 1}, {uvmin, uvmin}},  // D 8
-//        {{-s, -s, -s}, {0, 0, 0, 1}, {uvmax, uvmin}},  // A 9
-//        {{-s, -s, +s}, {0, 0, 0, 1}, {uvmax, uvmax}},  // E 10
-//        {{-s, +s, +s}, {0, 0, 0, 1}, {uvmin, uvmax}},  // H 11
-//        {{+s, -s, -s}, {0, 0, 0, 1}, {uvmin, uvmin}},  // B 12
-//        {{+s, +s, -s}, {0, 0, 0, 1}, {uvmax, uvmin}},  // C 13
-//        {{+s, +s, +s}, {0, 0, 0, 1}, {uvmax, uvmax}},  // G 14
-//        {{+s, -s, +s}, {0, 0, 0, 1}, {uvmin, uvmax}},  // F 15
-//        {{-s, -s, -s}, {0, 0, 0, 1}, {uvmin, uvmin}},  // A 16
-//        {{+s, -s, -s}, {0, 0, 0, 1}, {uvmax, uvmin}},  // B 17
-//        {{+s, -s, +s}, {0, 0, 0, 1}, {uvmax, uvmax}},  // F 18
-//        {{-s, -s, +s}, {0, 0, 0, 1}, {uvmin, uvmax}},  // E 19
-//        {{+s, +s, -s}, {0, 0, 0, 1}, {uvmin, uvmin}},  // C 20
-//        {{-s, +s, -s}, {0, 0, 0, 1}, {uvmax, uvmin}},  // D 21
-//        {{-s, +s, +s}, {0, 0, 0, 1}, {uvmax, uvmax}},  // H 22
-//        {{+s, +s, +s}, {0, 0, 0, 1}, {uvmin, uvmax}},  // G 23
-//    };
-//    std::vector<uint32_t> indices{
-//        // front and back
-//        0, 3, 2,
-//        2, 1, 0,
-//        4, 5, 6,
-//        6, 7 ,4,
-//        // left and right
-//        11, 8, 9,
-//        9, 10, 11,
-//        12, 13, 14,
-//        14, 15, 12,
-//        // bottom and top
-//        16, 17, 18,
-//        18, 19, 16,
-//        20, 21, 22,
-//        22, 23, 20
-//    };
 
     return createMesh(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }
@@ -880,7 +878,8 @@ void onLaunch(App* app)
             shadersPath / "shader_3d.metal",
             shadersPath / "shader_ui.metal",
             shadersPath / "shader_terrain.metal",
-            shadersPath / "shader_clear_depth.metal"
+            shadersPath / "shader_clear_depth.metal",
+            shadersPath / "shader_3d_textured.metal"
         };
         std::stringstream buffer;
         for (std::filesystem::path& path: paths)
@@ -917,6 +916,8 @@ void onLaunch(App* app)
     id <MTLRenderPipelineState> terrainRenderPipelineState = createRenderPipelineState(app, @"terrain_vertex", @"terrain_fragment");
     [terrainRenderPipelineState retain];
     app->terrainRenderPipelineState = terrainRenderPipelineState;
+
+    app->threeDTexturedRenderPipelineState = createRenderPipelineState(app, @"textured_vertex", @"textured_fragment");
 
     // create depth clear pipeline state and depth stencil state
     {
@@ -961,6 +962,12 @@ void onLaunch(App* app)
         uint32_t width = app->fontAtlas.texture.width;
         uint32_t height = app->fontAtlas.texture.height;
         createSprites(&app->fontAtlas, spriteSize, spriteSize, width / spriteSize, height / spriteSize);
+    }
+
+    // import icons
+    {
+        app->iconSunTexture = importTexture(app, app->config->assetsPath / "sun.png");
+        [app->iconSunTexture retain];
     }
 
     // create shadow map
@@ -1011,15 +1018,21 @@ void onTerminate(App* app)
     destroyMesh(&app->axes);
     destroyMesh(&app->cube);
 
+    // shaders
     [app->threeDRenderPipelineState release];
     [app->uiRenderPipelineState release];
+    [app->threeDTexturedRenderPipelineState release];
+    [app->clearDepthRenderPipelineState release];
+
     [app->depthStencilStateDefault release];
     [app->depthStencilStateClear release];
-    [app->clearDepthRenderPipelineState release];
 
     [app->fontAtlas.texture release];
     [app->terrainTexture release];
     [app->shadowMap release];
+
+    // icons
+    [app->iconSunTexture release];
 
     [app->view release];
     [app->sidepanel release];
@@ -1149,6 +1162,29 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
     }
 }
 
+void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transform)
+{
+    [encoder setCullMode:MTLCullModeNone];
+    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+    [encoder setDepthStencilState:app->depthStencilStateDefault];
+    [encoder setRenderPipelineState:app->threeDRenderPipelineState];
+    InstanceData instance{
+        .localToWorld = transform
+    };
+    [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
+    [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
+    [encoder
+        drawIndexedPrimitives:app->axes.primitiveType
+        indexCount:app->axes.indexCount
+        indexType:app->axes.indexType
+        indexBuffer:app->axes.indexBuffer
+        indexBufferOffset:0
+        instanceCount:1
+        baseVertex:0
+        baseInstance:0
+    ];
+}
+
 // main render loop
 void onDraw(App* app)
 {
@@ -1190,7 +1226,7 @@ void onDraw(App* app)
         c.scale = glm::vec3{1, 1, 1};
 
         float currentX = 0.5f * sin(app->time);
-        float currentY = 1.0f + 0.5f * cos(app->time);
+        float currentY = 0.5f + 0.5f * cos(app->time);
         app->sunTransform = {
             .position = glm::vec3{currentX, currentY, -1.0f},
             .rotation = glm::quat{glm::vec3{glm::radians(45.f), 0, 0}},
@@ -1248,40 +1284,16 @@ void onDraw(App* app)
         // clear depth buffer
         clearDepthBuffer(app, encoder);
 
-        // draw axes at sun position
+        // draw cube at sun position
         {
             [encoder setCullMode:MTLCullModeNone];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
-            [encoder setRenderPipelineState:app->threeDRenderPipelineState];
+            [encoder setRenderPipelineState:app->threeDTexturedRenderPipelineState];
+            [encoder setFragmentTexture:app->iconSunTexture atIndex:0];
 
             InstanceData instance{
-                .localToWorld = transformToMatrix(&app->sunTransform) //glm::scale(glm::translate(app->sunTransform.position), glm::vec3(3))
-            };
-            [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
-            [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
-            [encoder
-                drawIndexedPrimitives:app->axes.primitiveType
-                indexCount:app->axes.indexCount
-                indexType:app->axes.indexType
-                indexBuffer:app->axes.indexBuffer
-                indexBufferOffset:0
-                instanceCount:1
-                baseVertex:0
-                baseInstance:0
-            ];
-        }
-
-        // draw cube at sun position
-        {
-            [encoder setCullMode:MTLCullModeNone];
-            [encoder setTriangleFillMode:MTLTriangleFillModeLines];
-            [encoder setDepthStencilState:app->depthStencilStateDefault];
-            [encoder setRenderPipelineState:app->threeDRenderPipelineState];
-            //[encoder setFragmentTexture:app->terrainTexture atIndex:0];
-
-            InstanceData instance{
-                .localToWorld = transformToMatrix(&app->sunTransform) //glm::scale(glm::translate(app->sunTransform.position), glm::vec3(3))
+                .localToWorld = glm::scale(transformToMatrix(&app->sunTransform), glm::vec3(0.25f))
             };
             [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
             [encoder setVertexBuffer:app->cube.vertexBuffer offset:0 atIndex:0];
@@ -1297,40 +1309,11 @@ void onDraw(App* app)
             ];
         }
 
+        // draw axes at sun
+        drawAxes(app, encoder, transformToMatrix(&app->sunTransform));
+
         // draw axes at origin
-        {
-            [encoder setCullMode:MTLCullModeNone];
-            [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-            [encoder setDepthStencilState:app->depthStencilStateDefault];
-            [encoder setRenderPipelineState:app->threeDRenderPipelineState];
-            float angle = app->time;
-
-            glm::vec3 t = glm::vec3(0, 0, 0);
-            glm::quat r = glm::angleAxis(angle, glm::vec3(0, 1, 0));
-            glm::vec3 s = glm::vec3(1, 1, 1);
-
-            glm::mat4 translation = glm::translate(glm::mat4(1), t);
-            glm::mat4 rotation = glm::toMat4(r);
-            glm::mat4 scale = glm::scale(s);
-
-            glm::mat4 transform = translation * rotation * scale;
-
-            InstanceData instance{
-                .localToWorld = glm::mat4(1) //transform
-            };
-            [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
-            [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
-            [encoder
-                drawIndexedPrimitives:app->axes.primitiveType
-                indexCount:app->axes.indexCount
-                indexType:app->axes.indexType
-                indexBuffer:app->axes.indexBuffer
-                indexBufferOffset:0
-                instanceCount:1
-                baseVertex:0
-                baseInstance:0
-            ];
-        }
+        drawAxes(app, encoder, glm::mat4(1));
 
         // draw shadow map (2D, on-screen)
         id <MTLBuffer> shadowMapVertexBuffer;
