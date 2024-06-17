@@ -708,7 +708,7 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
             float x = extents.minX + (float)xIndex * xStep;
             float z = extents.minY + (float)zIndex * zStep;
 
-            float y = 0.1f * perlin(x * 8, z * 8) + 2.0f * perlin(x / 2, z / 2);
+            float y = 0.1f * perlin(x * 8, z * 8) + 2.0f * perlin(x / 2, z / 2) + 3.0f * perlin(x / 9, z / 12);
 
             vertices[zIndex * xCount + xIndex] = VertexData{
                 .position{x, y, z, 1}, .color{0, 1, 0, 1}
@@ -996,7 +996,7 @@ void onLaunch(App* app)
     };
 
     // create terrain
-    app->terrain = createTerrain(app, RectMinMaxf{-10, -10, 10, 10}, 1000, 1000);
+    app->terrain = createTerrain(app, RectMinMaxf{-20, -20, 20, 20}, 1000, 1000);
     app->terrainTexture = importTexture(app, app->config->assetsPath / "terrain.png");
     [app->terrainTexture retain];
 
@@ -1220,9 +1220,10 @@ void onDraw(App* app)
 
         float currentX = 4.0f + 0.5f * sin(app->time);
         float currentY = 5.0f + 0.5f * cos(app->time);
+        float currentRot = 30.0f + 20.0f * sin(app->time);
         app->sunTransform = {
             .position = glm::vec3{currentX, currentY, -20.0f},
-            .rotation = glm::quat{glm::vec3{glm::radians(30.f), 0, 0}},
+            .rotation = glm::quat{glm::vec3{glm::radians(currentRot), 0, 0}},
             .scale = glm::vec3{1, 1, 1}
         };
     }
@@ -1243,7 +1244,7 @@ void onDraw(App* app)
         assert(encoder);
 
         // draw scene to the shadow map, from the view of the sun
-        glm::mat4 projection = glm::ortho(-10.0f, 10.0f,-1.0f, 10.0f, 1.0f, 30.0f);
+        glm::mat4 projection = glm::ortho(-30.0f, 30.0f,-20.0f, 20.0f, 1.0f, 50.0f);
         glm::mat4 view = glm::inverse(transformToMatrix(&app->sunTransform));
         lightData.lightSpace = projection * view;
         drawScene(app, encoder, lightData.lightSpace, app->shadowRenderPipelineState);
@@ -1398,7 +1399,7 @@ int main(int argc, char const* argv[])
         .cameraFov = 60.0f,
         .cameraNear = 0.1f,
         .cameraFar = 1000.0f,
-        .shadowMapSize = 2048
+        .shadowMapSize = 4096
     };
 
     // load text

@@ -14,7 +14,7 @@ float calculateShadow(float4 positionLightSpace, depth2d<float, access::sample> 
     float3 textureCoordinates = (toTextureCoordinates * float4(projected, 1)).xyz;
 
     // get depth of current fragment from light's perspective
-    float depthOfThisFragment = projected.z;
+    float depthOfThisFragment = projected.z - 0.001;
 
     constexpr sampler s(address::clamp_to_edge, filter::linear, compare_func::less_equal);
     float shadow = texture.sample_compare(s, textureCoordinates.xy, depthOfThisFragment);
@@ -47,10 +47,10 @@ fragment half4 terrain_fragment(
     texture2d<half, access::sample> texture [[texture(0)]],
     depth2d<float, access::sample> shadowMap [[texture(1)]])
 {
-    //constexpr sampler s(address::repeat, filter::nearest);
+    constexpr sampler s(address::repeat, filter::nearest);
 
-    float shadow = calculateShadow(in.fragmentPositionLightSpace, shadowMap);
-    //return shadow * texture.sample(s, in.uv0);
+    float shadow = clamp(0.3 + calculateShadow(in.fragmentPositionLightSpace, shadowMap), 0.0f, 1.0f);
+    return shadow * texture.sample(s, in.uv0);
     return shadow;
     //return texture.sample(s, in.uv0);
 }
