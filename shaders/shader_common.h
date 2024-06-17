@@ -7,6 +7,9 @@ struct RasterizerData
     float4 position [[position]];
     float4 color;
     float2 uv0;
+
+    float4 fragmentPosition;
+    float4 fragmentPositionLightSpace;
 };
 
 struct VertexData
@@ -24,4 +27,9 @@ struct CameraData
 struct InstanceData
 {
     float4x4 localToWorld;
+};
+
+struct LightData
+{
+    float4x4 lightSpace;
 };

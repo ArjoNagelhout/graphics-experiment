@@ -1,10 +1,3 @@
-// let's add perlin noise
-// how:
-// https://developer.nvidia.com/gpugems/gpugems2/part-iii-high-quality-rendering/chapter-26-implementing-improved-perlin-noise
-
-// we can do it on the GPU,
-// but for now we can also implement it on CPU.
-
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -256,6 +249,11 @@ struct InstanceData
     glm::mat4 localToWorld;
 };
 
+struct LightData
+{
+    glm::mat4 lightSpace;
+};
+
 // sprite sheet
 struct Sprite
 {
@@ -463,6 +461,7 @@ struct App
     id <MTLRenderPipelineState> threeDRenderPipelineState;
     id <MTLRenderPipelineState> terrainRenderPipelineState;
     id <MTLRenderPipelineState> threeDTexturedRenderPipelineState;
+    id <MTLRenderPipelineState> shadowRenderPipelineState;
 
     // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
     id <MTLDepthStencilState> depthStencilStateClear;
@@ -709,7 +708,7 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
             float x = extents.minX + (float)xIndex * xStep;
             float z = extents.minY + (float)zIndex * zStep;
 
-            float y = 0.1f * perlin(x * 8, z * 8) + 1.0f * perlin(x / 2, z / 2);
+            float y = 0.1f * perlin(x * 8, z * 8) + 2.0f * perlin(x / 2, z / 2);
 
             vertices[zIndex * xCount + xIndex] = VertexData{
                 .position{x, y, z, 1}, .color{0, 1, 0, 1}
@@ -879,7 +878,8 @@ void onLaunch(App* app)
             shadersPath / "shader_ui.metal",
             shadersPath / "shader_terrain.metal",
             shadersPath / "shader_clear_depth.metal",
-            shadersPath / "shader_3d_textured.metal"
+            shadersPath / "shader_3d_textured.metal",
+            shadersPath / "shader_shadow.metal"
         };
         std::stringstream buffer;
         for (std::filesystem::path& path: paths)
@@ -905,19 +905,11 @@ void onLaunch(App* app)
     }
 
     // create render pipeline states
-    id <MTLRenderPipelineState> uiRenderPipelineState = createRenderPipelineState(app, @"ui_vertex", @"ui_fragment");
-    [uiRenderPipelineState retain];
-    app->uiRenderPipelineState = uiRenderPipelineState;
-
-    id <MTLRenderPipelineState> threeDRenderPipelineState = createRenderPipelineState(app, @"main_vertex", @"main_fragment");
-    [threeDRenderPipelineState retain];
-    app->threeDRenderPipelineState = threeDRenderPipelineState;
-
-    id <MTLRenderPipelineState> terrainRenderPipelineState = createRenderPipelineState(app, @"terrain_vertex", @"terrain_fragment");
-    [terrainRenderPipelineState retain];
-    app->terrainRenderPipelineState = terrainRenderPipelineState;
-
+    app->uiRenderPipelineState = createRenderPipelineState(app, @"ui_vertex", @"ui_fragment");
+    app->threeDRenderPipelineState = createRenderPipelineState(app, @"main_vertex", @"main_fragment");
+    app->terrainRenderPipelineState = createRenderPipelineState(app, @"terrain_vertex", @"terrain_fragment");
     app->threeDTexturedRenderPipelineState = createRenderPipelineState(app, @"textured_vertex", @"textured_fragment");
+    app->shadowRenderPipelineState = createRenderPipelineState(app, @"shadow_vertex", @"shadow_fragment");
 
     // create depth clear pipeline state and depth stencil state
     {
@@ -1004,7 +996,7 @@ void onLaunch(App* app)
     };
 
     // create terrain
-    app->terrain = createTerrain(app, RectMinMaxf{-4, -4, 4, 4}, 100, 100);
+    app->terrain = createTerrain(app, RectMinMaxf{-10, -10, 10, 10}, 1000, 1000);
     app->terrainTexture = importTexture(app, app->config->assetsPath / "terrain.png");
     [app->terrainTexture retain];
 
@@ -1023,6 +1015,7 @@ void onTerminate(App* app)
     [app->uiRenderPipelineState release];
     [app->threeDTexturedRenderPipelineState release];
     [app->clearDepthRenderPipelineState release];
+    [app->shadowRenderPipelineState release];
 
     [app->depthStencilStateDefault release];
     [app->depthStencilStateClear release];
@@ -1124,7 +1117,7 @@ void clearDepthBuffer(App* app, id <MTLRenderCommandEncoder> encoder)
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
-void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewProjection)
+void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewProjection, id <MTLRenderPipelineState> pipelineOverride)
 {
     assert(encoder != nullptr);
 
@@ -1138,14 +1131,14 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->terrainRenderPipelineState];
+        [encoder setRenderPipelineState:pipelineOverride == nullptr ? app->terrainRenderPipelineState : pipelineOverride];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->terrainTexture atIndex:0];
         std::vector<InstanceData> instances{
-            {.localToWorld = glm::scale(glm::vec3(1))},
-            {.localToWorld = glm::translate(glm::vec3(0, 0, 9))},
-            {.localToWorld = glm::translate(glm::vec3(9, 0, 9))},
-            {.localToWorld = glm::translate(glm::vec3(9, 0, 0))},
+            {.localToWorld = glm::rotate(glm::radians(45.0f), glm::vec3(0, 1, 0))},
+//            {.localToWorld = glm::scale(glm::translate(glm::vec3(0, 0, 9)), glm::vec3(0.5f))},
+//            {.localToWorld = glm::translate(glm::vec3(9, 0, 9))},
+//            {.localToWorld = glm::translate(glm::vec3(9, 0, 0))},
         };
         [encoder setVertexBytes:instances.data() length:instances.size() * sizeof(InstanceData) atIndex:2];
         [encoder setVertexBuffer:app->terrain.vertexBuffer offset:0 atIndex:0];
@@ -1225,14 +1218,16 @@ void onDraw(App* app)
         c.rotation = rotation;
         c.scale = glm::vec3{1, 1, 1};
 
-        float currentX = 0.5f * sin(app->time);
-        float currentY = 0.5f + 0.5f * cos(app->time);
+        float currentX = 4.0f + 0.5f * sin(app->time);
+        float currentY = 5.0f + 0.5f * cos(app->time);
         app->sunTransform = {
-            .position = glm::vec3{currentX, currentY, -1.0f},
-            .rotation = glm::quat{glm::vec3{glm::radians(45.f), 0, 0}},
+            .position = glm::vec3{currentX, currentY, -20.0f},
+            .rotation = glm::quat{glm::vec3{glm::radians(30.f), 0, 0}},
             .scale = glm::vec3{1, 1, 1}
         };
     }
+
+    LightData lightData{};
 
     // shadow pass
     {
@@ -1248,10 +1243,10 @@ void onDraw(App* app)
         assert(encoder);
 
         // draw scene to the shadow map, from the view of the sun
-        // todo: make orthographic
-        glm::mat4 projection = glm::perspective(90.0f, 1.0f, 0.01f, 20.0f);
+        glm::mat4 projection = glm::ortho(-10.0f, 10.0f,-1.0f, 10.0f, 1.0f, 30.0f);
         glm::mat4 view = glm::inverse(transformToMatrix(&app->sunTransform));
-        drawScene(app, encoder, projection * view);
+        lightData.lightSpace = projection * view;
+        drawScene(app, encoder, lightData.lightSpace, app->shadowRenderPipelineState);
 
         [encoder endEncoding];
         [cmd commit];
@@ -1278,7 +1273,11 @@ void onDraw(App* app)
                                                     (float)(size.width / size.height),
                                                     app->config->cameraNear, app->config->cameraFar);
             glm::mat4 view = glm::inverse(transformToMatrix(&app->cameraTransform));
-            drawScene(app, encoder, projection * view);
+
+            [encoder setFragmentTexture:app->shadowMap atIndex:1];
+            [encoder setVertexBytes:&lightData length:sizeof(LightData) atIndex:3];
+
+            drawScene(app, encoder, projection * view, nullptr);
         }
 
         // clear depth buffer
@@ -1309,7 +1308,7 @@ void onDraw(App* app)
             ];
         }
 
-        // draw axes at sun
+        // draw axes at sun position
         drawAxes(app, encoder, transformToMatrix(&app->sunTransform));
 
         // draw axes at origin
@@ -1355,7 +1354,7 @@ void onDraw(App* app)
             std::string b = fmt::format("sun ({0:+.3f}, {1:+.3f}, {2:+.3f})", pos->x, pos->y, pos->z);
             addText(app, b, &vertices, 0, 14, 14);
 
-            addText(app, app->currentText, &vertices, 600, 14, 14);
+            addText(app, app->currentText, &vertices, 600, 14, 12);
 
             // create vertex buffer
             MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
