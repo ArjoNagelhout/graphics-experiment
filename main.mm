@@ -28,6 +28,8 @@
 #include "glm/gtx/transform.hpp"
 #include "glm/gtx/quaternion.hpp"
 
+#include "fmt/format.h"
+
 struct App;
 
 void onLaunch(App*);
@@ -92,6 +94,7 @@ struct AppConfig
     float cameraFov;
     float cameraNear;
     float cameraFar;
+    uint32_t shadowMapSize;
 };
 
 struct VertexData
@@ -270,13 +273,6 @@ void createSprites(TextureAtlas* atlas, uint32_t spriteWidth, uint32_t spriteHei
     }
 }
 
-struct Camera
-{
-    glm::vec3 position;
-    glm::quat rotation;
-    glm::vec3 scale;
-};
-
 struct Mesh
 {
     id <MTLBuffer> vertexBuffer;
@@ -285,6 +281,21 @@ struct Mesh
     size_t vertexCount;
     size_t indexCount;
 };
+
+struct Transform
+{
+    glm::vec3 position;
+    glm::quat rotation;
+    glm::vec3 scale;
+};
+
+[[nodiscard]] glm::mat4 transformToMatrix(Transform* transform)
+{
+    glm::mat4 translation = glm::translate(glm::mat4(1), transform->position);
+    glm::mat4 rotation = glm::toMat4(transform->rotation);
+    glm::mat4 scale = glm::scale(transform->scale);
+    return translation * rotation * scale;
+}
 
 struct App
 {
@@ -315,14 +326,19 @@ struct App
     TextureAtlas fontAtlas;
     Font font;
 
+    // camera
+    Transform cameraTransform;
+
     // axes
     Mesh axes;
 
-    // 3D
-    Camera camera;
-
     // terrain
     Mesh terrain;
+    id <MTLTexture> terrainTexture;
+
+    // shadow and lighting
+    Transform sunTransform;
+    id <MTLTexture> shadowMap;
 
     // silly timer
     float time = 0.0f;
@@ -459,7 +475,7 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
             float x = extents.minX + (float)xIndex * xStep;
             float z = extents.minY + (float)zIndex * zStep;
 
-            float y = 0.1f * perlin(x * 8, z * 8);// + 0.1f * perlin(x * 4, z * 4);
+            float y = 0.1f * perlin(x * 8, z * 8) + 0.5f * perlin(x, z);
 
             vertices[zIndex * xCount + xIndex] = VertexData{
                 .position{x, y, z, 1}, .color{0, 1, 0, 1}
@@ -483,6 +499,52 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
     }
 
     return createMesh(app, &vertices, &indices);
+}
+
+id <MTLTexture> importTexture(App* app, std::filesystem::path const& path)
+{
+    assert(std::filesystem::exists(path));
+
+    // import png using lodepng
+    std::vector<unsigned char> png;
+    unsigned int width;
+    unsigned int height;
+    lodepng::State state;
+    lodepng::load_file(png, path.c_str());
+
+    std::vector<unsigned char> image;
+    unsigned int error = lodepng::decode(image, width, height, state, png);
+    if (error != 0)
+    {
+        std::cout << lodepng_error_text(error) << std::endl;
+        exit(1);
+    }
+    LodePNGColorMode color = state.info_png.color;
+    assert(color.bitdepth == 8);
+    assert(color.colortype == LCT_RGBA);
+    MTLPixelFormat pixelFormat = MTLPixelFormatRGBA8Unorm;
+
+    MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
+    descriptor.width = width;
+    descriptor.height = height;
+    descriptor.pixelFormat = pixelFormat;
+    descriptor.arrayLength = 1;
+    descriptor.textureType = MTLTextureType2D;
+    descriptor.usage = MTLTextureUsageShaderRead;
+    id <MTLTexture> texture = [app->device newTextureWithDescriptor:descriptor];
+
+    size_t strideInBytes = 4; // for each component 1 byte = 8 bits
+
+    MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+    [texture
+        replaceRegion:region
+        mipmapLevel:0
+        slice:0
+        withBytes:image.data()
+        bytesPerRow:width * strideInBytes
+        bytesPerImage:0]; // only single image
+
+    return texture;
 }
 
 void onLaunch(App* app)
@@ -655,52 +717,27 @@ void onLaunch(App* app)
     // import texture atlas
     {
         std::filesystem::path path = app->config->assetsPath / "texturemap.png";
-        assert(std::filesystem::exists(path));
-
-        // import png using lodepng
-        std::vector<unsigned char> png;
-        unsigned int width;
-        unsigned int height;
-        lodepng::State state;
-        lodepng::load_file(png, path.c_str());
-
-        std::vector<unsigned char> image;
-        unsigned int error = lodepng::decode(image, width, height, state, png);
-        if (error != 0)
-        {
-            std::cout << lodepng_error_text(error) << std::endl;
-        }
-        LodePNGColorMode color = state.info_png.color;
-        assert(color.bitdepth == 8);
-        assert(color.colortype == LCT_RGBA);
-        MTLPixelFormat pixelFormat = MTLPixelFormatRGBA8Unorm;
-
-        MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
-        descriptor.width = width;
-        descriptor.height = height;
-        descriptor.pixelFormat = pixelFormat;
-        descriptor.arrayLength = 1;
-        descriptor.textureType = MTLTextureType2D;
-        descriptor.usage = MTLTextureUsageShaderRead;
-        id <MTLTexture> texture = [device newTextureWithDescriptor:descriptor];
-
-        size_t strideInBytes = 4; // for each component 1 byte = 8 bits
-
-        MTLRegion region = MTLRegionMake2D(0, 0, width, height);
-        [texture
-            replaceRegion:region
-            mipmapLevel:0
-            slice:0
-            withBytes:image.data()
-            bytesPerRow:width * strideInBytes
-            bytesPerImage:0]; // only single image
-
-        app->fontAtlas.texture = texture;
-        [texture retain];
+        app->fontAtlas.texture = importTexture(app, path);
 
         // create sprites from texture
         uint32_t spriteSize = 32;
+        uint32_t width = app->fontAtlas.texture.width;
+        uint32_t height = app->fontAtlas.texture.height;
         createSprites(&app->fontAtlas, spriteSize, spriteSize, width / spriteSize, height / spriteSize);
+    }
+
+    // create shadow map
+    {
+        MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
+        uint32_t size = app->config->shadowMapSize;
+        descriptor.width = size;
+        descriptor.height = size;
+        descriptor.pixelFormat = MTLPixelFormatDepth16Unorm;
+        descriptor.textureType = MTLTextureType2D;
+        descriptor.arrayLength = 1;
+        descriptor.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+        app->shadowMap = [device newTextureWithDescriptor:descriptor];
+        [app->shadowMap retain];
     }
 
     // create font
@@ -714,6 +751,8 @@ void onLaunch(App* app)
 
     // create terrain
     app->terrain = createTerrain(app, RectMinMaxf{-2, -2, 2, 2}, 100, 100);
+    app->terrainTexture = importTexture(app, app->config->assetsPath / "terrain.png");
+    [app->terrainTexture retain];
 
     // make window active
     [window makeKeyAndOrderFront:NSApp];
@@ -723,11 +762,17 @@ void onTerminate(App* app)
 {
     destroyMesh(&app->terrain);
     destroyMesh(&app->axes);
+
     [app->threeDRenderPipelineState release];
     [app->uiRenderPipelineState release];
     [app->depthStencilStateDefault release];
     [app->depthStencilStateClear release];
     [app->clearDepthRenderPipelineState release];
+
+    [app->fontAtlas.texture release];
+    [app->terrainTexture release];
+    [app->shadowMap release];
+
     [app->view release];
     [app->sidepanel release];
     [app->splitView release];
@@ -817,152 +862,187 @@ void clearDepthBuffer(App* app, id <MTLRenderCommandEncoder> encoder)
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
+void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewProjection)
+{
+    assert(encoder != nullptr);
+
+}
+
+// main render loop
 void onDraw(App* app)
 {
-    // main render loop
-    MTLRenderPassDescriptor* renderPass = [app->view currentRenderPassDescriptor];
-    assert(renderPass);
-    renderPass.colorAttachments[0].loadAction = MTLLoadActionClear;
-
-    id <MTLCommandBuffer> cmd = [app->commandQueue commandBuffer];
-    assert(cmd);
-    id <MTLRenderCommandEncoder> encoder = [cmd renderCommandEncoderWithDescriptor:renderPass];
-    assert(encoder);
-
-    [encoder setFrontFacingWinding:MTLWindingClockwise];
-    [encoder setCullMode:MTLCullModeBack];
-
-    app->time += 0.025f;
-    if (app->time > 2.0f * (float)pi)
+    // update sun transform
     {
-        app->time -= 2.0f * (float)pi;
+//        app->sunTransform = {
+//            .position = glm::vec3{}
+//        }
     }
 
-    // update camera position
+    // update camera transform
     {
-        Camera& camera = app->camera;
-
         float currentX = 0.05f * sin(app->time);
         float currentY = 0.4f + 0.05f * cos(app->time);
-
-        camera.position = glm::vec3{currentX, currentY, -1.0f};
-        camera.rotation = glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
-        camera.scale = glm::vec3{1, 1, 1};
-
-        CGSize size = app->view.frame.size;
-        glm::mat4 projection = glm::perspective(glm::radians(app->config->cameraFov),
-                                                (float)(size.width / size.height),
-                                                app->config->cameraNear, app->config->cameraFar);
-
-        glm::mat4 translation = glm::translate(glm::mat4(1), camera.position);
-        glm::mat4 rotation = glm::toMat4(camera.rotation);
-        glm::mat4 scale = glm::scale(camera.scale);
-
-        glm::mat4 cameraTransform = translation * rotation * scale;
-        glm::mat4 view = glm::inverse(cameraTransform);
-
-        CameraData cameraData{
-            .viewProjection = projection * view
+        app->cameraTransform = {
+            .position = glm::vec3{currentX, currentY, -1.0f},
+            .rotation = glm::quat{1.0f, 0.0f, 0.0f, 0.0f},
+            .scale = glm::vec3{1, 1, 1}
         };
-
-        [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:1];
     }
 
-    // draw terrain
+    // shadow pass
     {
+        MTLRenderPassDescriptor* shadowPass = [[MTLRenderPassDescriptor alloc] init];
+        MTLRenderPassDepthAttachmentDescriptor* depth = shadowPass.depthAttachment;
+        depth.loadAction = MTLLoadActionClear;
+        depth.storeAction = MTLStoreActionStore;
+        depth.texture = app->shadowMap;
+
+        id <MTLCommandBuffer> cmd = [app->commandQueue commandBuffer];
+        assert(cmd);
+        id <MTLRenderCommandEncoder> encoder = [cmd renderCommandEncoderWithDescriptor:shadowPass];
+        assert(encoder);
+
+        // draw scene to the shadow map, from the view of the sun
+        // todo: make orthographic
+        glm::mat4 projection = glm::perspective(60.0f, 1.0f, 0.01f, 1000.0f);
+        glm::mat4 view = glm::inverse(transformToMatrix(&app->sunTransform));
+        drawScene(app, encoder, projection * view);
+
+        [encoder endEncoding];
+        [cmd commit];
+    }
+
+    // main pass
+    {
+        MTLRenderPassDescriptor* renderPass = [app->view currentRenderPassDescriptor];
+        assert(renderPass);
+        renderPass.colorAttachments[0].loadAction = MTLLoadActionClear;
+
+        id <MTLCommandBuffer> cmd = [app->commandQueue commandBuffer];
+        assert(cmd);
+        id <MTLRenderCommandEncoder> encoder = [cmd renderCommandEncoderWithDescriptor:renderPass];
+        assert(encoder);
+
+        [encoder setFrontFacingWinding:MTLWindingClockwise];
+        [encoder setCullMode:MTLCullModeBack];
+
+        app->time += 0.025f;
+        if (app->time > 2.0f * (float)pi)
+        {
+            app->time -= 2.0f * (float)pi;
+        }
+
+        // calculate camera matrix
+        {
+            CGSize size = app->view.frame.size;
+            glm::mat4 projection = glm::perspective(glm::radians(app->config->cameraFov),
+                                                    (float)(size.width / size.height),
+                                                    app->config->cameraNear, app->config->cameraFar);
+            glm::mat4 view = glm::inverse(transformToMatrix(&app->cameraTransform));
+            CameraData cameraData{
+                .viewProjection = projection * view
+            };
+
+            [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:1];
+        }
+
+        // draw terrain
+        {
+            [encoder setCullMode:MTLCullModeBack];
+            [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+            [encoder setRenderPipelineState:app->terrainRenderPipelineState];
+            [encoder setDepthStencilState:app->depthStencilStateDefault];
+            [encoder setFragmentTexture:app->terrainTexture atIndex:0];
+            std::vector<InstanceData> instances{
+                {.localToWorld = glm::scale(glm::vec3(1))},
+                {.localToWorld = glm::translate(glm::vec3(0, 0, 4))},
+            };
+            [encoder setVertexBytes:instances.data() length:instances.size() * sizeof(InstanceData) atIndex:2];
+            [encoder setVertexBuffer:app->terrain.vertexBuffer offset:0 atIndex:0];
+            [encoder
+                drawIndexedPrimitives:MTLPrimitiveTypeTriangleStrip
+                indexCount:app->terrain.indexCount
+                indexType:app->terrain.indexType
+                indexBuffer:app->terrain.indexBuffer
+                indexBufferOffset:0
+                instanceCount:instances.size()
+                baseVertex:0
+                baseInstance:0
+            ];
+        }
+
+        // clear depth buffer
+        clearDepthBuffer(app, encoder);
+
+        // draw axes
+        {
+            [encoder setCullMode:MTLCullModeNone];
+            [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+            [encoder setDepthStencilState:app->depthStencilStateDefault];
+            [encoder setRenderPipelineState:app->threeDRenderPipelineState];
+            float angle = app->time;
+
+            glm::vec3 t = glm::vec3(0, 0, 0);
+            glm::quat r = glm::angleAxis(angle, glm::vec3(0, 1, 0));
+            glm::vec3 s = glm::vec3(1, 1, 1);
+
+            glm::mat4 translation = glm::translate(glm::mat4(1), t);
+            glm::mat4 rotation = glm::toMat4(r);
+            glm::mat4 scale = glm::scale(s);
+
+            glm::mat4 transform = translation * rotation * scale;
+
+            InstanceData instance{
+                .localToWorld = glm::mat4(1) //transform
+            };
+            [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
+            [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
+            [encoder
+                drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                indexCount:app->axes.indexCount
+                indexType:app->axes.indexType
+                indexBuffer:app->axes.indexBuffer
+                indexBufferOffset:0
+                instanceCount:1
+                baseVertex:0
+                baseInstance:0
+            ];
+        }
+
+        // draw UI
+
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->terrainRenderPipelineState];
-        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setRenderPipelineState:app->uiRenderPipelineState];
         [encoder setFragmentTexture:app->fontAtlas.texture atIndex:0];
-        std::vector<InstanceData> instances{
-            {.localToWorld = glm::scale(glm::vec3(1))},
-            {.localToWorld = glm::translate(glm::vec3(0, 0, 4))},
-            {.localToWorld = glm::translate(glm::vec3(0.01f, 1, 0))}
-        };
-        [encoder setVertexBytes:instances.data() length:instances.size() * sizeof(InstanceData) atIndex:2];
-        [encoder setVertexBuffer:app->terrain.vertexBuffer offset:0 atIndex:0];
-        [encoder
-            drawIndexedPrimitives:MTLPrimitiveTypeTriangleStrip
-            indexCount:app->terrain.indexCount
-            indexType:app->terrain.indexType
-            indexBuffer:app->terrain.indexBuffer
-            indexBufferOffset:0
-            instanceCount:instances.size()
-            baseVertex:0
-            baseInstance:0
-        ];
+
+        // draw text
+        id <MTLBuffer> textBuffer;
+        {
+            std::vector<VertexData> vertices;
+
+            glm::vec3& pos = app->cameraTransform.position;
+            std::string a = fmt::format("cameraf ({0:+.3f}, {1:+.3f}, {2:+.3f})", pos.x, pos.y, pos.z);
+            drawText(app, a, &vertices, 0, 0, 14);
+            //drawText(app, app->currentText, &vertices, 0, 14, 14);
+
+            // create vertex buffer
+            MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
+            textBuffer = [app->device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
+            [textBuffer retain];
+
+            // draw
+            [encoder setVertexBuffer:textBuffer offset:0 atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
+        }
+
+        [encoder endEncoding];
+        assert(app->view.currentDrawable);
+        [cmd presentDrawable:app->view.currentDrawable];
+        [cmd commit];
+
+        [textBuffer release];
     }
-
-    // clear depth buffer
-    clearDepthBuffer(app, encoder);
-
-    // draw axes
-    {
-        [encoder setCullMode:MTLCullModeNone];
-        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setRenderPipelineState:app->threeDRenderPipelineState];
-        float angle = app->time;
-
-        glm::vec3 t = glm::vec3(0, 0, 0);
-        glm::quat r = glm::angleAxis(angle, glm::vec3(0, 1, 0));
-        glm::vec3 s = glm::vec3(1, 1, 1);
-
-        glm::mat4 translation = glm::translate(glm::mat4(1), t);
-        glm::mat4 rotation = glm::toMat4(r);
-        glm::mat4 scale = glm::scale(s);
-
-        glm::mat4 transform = translation * rotation * scale;
-
-        InstanceData instance{
-            .localToWorld = glm::mat4(1) //transform
-        };
-        [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
-        [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
-        [encoder
-            drawIndexedPrimitives:MTLPrimitiveTypeTriangle
-            indexCount:app->axes.indexCount
-            indexType:app->axes.indexType
-            indexBuffer:app->axes.indexBuffer
-            indexBufferOffset:0
-            instanceCount:1
-            baseVertex:0
-            baseInstance:0
-        ];
-    }
-
-    // draw UI
-
-    [encoder setCullMode:MTLCullModeBack];
-    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-    [encoder setRenderPipelineState:app->uiRenderPipelineState];
-    [encoder setFragmentTexture:app->fontAtlas.texture atIndex:0];
-
-    // draw text
-    id <MTLBuffer> textBuffer;
-    {
-        // 6 vertices for each character in the string
-        std::vector<VertexData> vertices;
-
-        drawText(app, app->currentText, &vertices, 0, 0, 14);
-
-        // create vertex buffer
-        MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-        textBuffer = [app->device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
-        [textBuffer retain];
-
-        // draw
-        [encoder setVertexBuffer:textBuffer offset:0 atIndex:0];
-        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
-    }
-
-    [encoder endEncoding];
-    assert(app->view.currentDrawable);
-    [cmd presentDrawable:app->view.currentDrawable];
-    [cmd commit];
-
-    [textBuffer release];
 }
 
 void onSizeChanged(App* app, CGSize size)
@@ -981,12 +1061,13 @@ int main(int argc, char const* argv[])
         .windowRect = NSMakeRect(0, 0, 1200, 800),
         .windowMinSize = NSSize{100.0f, 50.0f},
         .sidepanelWidth = 300.0f,
-        .clearColor = MTLClearColorMake(0.5, 0.5, 0.5, 1.0),
+        .clearColor = MTLClearColorMake(0, 1, 1, 1.0),
         .assetsPath = argv[1],
         .fontCharacterMap = fontCharacterMap,
         .cameraFov = 60.0f,
         .cameraNear = 0.1f,
-        .cameraFar = 1000.0f
+        .cameraFar = 1000.0f,
+        .shadowMapSize = 2048
     };
 
     // load text

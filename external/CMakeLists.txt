@@ -9,3 +9,6 @@ target_include_directories(lodepng PUBLIC lodepng)
 
 # glm
 add_subdirectory(glm)
+
+# fmt
+add_subdirectory(fmt)
