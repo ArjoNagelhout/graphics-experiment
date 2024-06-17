@@ -866,16 +866,56 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
 {
     assert(encoder != nullptr);
 
+    // set camera data
+    {
+        CameraData cameraData{
+            .viewProjection = viewProjection
+        };
+        [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:1];
+    }
+
+    // draw terrain
+    {
+        [encoder setCullMode:MTLCullModeBack];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setRenderPipelineState:app->terrainRenderPipelineState];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setFragmentTexture:app->terrainTexture atIndex:0];
+        std::vector<InstanceData> instances{
+            {.localToWorld = glm::scale(glm::vec3(1))},
+            {.localToWorld = glm::translate(glm::vec3(0, 0, 4))},
+        };
+        [encoder setVertexBytes:instances.data() length:instances.size() * sizeof(InstanceData) atIndex:2];
+        [encoder setVertexBuffer:app->terrain.vertexBuffer offset:0 atIndex:0];
+        [encoder
+            drawIndexedPrimitives:MTLPrimitiveTypeTriangleStrip
+            indexCount:app->terrain.indexCount
+            indexType:app->terrain.indexType
+            indexBuffer:app->terrain.indexBuffer
+            indexBufferOffset:0
+            instanceCount:instances.size()
+            baseVertex:0
+            baseInstance:0
+        ];
+    }
 }
 
 // main render loop
 void onDraw(App* app)
 {
+    app->time += 0.025f;
+    if (app->time > 2.0f * (float)pi)
+    {
+        app->time -= 2.0f * (float)pi;
+    }
+
     // update sun transform
     {
-//        app->sunTransform = {
-//            .position = glm::vec3{}
-//        }
+        app->sunTransform = {
+            .position = glm::vec3{0, 0, 0},
+            .rotation = glm::quat{1, 0, 0, 0},
+            .scale = glm::vec3{1}
+        };
     }
 
     // update camera transform
@@ -884,7 +924,7 @@ void onDraw(App* app)
         float currentY = 0.4f + 0.05f * cos(app->time);
         app->cameraTransform = {
             .position = glm::vec3{currentX, currentY, -1.0f},
-            .rotation = glm::quat{1.0f, 0.0f, 0.0f, 0.0f},
+            .rotation = glm::quat{1, 0, 0, 0},
             .scale = glm::vec3{1, 1, 1}
         };
     }
@@ -926,49 +966,14 @@ void onDraw(App* app)
         [encoder setFrontFacingWinding:MTLWindingClockwise];
         [encoder setCullMode:MTLCullModeBack];
 
-        app->time += 0.025f;
-        if (app->time > 2.0f * (float)pi)
-        {
-            app->time -= 2.0f * (float)pi;
-        }
-
-        // calculate camera matrix
+        // calculate camera matrix and draw scene
         {
             CGSize size = app->view.frame.size;
             glm::mat4 projection = glm::perspective(glm::radians(app->config->cameraFov),
                                                     (float)(size.width / size.height),
                                                     app->config->cameraNear, app->config->cameraFar);
             glm::mat4 view = glm::inverse(transformToMatrix(&app->cameraTransform));
-            CameraData cameraData{
-                .viewProjection = projection * view
-            };
-
-            [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:1];
-        }
-
-        // draw terrain
-        {
-            [encoder setCullMode:MTLCullModeBack];
-            [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-            [encoder setRenderPipelineState:app->terrainRenderPipelineState];
-            [encoder setDepthStencilState:app->depthStencilStateDefault];
-            [encoder setFragmentTexture:app->terrainTexture atIndex:0];
-            std::vector<InstanceData> instances{
-                {.localToWorld = glm::scale(glm::vec3(1))},
-                {.localToWorld = glm::translate(glm::vec3(0, 0, 4))},
-            };
-            [encoder setVertexBytes:instances.data() length:instances.size() * sizeof(InstanceData) atIndex:2];
-            [encoder setVertexBuffer:app->terrain.vertexBuffer offset:0 atIndex:0];
-            [encoder
-                drawIndexedPrimitives:MTLPrimitiveTypeTriangleStrip
-                indexCount:app->terrain.indexCount
-                indexType:app->terrain.indexType
-                indexBuffer:app->terrain.indexBuffer
-                indexBufferOffset:0
-                instanceCount:instances.size()
-                baseVertex:0
-                baseInstance:0
-            ];
+            drawScene(app, encoder, projection * view);
         }
 
         // clear depth buffer
@@ -1022,7 +1027,7 @@ void onDraw(App* app)
             std::vector<VertexData> vertices;
 
             glm::vec3& pos = app->cameraTransform.position;
-            std::string a = fmt::format("cameraf ({0:+.3f}, {1:+.3f}, {2:+.3f})", pos.x, pos.y, pos.z);
+            std::string a = fmt::format("camera ({0:+.3f}, {1:+.3f}, {2:+.3f})", pos.x, pos.y, pos.z);
             drawText(app, a, &vertices, 0, 0, 14);
             //drawText(app, app->currentText, &vertices, 0, 14, 14);
 
