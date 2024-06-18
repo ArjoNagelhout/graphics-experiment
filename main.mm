@@ -522,6 +522,7 @@ struct App
     Mesh terrain;
     id <MTLTexture> terrainGreenTexture;
     id <MTLTexture> terrainYellowTexture;
+    id <MTLTexture> waterTexture;
 
     // tree
     Mesh tree;
@@ -1021,7 +1022,7 @@ void onLaunch(App* app)
         app->uiRenderPipeline = createRenderPipeline(app, @"ui_vertex", @"ui_fragment", ShaderFeatureFlags_None);
 
         // specialized
-        app->terrainRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", ShaderFeatureFlags_None);
+        app->terrainRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", ShaderFeatureFlags_AlphaBlend);
 
         // 3D
         app->litRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", ShaderFeatureFlags_None);
@@ -1101,7 +1102,7 @@ void onLaunch(App* app)
 
     // create primitives
     app->cube = createCube(app);
-    app->plane = createPlane(app, RectMinMaxf{-10, -10, 10, 10});
+    app->plane = createPlane(app, RectMinMaxf{-30, -30, 30, 30});
 
     // create axes
     app->axes = createAxes(app);
@@ -1113,6 +1114,13 @@ void onLaunch(App* app)
         .scale = glm::vec3(1, 1, 1)
     };
 
+    // import textures
+    {
+        app->terrainGreenTexture = importTexture(app, app->config->assetsPath / "terrain_green.png");
+        app->terrainYellowTexture = importTexture(app, app->config->assetsPath / "terrain.png");
+        app->waterTexture = importTexture(app, app->config->assetsPath / "water.png");
+    }
+
     // create terrain and trees on terrain
     {
         std::vector<VertexData> vertices{};
@@ -1120,8 +1128,7 @@ void onLaunch(App* app)
         MTLPrimitiveType primitiveType;
         createTerrain(app, RectMinMaxf{-30, -30, 30, 30}, 2000, 2000, &vertices, &indices, &primitiveType);
         app->terrain = createIndexedMesh(app, &vertices, &indices, primitiveType);
-        app->terrainGreenTexture = importTexture(app, app->config->assetsPath / "terrain_green.png");
-        app->terrainYellowTexture = importTexture(app, app->config->assetsPath / "terrain.png");
+
 
         app->tree = createTree(app, 2.0f, 2.0f);
 
@@ -1327,6 +1334,19 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
         drawMeshInstanced(encoder, &app->terrain, &instances);
     }
 
+    // draw water
+    {
+        [encoder setCullMode:MTLCullModeBack];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shadowRenderPipeline : app->terrainRenderPipeline];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setFragmentTexture:app->waterTexture atIndex:0];
+        InstanceData instance{
+            .localToWorld = glm::mat4(1)
+        };
+        drawMesh(encoder, &app->plane, &instance);
+    }
+
     // don't render trees and bushes in the shadow pass, todo: add some way for objects to indicate whether they want to receive shadows
     if (flags & DrawSceneFlags_IsShadowPass)
     {
@@ -1404,12 +1424,12 @@ void onDraw(App* app)
         c.rotation = rotation;
         c.scale = glm::vec3{1, 1, 1};
 
-        float currentX = 4.0f + 0.5f * sin(app->time);
+        float currentX = 0.0f + 0.5f * sin(app->time);
         float currentY = 5.0f + 0.5f * cos(app->time);
         float currentRot = 30.0f + 20.0f * sin(app->time);
         app->sunTransform = {
             .position = glm::vec3{currentX, currentY, -20.0f},
-            .rotation = glm::quat{glm::vec3{glm::radians(currentRot), 0, 0}},
+            .rotation = glm::quat{glm::vec3{glm::radians(currentRot), glm::radians(10.0f), 0}},
             .scale = glm::vec3{1, 1, 1}
         };
     }
@@ -1430,7 +1450,7 @@ void onDraw(App* app)
         assert(encoder);
 
         // draw scene to the shadow map, from the view of the sun
-        glm::mat4 projection = glm::ortho(-30.0f, 30.0f, -20.0f, 20.0f, 1.0f, 50.0f);
+        glm::mat4 projection = glm::ortho(-40.0f, 40.0f, -40.0f, 40.0f, 1.0f, 50.0f);
         glm::mat4 view = glm::inverse(transformToMatrix(&app->sunTransform));
         lightData.lightSpace = projection * view;
         drawScene(app, encoder, lightData.lightSpace, DrawSceneFlags_IsShadowPass);
