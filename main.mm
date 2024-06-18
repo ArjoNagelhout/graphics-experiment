@@ -473,6 +473,7 @@ void createSprites(TextureAtlas* atlas, uint32_t spriteWidth, uint32_t spriteHei
 struct Mesh
 {
     id <MTLBuffer> vertexBuffer;
+    bool indexed;
     id <MTLBuffer> indexBuffer;
     MTLIndexType indexType;
     size_t vertexCount;
@@ -519,6 +520,7 @@ struct App
     id <MTLRenderPipelineState> terrainRenderPipelineState;
     id <MTLRenderPipelineState> threeDTexturedRenderPipelineState;
     id <MTLRenderPipelineState> shadowRenderPipelineState;
+    id <MTLRenderPipelineState> treeRenderPipelineState;
 
     // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
     id <MTLDepthStencilState> depthStencilStateClear;
@@ -542,7 +544,12 @@ struct App
 
     // terrain
     Mesh terrain;
-    id <MTLTexture> terrainTexture;
+    id <MTLTexture> terrainGreenTexture;
+    id <MTLTexture> terrainYellowTexture;
+
+    // tree
+    Mesh tree;
+    id <MTLTexture> treeTexture;
 
     // shadow and lighting
     Transform sunTransform;
@@ -576,13 +583,11 @@ struct App
     return YES;
 }
 
-- (void)keyDown:(NSEvent*)event
-{
+- (void)keyDown:(NSEvent*)event {
     _app->keys[event.keyCode] = true;
 }
 
--(void)keyUp:(NSEvent*)event
-{
+- (void)keyUp:(NSEvent*)event {
     _app->keys[event.keyCode] = false;
 }
 @end
@@ -592,9 +597,12 @@ struct App
     return app->keys[static_cast<unsigned short>(keyCode)];
 }
 
-Mesh createMesh(App* app, std::vector<VertexData>* vertices, std::vector<uint32_t>* indices, MTLPrimitiveType primitiveType)
+[[nodiscard]] Mesh createMesh(App* app, std::vector<VertexData>* vertices, MTLPrimitiveType primitiveType)
 {
     Mesh mesh{};
+    mesh.indexed = false;
+    mesh.indexType = MTLIndexTypeUInt32;
+    mesh.primitiveType = primitiveType;
 
     // create vertex buffer
     MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
@@ -602,24 +610,33 @@ Mesh createMesh(App* app, std::vector<VertexData>* vertices, std::vector<uint32_
     [mesh.vertexBuffer retain];
     mesh.vertexCount = vertices->size();
 
+    return mesh;
+}
+
+[[nodiscard]] Mesh createIndexedMesh(App* app, std::vector<VertexData>* vertices, std::vector<uint32_t>* indices, MTLPrimitiveType primitiveType)
+{
+    Mesh mesh = createMesh(app, vertices, primitiveType);
+
     // create index buffer
+    MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
     mesh.indexBuffer = [app->device newBufferWithBytes:indices->data() length:indices->size() * sizeof(uint32_t) options:options];
     [mesh.indexBuffer retain];
     mesh.indexCount = indices->size();
+    mesh.indexed = true;
 
-    // 16 bits = 2 bytes
-    // 32 bits = 4 bytes
-    mesh.indexType = MTLIndexTypeUInt32;
-    mesh.primitiveType = primitiveType;
     return mesh;
 }
 
 void destroyMesh(Mesh* mesh)
 {
     assert(mesh->vertexBuffer != nullptr);
-    assert(mesh->indexBuffer != nullptr);
     [mesh->vertexBuffer release];
-    [mesh->indexBuffer release];
+
+    if (mesh->indexed)
+    {
+        assert(mesh->indexBuffer != nullptr);
+        [mesh->indexBuffer release];
+    }
 }
 
 id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertexFunctionName, NSString* fragmentFunctionName)
@@ -692,7 +709,7 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
         }
     }
 
-    return createMesh(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
+    return createIndexedMesh(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }
 
 [[nodiscard]] Mesh createCube(App* app)
@@ -731,7 +748,7 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
         0, 3, 2,
         2, 1, 0,
         4, 5, 6,
-        6, 7 ,4,
+        6, 7, 4,
         // left and right
         11, 8, 9,
         9, 10, 11,
@@ -744,16 +761,29 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
         22, 23, 20
     };
 
-    return createMesh(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
+    return createIndexedMesh(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }
 
-[[nodiscard]] Mesh createTerrain(App* app, RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdivisions)
+[[nodiscard]] Mesh createTree(App* app, float width, float height)
+{
+    std::vector<VertexData> vertices{
+        {.position{-width/2, 0, 0, 1}, .uv0{0, 1}},
+        {.position{-width/2, +height, 0, 1}, .uv0{0, 0}},
+        {.position{+width/2, 0, 0, 1}, .uv0{1, 0}},
+        {.position{+width/2, +height, 0, 1}, .uv0{1, 1}},
+    };
+    return createMesh(app, &vertices, MTLPrimitiveTypeTriangleStrip);
+}
+
+void createTerrain(App* app,
+                   RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdivisions,
+                   std::vector<VertexData>* outVertices, std::vector<uint32_t>* outIndices, MTLPrimitiveType* outPrimitiveType)
 {
     float xSize = extents.maxX - extents.minX;
     float zSize = extents.maxY - extents.minY;
     uint32_t xCount = xSubdivisions + 1; // amount of vertices is subdivisions + 1
     uint32_t zCount = zSubdivisions + 1;
-    std::vector<VertexData> vertices(xCount * zCount);
+    outVertices->resize(xCount * zCount);
 
     float xStep = xSize / (float)xSubdivisions;
     float zStep = zSize / (float)zSubdivisions;
@@ -766,31 +796,27 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
             float z = extents.minY + (float)zIndex * zStep;
 
             float y = 0.1f * perlin(x * 8, z * 8) + 2.0f * perlin(x / 2, z / 2) + 10.0f * perlin(x / 9, z / 12);
-            //float derivedY = 0.1f * perlinDerived(x * 8, z * 8) + 2.0f * perlinDerived(x / 2, z / 2) + 3.0f * perlinDerived(x / 9, z / 12);
-            //assert(y == derivedY);
 
-            vertices[zIndex * xCount + xIndex] = VertexData{
+            outVertices->at(zIndex * xCount + xIndex) = VertexData{
                 .position{x, y, z, 1}, .color{0, 1, 0, 1}
             };
         }
     }
 
     // triangle strip
-
-    std::vector<uint32_t> indices{};
     for (uint32_t zIndex = 0; zIndex < zCount - 1; zIndex++)
     {
         for (uint32_t xIndex = 0; xIndex < xCount; xIndex++)
         {
             uint32_t offset = zIndex * xCount;
-            indices.emplace_back(offset + xIndex);
-            indices.emplace_back(offset + xIndex + xCount);
+            outIndices->emplace_back(offset + xIndex);
+            outIndices->emplace_back(offset + xIndex + xCount);
         }
         // reset primitive
-        indices.emplace_back(invalidIndex);
+        outIndices->emplace_back(invalidIndex);
     }
 
-    return createMesh(app, &vertices, &indices, MTLPrimitiveTypeTriangleStrip);
+    *outPrimitiveType = MTLPrimitiveTypeTriangleStrip;
 }
 
 id <MTLTexture> importTexture(App* app, std::filesystem::path const& path)
@@ -938,7 +964,8 @@ void onLaunch(App* app)
             shadersPath / "shader_terrain.metal",
             shadersPath / "shader_clear_depth.metal",
             shadersPath / "shader_3d_textured.metal",
-            shadersPath / "shader_shadow.metal"
+            shadersPath / "shader_shadow.metal",
+            shadersPath / "shader_tree.metal"
         };
         std::stringstream buffer;
         for (std::filesystem::path& path: paths)
@@ -969,6 +996,7 @@ void onLaunch(App* app)
     app->terrainRenderPipelineState = createRenderPipelineState(app, @"terrain_vertex", @"terrain_fragment");
     app->threeDTexturedRenderPipelineState = createRenderPipelineState(app, @"textured_vertex", @"textured_fragment");
     app->shadowRenderPipelineState = createRenderPipelineState(app, @"shadow_vertex", @"shadow_fragment");
+    app->treeRenderPipelineState = createRenderPipelineState(app, @"tree_vertex", @"tree_fragment");
 
     // create depth clear pipeline state and depth stencil state
     {
@@ -1054,10 +1082,23 @@ void onLaunch(App* app)
         .scale = glm::vec3(1, 1, 1)
     };
 
-    // create terrain
-    app->terrain = createTerrain(app, RectMinMaxf{-20, -20, 20, 20}, 1000, 1000);
-    app->terrainTexture = importTexture(app, app->config->assetsPath / "terrain_green.png");
-    [app->terrainTexture retain];
+    // create terrain and trees on terrain
+    {
+
+    }
+
+    std::vector<VertexData> vertices{};
+    std::vector<uint32_t> indices{};
+    MTLPrimitiveType primitiveType;
+    createTerrain(app, RectMinMaxf{-20, -20, 20, 20}, 1000, 1000, &vertices, &indices, &primitiveType);
+    app->terrain = createIndexedMesh(app, &vertices, &indices, primitiveType);
+
+    app->terrainGreenTexture = importTexture(app, app->config->assetsPath / "terrain_green.png");
+    app->terrainYellowTexture = importTexture(app, app->config->assetsPath / "terrain.png");
+
+    app->tree = createTree(app, 1.0f, 1.0f);
+
+    // create tree
 
     // make window active
     [window makeKeyAndOrderFront:NSApp];
@@ -1068,6 +1109,7 @@ void onTerminate(App* app)
     destroyMesh(&app->terrain);
     destroyMesh(&app->axes);
     destroyMesh(&app->cube);
+    destroyMesh(&app->tree);
 
     // shaders
     [app->threeDRenderPipelineState release];
@@ -1075,12 +1117,14 @@ void onTerminate(App* app)
     [app->threeDTexturedRenderPipelineState release];
     [app->clearDepthRenderPipelineState release];
     [app->shadowRenderPipelineState release];
+    [app->treeRenderPipelineState release];
 
     [app->depthStencilStateDefault release];
     [app->depthStencilStateClear release];
 
     [app->fontAtlas.texture release];
-    [app->terrainTexture release];
+    [app->terrainGreenTexture release];
+    [app->terrainYellowTexture release];
     [app->shadowMap release];
 
     // icons
@@ -1184,6 +1228,34 @@ struct DrawSceneOverrides
     id <MTLRenderPipelineState> renderPipeline;
 };
 
+void drawMeshInstanced(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, std::vector<InstanceData>* instances)
+{
+    [encoder setVertexBytes:instances->data() length:instances->size() * sizeof(InstanceData) atIndex:2];
+    [encoder setVertexBuffer:mesh->vertexBuffer offset:0 atIndex:0];
+    if (mesh->indexed)
+    {
+        [encoder
+            drawIndexedPrimitives:mesh->primitiveType
+            indexCount:mesh->indexCount
+            indexType:mesh->indexType
+            indexBuffer:mesh->indexBuffer
+            indexBufferOffset:0
+            instanceCount:instances->size()
+            baseVertex:0
+            baseInstance:0
+        ];
+    }
+    else
+    {
+        [encoder
+            drawPrimitives:mesh->primitiveType
+            vertexStart:0
+            vertexCount:mesh->vertexCount
+            instanceCount:instances->size()
+            baseInstance:0];
+    }
+}
+
 void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewProjection, DrawSceneOverrides overrides)
 {
     assert(encoder != nullptr);
@@ -1200,25 +1272,30 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->terrainRenderPipelineState];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->terrainTexture atIndex:0];
+        [encoder setFragmentTexture:app->terrainGreenTexture atIndex:0];
         std::vector<InstanceData> instances{
             {.localToWorld = glm::mat4(1)}//glm::rotate(app->time, glm::vec3(0, 1, 0))},
 //            {.localToWorld = glm::scale(glm::translate(glm::vec3(0, 0, 9)), glm::vec3(0.5f))},
 //            {.localToWorld = glm::translate(glm::vec3(9, 0, 9))},
 //            {.localToWorld = glm::translate(glm::vec3(9, 0, 0))},
         };
-        [encoder setVertexBytes:instances.data() length:instances.size() * sizeof(InstanceData) atIndex:2];
-        [encoder setVertexBuffer:app->terrain.vertexBuffer offset:0 atIndex:0];
-        [encoder
-            drawIndexedPrimitives:app->terrain.primitiveType
-            indexCount:app->terrain.indexCount
-            indexType:app->terrain.indexType
-            indexBuffer:app->terrain.indexBuffer
-            indexBufferOffset:0
-            instanceCount:instances.size()
-            baseVertex:0
-            baseInstance:0
-        ];
+        drawMeshInstanced(encoder, &app->terrain, &instances);
+    }
+
+    // draw trees
+    {
+        [encoder setCullMode:overrides.overrideCullMode ? overrides.cullMode : MTLCullModeNone];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->terrainRenderPipelineState];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setFragmentTexture:app->terrainYellowTexture atIndex:0];
+        std::vector<InstanceData> instances{
+            {.localToWorld = glm::mat4(1)}//glm::rotate(app->time, glm::vec3(0, 1, 0))},
+//            {.localToWorld = glm::scale(glm::translate(glm::vec3(0, 0, 9)), glm::vec3(0.5f))},
+//            {.localToWorld = glm::translate(glm::vec3(9, 0, 9))},
+//            {.localToWorld = glm::translate(glm::vec3(9, 0, 0))},
+        };
+        drawMeshInstanced(encoder, &app->tree, &instances);
     }
 }
 
@@ -1311,7 +1388,7 @@ void onDraw(App* app)
         assert(encoder);
 
         // draw scene to the shadow map, from the view of the sun
-        glm::mat4 projection = glm::ortho(-30.0f, 30.0f,-20.0f, 20.0f, 1.0f, 50.0f);
+        glm::mat4 projection = glm::ortho(-30.0f, 30.0f, -20.0f, 20.0f, 1.0f, 50.0f);
         glm::mat4 view = glm::inverse(transformToMatrix(&app->sunTransform));
         lightData.lightSpace = projection * view;
         drawScene(app, encoder, lightData.lightSpace, {
