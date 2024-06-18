@@ -1,20 +1,20 @@
 // some things I could implement:
 //
-// shading (PBR, blinn phong etc.)
-// normals (calculate derivatives for perlin noise terrain)
-// skybox
-// lens flare / post-processing
-// fog
-// foliage / tree shader
-// water shader
-// frustum culling
-// LOD system
-// collisions (terrain collider, box collider)
-// chunks
-// scene file format
-// scene / level editor
-// 3d text rendering
-// erosion
+// - [ ] shading (PBR, blinn phong etc.)
+// - [ ] normals (calculate derivatives for perlin noise terrain)
+// - [ ] skybox
+// - [ ] lens flare / post-processing
+// - [ ] fog
+// - [ ] foliage / tree shader
+// - [ ] water shader
+// - [ ] frustum culling
+// - [ ] LOD system
+// - [ ] collisions (terrain collider, box collider)
+// - [ ] chunks
+// - [ ] scene file format
+// - [ ] scene / level editor
+// - [ ] 3d text rendering
+// - [ ] erosion
 
 #include <iostream>
 #include <fstream>
@@ -513,6 +513,7 @@ struct App
 
     // primitives
     Mesh cube;
+    Mesh plane;
 
     // axes
     Mesh axes;
@@ -753,6 +754,17 @@ id <MTLRenderPipelineState> createRenderPipeline(App* app, NSString* vertexFunct
     return createIndexedMesh(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }
 
+[[nodiscard]] Mesh createPlane(App* app, RectMinMaxf extents)
+{
+    std::vector<VertexData> vertices{
+        {.position{extents.minX, 0, extents.minY, 1}, .uv0{0, 1}},
+        {.position{extents.minX, 0, extents.maxY, 1}, .uv0{0, 0}},
+        {.position{extents.maxX, 0, extents.minY, 1}, .uv0{1, 1}},
+        {.position{extents.maxX, 0, extents.maxY, 1}, .uv0{1, 0}},
+    };
+    return createMesh(app, &vertices, MTLPrimitiveTypeTriangleStrip);
+}
+
 [[nodiscard]] Mesh createTree(App* app, float width, float height)
 {
     std::vector<VertexData> vertices{
@@ -879,9 +891,7 @@ float randomFloatZeroOne()
 void onLaunch(App* app)
 {
     // create MTLDevice
-    id <MTLDevice> device = MTLCreateSystemDefaultDevice();
-    app->device = device;
-    [device retain];
+    app->device = MTLCreateSystemDefaultDevice();
 
     // create window
     NSWindow* window = [[NSWindow alloc]
@@ -894,7 +904,6 @@ void onLaunch(App* app)
     [window setBackgroundColor:[NSColor blueColor]];
     [window center];
     app->window = window;
-    [window retain];
 
     // create split view
     NSSplitView* splitView = [[NSSplitView alloc] initWithFrame:window.contentView.frame];
@@ -903,7 +912,6 @@ void onLaunch(App* app)
     [splitView setDividerStyle:NSSplitViewDividerStylePaneSplitter];
     [splitView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     app->splitView = splitView;
-    [splitView retain];
 
     // create metal kit view delegate
     {
@@ -915,7 +923,7 @@ void onLaunch(App* app)
 
     // create metal kit view and add to window
     {
-        MetalView* view = [[MetalView alloc] initWithFrame:splitView.frame device:device];
+        MetalView* view = [[MetalView alloc] initWithFrame:splitView.frame device:app->device];
         view.app = app;
         view.delegate = app->viewDelegate;
         view.clearColor = app->config->clearColor;
@@ -949,7 +957,7 @@ void onLaunch(App* app)
 
     // create command queue
     {
-        id <MTLCommandQueue> commandQueue = [device newCommandQueue];
+        id <MTLCommandQueue> commandQueue = [app->device newCommandQueue];
         app->commandQueue = commandQueue;
         [commandQueue retain];
     }
@@ -959,9 +967,7 @@ void onLaunch(App* app)
         MTLDepthStencilDescriptor* descriptor = [[MTLDepthStencilDescriptor alloc] init];
         descriptor.depthWriteEnabled = YES;
         descriptor.depthCompareFunction = MTLCompareFunctionLess;
-        id <MTLDepthStencilState> depthStencilState = [device newDepthStencilStateWithDescriptor:descriptor];
-        app->depthStencilStateDefault = depthStencilState;
-        [depthStencilState retain];
+        app->depthStencilStateDefault = [app->device newDepthStencilStateWithDescriptor:descriptor];
     }
 
     // create shader library
@@ -999,13 +1005,11 @@ void onLaunch(App* app)
 
         NSError* error = nullptr;
         MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
-        id <MTLLibrary> library = [device newLibraryWithSource:shaderSource options:options error:&error];
+        app->library = [app->device newLibraryWithSource:shaderSource options:options error:&error];
         if (error)
         {
             std::cout << [error.debugDescription cStringUsingEncoding:NSUTF8StringEncoding] << std::endl;
         }
-        app->library = library;
-        [library retain];
     }
 
     // create render pipeline states
@@ -1032,8 +1036,7 @@ void onLaunch(App* app)
         MTLDepthStencilDescriptor* depthStencilDescriptor = [[MTLDepthStencilDescriptor alloc] init];
         depthStencilDescriptor.depthCompareFunction = MTLCompareFunctionAlways; // always write to buffer, no depth test
         depthStencilDescriptor.depthWriteEnabled = YES;
-        app->depthStencilStateClear = [device newDepthStencilStateWithDescriptor:depthStencilDescriptor];
-        [app->depthStencilStateClear retain];
+        app->depthStencilStateClear = [app->device newDepthStencilStateWithDescriptor:depthStencilDescriptor];
 
         MTLRenderPipelineDescriptor* renderPipelineDescriptor = [[MTLRenderPipelineDescriptor alloc] init];
         renderPipelineDescriptor.depthAttachmentPixelFormat = app->view.depthStencilPixelFormat;
@@ -1051,13 +1054,12 @@ void onLaunch(App* app)
         renderPipelineDescriptor.vertexDescriptor = vertexDescriptor;
 
         NSError* error;
-        app->clearDepthRenderPipelineState = [device newRenderPipelineStateWithDescriptor:renderPipelineDescriptor error:&error];
+        app->clearDepthRenderPipelineState = [app->device newRenderPipelineStateWithDescriptor:renderPipelineDescriptor error:&error];
         if (error)
         {
             std::cout << [error.debugDescription cStringUsingEncoding:NSUTF8StringEncoding] << std::endl;
             exit(1);
         }
-        [app->clearDepthRenderPipelineState retain];
     }
 
     // import texture atlas
@@ -1088,8 +1090,7 @@ void onLaunch(App* app)
         descriptor.textureType = MTLTextureType2D;
         descriptor.arrayLength = 1;
         descriptor.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
-        app->shadowMap = [device newTextureWithDescriptor:descriptor];
-        [app->shadowMap retain];
+        app->shadowMap = [app->device newTextureWithDescriptor:descriptor];
     }
 
     // create font
@@ -1098,8 +1099,9 @@ void onLaunch(App* app)
         createFontMap(&app->font, app->config->fontCharacterMap);
     }
 
-    // create cube
+    // create primitives
     app->cube = createCube(app);
+    app->plane = createPlane(app, RectMinMaxf{-10, -10, 10, 10});
 
     // create axes
     app->axes = createAxes(app);
@@ -1244,14 +1246,6 @@ void clearDepthBuffer(App* app, id <MTLRenderCommandEncoder> encoder)
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
-struct DrawSceneOverrides
-{
-    bool overrideCullMode;
-    bool overrideRenderPipeline;
-    MTLCullMode cullMode;
-    id <MTLRenderPipelineState> renderPipeline;
-};
-
 void drawMesh(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, InstanceData* instance)
 {
     [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:2];
@@ -1301,7 +1295,13 @@ void drawMeshInstanced(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, std::ve
     }
 }
 
-void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewProjection, DrawSceneOverrides overrides)
+enum DrawSceneFlags_
+{
+    DrawSceneFlags_None = 0,
+    DrawSceneFlags_IsShadowPass = 1 << 0
+};
+
+void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewProjection, DrawSceneFlags_ flags)
 {
     assert(encoder != nullptr);
 
@@ -1313,9 +1313,9 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
 
     // draw terrain
     {
-        [encoder setCullMode:overrides.overrideCullMode ? overrides.cullMode : MTLCullModeBack];
+        [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->terrainRenderPipeline];
+        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shadowRenderPipeline : app->terrainRenderPipeline];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->terrainGreenTexture atIndex:0];
         std::vector<InstanceData> instances{
@@ -1327,25 +1327,31 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
         drawMeshInstanced(encoder, &app->terrain, &instances);
     }
 
+    // don't render trees and bushes in the shadow pass, todo: add some way for objects to indicate whether they want to receive shadows
+    if (flags & DrawSceneFlags_IsShadowPass)
+    {
+        return;
+    }
+
     // draw trees
     {
-        [encoder setCullMode:overrides.overrideCullMode ? overrides.cullMode : MTLCullModeNone];
+        [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->litAlphaBlendRenderPipeline];
+        [encoder setRenderPipelineState:app->litAlphaBlendRenderPipeline];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->treeTexture atIndex:0];
         drawMeshInstanced(encoder, &app->tree, &app->treeInstances);
     }
 
     // draw shrubs
-//    {
-//        [encoder setCullMode:overrides.overrideCullMode ? overrides.cullMode : MTLCullModeNone];
-//        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-//        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->treeRenderPipelineState];
-//        [encoder setDepthStencilState:app->depthStencilStateDefault];
-//        [encoder setFragmentTexture:app->shrubTexture atIndex:0];
-//        drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
-//    }
+    {
+        [encoder setCullMode:MTLCullModeNone];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setRenderPipelineState:app->litAlphaBlendRenderPipeline];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setFragmentTexture:app->shrubTexture atIndex:0];
+        drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
+    }
 }
 
 void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transform)
@@ -1427,10 +1433,7 @@ void onDraw(App* app)
         glm::mat4 projection = glm::ortho(-30.0f, 30.0f, -20.0f, 20.0f, 1.0f, 50.0f);
         glm::mat4 view = glm::inverse(transformToMatrix(&app->sunTransform));
         lightData.lightSpace = projection * view;
-        drawScene(app, encoder, lightData.lightSpace, {
-            .overrideRenderPipeline = true,
-            .renderPipeline = app->shadowRenderPipeline
-        });
+        drawScene(app, encoder, lightData.lightSpace, DrawSceneFlags_IsShadowPass);
         [encoder endEncoding];
         [cmd commit];
     }
@@ -1460,7 +1463,7 @@ void onDraw(App* app)
             [encoder setFragmentTexture:app->shadowMap atIndex:1];
             [encoder setVertexBytes:&lightData length:sizeof(LightData) atIndex:3];
 
-            drawScene(app, encoder, projection * view, {});
+            drawScene(app, encoder, projection * view, DrawSceneFlags_None);
         }
 
         // clear depth buffer
@@ -1525,7 +1528,7 @@ void onDraw(App* app)
             std::string b = fmt::format("sun ({0:+.3f}, {1:+.3f}, {2:+.3f})", pos->x, pos->y, pos->z);
             addText(app, b, &vertices, 0, 14, 14);
 
-            //addText(app, app->currentText, &vertices, 600, 14, 12);
+            //addText(app, app->currentText, &vertices, 600, 14, 8);
 
             // create vertex buffer
             MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
@@ -1589,11 +1592,8 @@ int main(int argc, char const* argv[])
 
     AppDelegate* appDelegate = [[AppDelegate alloc] init];
     appDelegate.app = &app;
-    [appDelegate retain];
     NSApplication* nsApp = [NSApplication sharedApplication];
     [nsApp setDelegate:appDelegate];
     [nsApp run];
-    [nsApp release];
-    [appDelegate release];
     return 0;
 }
