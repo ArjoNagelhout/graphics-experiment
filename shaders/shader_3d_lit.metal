@@ -1,4 +1,4 @@
-vertex RasterizerData tree_vertex(
+vertex RasterizerData lit_vertex(
     uint vertexID [[vertex_id]],
     uint instanceID [[instance_id]],
     device VertexData const* vertices [[buffer(0)]],
@@ -19,11 +19,28 @@ vertex RasterizerData tree_vertex(
     return out;
 }
 
-fragment half4 tree_fragment(
+fragment half4 lit_fragment(
     RasterizerData in [[stage_in]],
-    texture2d< half, access::sample > tex [[texture(0)]])
+    texture2d<half, access::sample> texture [[texture(0)]],
+    depth2d<float, access::sample> shadowMap [[texture(1)]])
 {
     constexpr sampler s(address::repeat, filter::nearest);
 
-    return tex.sample(s, in.uv0);
+    // base color
+    half4 textured = texture.sample(s, in.uv0);
+    float textureAlpha = textured.w;
+
+    // shadow
+    half4 shadowColor = half4(27.f/255.f, 55.f/255.f, 117.f/255.f, 1.f);
+    float shadowOpacity = 0.7f;
+    float isInLight = calculateIsInLight(in.fragmentPositionLightSpace, shadowMap);
+    float shadowAmount = clamp(shadowOpacity - isInLight, 0.0f, 1.0f);
+    half4 shadowed = mix(textured, shadowColor, shadowAmount);
+
+    // fog
+    half4 fogColor = half4(0, 1, 1, 1);
+    float fog = (in.position.z / in.position.w) * 0.02;
+
+    // fix alpha
+    return half4(mix(shadowed, fogColor, fog).xyz, textureAlpha);
 }

@@ -18,29 +18,3 @@ vertex RasterizerData terrain_vertex(
     out.uv0 = data.position.xz;
     return out;
 }
-
-fragment half4 terrain_fragment(
-    RasterizerData in [[stage_in]],
-    texture2d<half, access::sample> texture [[texture(0)]],
-    depth2d<float, access::sample> shadowMap [[texture(1)]])
-{
-    constexpr sampler s(address::repeat, filter::nearest);
-
-    // base color
-    half4 terrainColor = texture.sample(s, in.uv0);
-
-    // shadow
-    half4 shadowColor = half4(27.f/255.f, 55.f/255.f, 117.f/255.f, 1.f);
-    float shadowOpacity = 0.7f;
-    float isInLight = calculateIsInLight(in.fragmentPositionLightSpace, shadowMap);
-    float shadowAmount = clamp(shadowOpacity - isInLight, 0.0f, 1.0f);
-    half4 shadowedTerrain = mix(terrainColor, shadowColor, shadowAmount);
-
-    // fog
-    half4 fogColor = half4(0, 1, 1, 1);
-    float fog = (in.position.z / in.position.w) * 0.02;
-
-    // fix alpha
-    half4 final = mix(shadowedTerrain, fogColor, fog);
-    return half4(final.xyz, terrainColor.w);
-}

@@ -395,42 +395,6 @@ struct RectMinMaxi
     return value; // Will return in range -1 to 1. To make it in range 0 to 1, multiply by 0.5 and add 0.5
 }
 
-// replace:
-// a0, a1, w
-// perlinInterpolate(a0, a2, w):
-// return (a1 - a0) * ((w * (w * 6.0f - 15.0f) + 10.0f) * w * w * w) + a0;
-[[nodiscard]] float perlinDerived(float x, float y)
-{
-    // Determine grid cell coordinates
-    int x0 = (int)floor(x);
-    int x1 = x0 + 1;
-    int y0 = (int)floor(y);
-    int y1 = y0 + 1;
-
-    // Determine interpolation weights
-    // Could also use higher order polynomial/s-curve here
-    float sx = x - (float)x0;
-    float sy = y - (float)y0;
-
-    // Interpolate between grid point gradients
-    float n0 = perlinDotGridGradient(x0, y0, x, y);
-    float n1 = perlinDotGridGradient(x1, y0, x, y);
-
-    //float ix0 = perlinInterpolate(n0, n1, sx);
-    float ix0 = (n1 - n0) * ((sx * (sx * 6.0f - 15.0f) + 10.0f) * sx * sx * sx) + n0;
-
-    float n0_1 = perlinDotGridGradient(x0, y1, x, y);
-    float n1_1 = perlinDotGridGradient(x1, y1, x, y);
-
-    //float ix1 = perlinInterpolate(n0_1, n1_1, sx);
-    float ix1 = (n1_1 - n0_1) * ((sx * (sx * 6.0f - 15.0f) + 10.0f) * sx * sx * sx) + n0_1;
-
-    // float value = perlinInterpolate(ix0, ix1, sy);
-    float value = (ix1 - ix0) * ((sy * (sy * 6.0f - 15.0f) + 10.0f) * sy * sy * sy) + ix0;
-
-    return value;
-}
-
 // texture coordinates: (top left = 0, 0) (bottom right = 1, 1)
 RectMinMaxf spriteToTextureCoords(id <MTLTexture> texture, Sprite* sprite)
 {
@@ -521,16 +485,20 @@ struct App
     id <MTLDepthStencilState> depthStencilStateDefault;
 
     // shaders
-    id <MTLRenderPipelineState> uiRenderPipelineState;
-    id <MTLRenderPipelineState> threeDRenderPipelineState;
-    id <MTLRenderPipelineState> terrainRenderPipelineState;
-    id <MTLRenderPipelineState> threeDTexturedRenderPipelineState;
-    id <MTLRenderPipelineState> shadowRenderPipelineState;
-    id <MTLRenderPipelineState> treeRenderPipelineState;
+    id <MTLRenderPipelineState> clearDepthRenderPipelineState;
+    id <MTLRenderPipelineState> shadowRenderPipeline;
+
+    id <MTLRenderPipelineState> uiRenderPipeline;
+
+    id <MTLRenderPipelineState> terrainRenderPipeline;
+
+    id <MTLRenderPipelineState> litRenderPipeline;
+    id <MTLRenderPipelineState> unlitRenderPipeline;
+    id <MTLRenderPipelineState> litAlphaBlendRenderPipeline;
+    id <MTLRenderPipelineState> unlitAlphaBlendRenderPipeline;
 
     // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
     id <MTLDepthStencilState> depthStencilStateClear;
-    id <MTLRenderPipelineState> clearDepthRenderPipelineState;
 
     // font rendering
     TextureAtlas fontAtlas;
@@ -649,7 +617,7 @@ void destroyMesh(Mesh* mesh)
     }
 }
 
-id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertexFunctionName, NSString* fragmentFunctionName, ShaderFeatureFlags_ features)
+id <MTLRenderPipelineState> createRenderPipeline(App* app, NSString* vertexFunctionName, NSString* fragmentFunctionName, ShaderFeatureFlags_ features)
 {
     // use function specialization to create shader variants
     id <MTLFunction> vertexFunction = [app->library newFunctionWithName:vertexFunctionName];
@@ -885,7 +853,6 @@ id <MTLTexture> importTexture(App* app, std::filesystem::path const& path)
     return texture;
 }
 
-
 // works, but not the best, see: https://stackoverflow.com/questions/12657962/how-do-i-generate-a-random-number-between-two-variables-that-i-have-stored
 int randomInt(int min, int max)
 {
@@ -1002,13 +969,20 @@ void onLaunch(App* app)
         std::filesystem::path shadersPath = app->config->assetsPath / "shaders";
         std::vector<std::filesystem::path> paths{
             shadersPath / "shader_common.h",
-            shadersPath / "shader_3d.metal",
-            shadersPath / "shader_ui.metal",
-            shadersPath / "shader_terrain.metal",
+
+            // utility
             shadersPath / "shader_clear_depth.metal",
-            shadersPath / "shader_3d_textured.metal",
             shadersPath / "shader_shadow.metal",
-            shadersPath / "shader_tree.metal"
+
+            // UI and 2D
+            shadersPath / "shader_ui.metal",
+
+            // specialized
+            shadersPath / "shader_terrain.metal",
+
+            // 3D
+            shadersPath / "shader_3d_lit.metal",
+            shadersPath / "shader_3d_unlit.metal"
         };
         std::stringstream buffer;
         for (std::filesystem::path& path: paths)
@@ -1034,12 +1008,22 @@ void onLaunch(App* app)
     }
 
     // create render pipeline states
-    app->uiRenderPipelineState = createRenderPipelineState(app, @"ui_vertex", @"ui_fragment", ShaderFeatureFlags_None);
-    app->threeDRenderPipelineState = createRenderPipelineState(app, @"main_vertex", @"main_fragment", ShaderFeatureFlags_None);
-    app->terrainRenderPipelineState = createRenderPipelineState(app, @"terrain_vertex", @"terrain_fragment", ShaderFeatureFlags_None);
-    app->threeDTexturedRenderPipelineState = createRenderPipelineState(app, @"textured_vertex", @"textured_fragment", ShaderFeatureFlags_AlphaBlend);
-    app->shadowRenderPipelineState = createRenderPipelineState(app, @"shadow_vertex", @"shadow_fragment", ShaderFeatureFlags_None);
-    app->treeRenderPipelineState = createRenderPipelineState(app, @"tree_vertex", @"tree_fragment", ShaderFeatureFlags_AlphaBlend);
+    {
+        // utility
+        app->shadowRenderPipeline = createRenderPipeline(app, @"shadow_vertex", @"shadow_fragment", ShaderFeatureFlags_None);
+
+        // 2D / UI
+        app->uiRenderPipeline = createRenderPipeline(app, @"ui_vertex", @"ui_fragment", ShaderFeatureFlags_None);
+
+        // specialized
+        app->terrainRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", ShaderFeatureFlags_None);
+
+        // 3D
+        app->litRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", ShaderFeatureFlags_None);
+        app->litAlphaBlendRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", ShaderFeatureFlags_AlphaBlend);
+        app->unlitRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_fragment", ShaderFeatureFlags_None);
+        app->unlitAlphaBlendRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_fragment", ShaderFeatureFlags_AlphaBlend);
+    }
 
     // create depth clear pipeline state and depth stencil state
     {
@@ -1174,40 +1158,7 @@ void onLaunch(App* app)
 
 void onTerminate(App* app)
 {
-    destroyMesh(&app->terrain);
-    destroyMesh(&app->axes);
-    destroyMesh(&app->cube);
-    destroyMesh(&app->tree);
 
-    // shaders
-    [app->threeDRenderPipelineState release];
-    [app->uiRenderPipelineState release];
-    [app->threeDTexturedRenderPipelineState release];
-    [app->clearDepthRenderPipelineState release];
-    [app->shadowRenderPipelineState release];
-    [app->treeRenderPipelineState release];
-
-    [app->depthStencilStateDefault release];
-    [app->depthStencilStateClear release];
-
-    [app->fontAtlas.texture release];
-    [app->terrainGreenTexture release];
-    [app->terrainYellowTexture release];
-    [app->treeTexture release];
-    [app->shrubTexture release];
-    [app->shadowMap release];
-
-    // icons
-    [app->iconSunTexture release];
-
-
-    [app->view release];
-    [app->sidepanel release];
-    [app->splitView release];
-    [app->window release];
-    [app->commandQueue release];
-    [app->device release];
-    [app->viewDelegate release];
 }
 
 void addQuad(App* app, std::vector<VertexData>* vertices, RectMinMaxf position, RectMinMaxf uv)
@@ -1341,7 +1292,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
     {
         [encoder setCullMode:overrides.overrideCullMode ? overrides.cullMode : MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->terrainRenderPipelineState];
+        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->terrainRenderPipeline];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->terrainGreenTexture atIndex:0];
         std::vector<InstanceData> instances{
@@ -1357,7 +1308,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
     {
         [encoder setCullMode:overrides.overrideCullMode ? overrides.cullMode : MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->treeRenderPipelineState];
+        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->litAlphaBlendRenderPipeline];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->treeTexture atIndex:0];
         drawMeshInstanced(encoder, &app->tree, &app->treeInstances);
@@ -1379,7 +1330,7 @@ void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transfor
     [encoder setCullMode:MTLCullModeNone];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
-    [encoder setRenderPipelineState:app->threeDRenderPipelineState];
+    [encoder setRenderPipelineState:app->unlitRenderPipeline];
     InstanceData instance{
         .localToWorld = transform
     };
@@ -1400,7 +1351,7 @@ void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transfor
 // main render loop
 void onDraw(App* app)
 {
-    app->time += 0.025f;
+    app->time += 0.015f;
     if (app->time > 2.0f * pi_)
     {
         app->time -= 2.0f * pi_;
@@ -1468,7 +1419,7 @@ void onDraw(App* app)
         lightData.lightSpace = projection * view;
         drawScene(app, encoder, lightData.lightSpace, {
             .overrideRenderPipeline = true,
-            .renderPipeline = app->shadowRenderPipelineState
+            .renderPipeline = app->shadowRenderPipeline
         });
         [encoder endEncoding];
         [cmd commit];
@@ -1510,7 +1461,7 @@ void onDraw(App* app)
             [encoder setCullMode:MTLCullModeNone];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
-            [encoder setRenderPipelineState:app->threeDTexturedRenderPipelineState];
+            [encoder setRenderPipelineState:app->unlitAlphaBlendRenderPipeline];
             [encoder setFragmentTexture:app->iconSunTexture atIndex:0];
 
             InstanceData instance{
@@ -1541,7 +1492,7 @@ void onDraw(App* app)
         {
             [encoder setCullMode:MTLCullModeBack];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-            [encoder setRenderPipelineState:app->uiRenderPipelineState];
+            [encoder setRenderPipelineState:app->uiRenderPipeline];
             [encoder setFragmentTexture:app->shadowMap atIndex:0];
 
             RectMinMaxf position = pixelCoordsToNDC(app, {0, 28, 400, 400});
@@ -1561,7 +1512,7 @@ void onDraw(App* app)
         // draw text (2D, on-screen)
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->uiRenderPipelineState];
+        [encoder setRenderPipelineState:app->uiRenderPipeline];
         [encoder setFragmentTexture:app->fontAtlas.texture atIndex:0];
 
         id <MTLBuffer> textBuffer;

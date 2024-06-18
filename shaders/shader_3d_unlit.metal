@@ -1,4 +1,4 @@
-vertex RasterizerData textured_vertex(
+vertex RasterizerData unlit_vertex(
     uint vertexID [[vertex_id]],
     uint instanceID [[instance_id]],
     device VertexData const* vertices [[buffer(0)]],
@@ -16,11 +16,12 @@ vertex RasterizerData textured_vertex(
     return out;
 }
 
-fragment half4 textured_fragment(
+fragment half4 unlit_fragment(
     RasterizerData in [[stage_in]],
     texture2d< half, access::sample > tex [[texture(0)]])
 {
     constexpr sampler s(address::repeat, filter::nearest);
 
+    return half4(in.color);
     return tex.sample(s, in.uv0);
 }
