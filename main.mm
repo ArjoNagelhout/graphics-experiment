@@ -1176,7 +1176,7 @@ void onLaunch(App* app)
             int index = randomInt(0, maxIndex);
             VertexData& v = vertices[index];
             app->shrubInstances[i] = InstanceData{
-                .localToWorld = glm::scale(glm::translate(glm::vec3(v.position.x, v.position.y, v.position.z)), glm::vec3(randomFloatMinMax(0.2f, 0.5f)))
+                .localToWorld = glm::scale(glm::translate(glm::vec3(v.position.x, v.position.y, v.position.z)), glm::vec3(randomFloatMinMax(0.2f, 0.8f)))
             };
         }
 
