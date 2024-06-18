@@ -7,7 +7,7 @@ struct RasterizerData
     float4 position [[position]];
     float4 color;
     float2 uv0;
-
+    float4 normal;
     float4 fragmentPosition;
     float4 fragmentPositionLightSpace;
 };
@@ -15,6 +15,7 @@ struct RasterizerData
 struct VertexData
 {
     float4 position;
+    float4 normal;
     float4 color;
     float2 uv0;
 };

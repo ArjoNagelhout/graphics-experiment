@@ -1,3 +1,21 @@
+// some things I could implement:
+//
+// shading (PBR, blinn phong etc.)
+// normals (calculate derivatives for perlin noise terrain)
+// skybox
+// lens flare / post-processing
+// fog
+// foliage / tree shader
+// water shader
+// frustum culling
+// LOD system
+// collisions (terrain collider, box collider)
+// chunks
+// scene file format
+// scene / level editor
+// 3d text rendering
+// erosion
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -33,7 +51,9 @@ void onDraw(App*);
 
 void onSizeChanged(App*, CGSize size);
 
+// constants
 uint32_t invalidIndex = 0xFFFFFFFF;
+float pi_ = 3.14159265359f;
 
 // implements NSApplicationDelegate protocol
 // @interface means defining a subclass
@@ -235,6 +255,7 @@ struct AppConfig
 struct VertexData
 {
     simd_float4 position;
+    simd_float4 normal;
     simd_float4 color;
     simd_float2 uv0;
 };
@@ -366,6 +387,42 @@ struct RectMinMaxi
 
     value = perlinInterpolate(ix0, ix1, sy);
     return value; // Will return in range -1 to 1. To make it in range 0 to 1, multiply by 0.5 and add 0.5
+}
+
+// replace:
+// a0, a1, w
+// perlinInterpolate(a0, a2, w):
+// return (a1 - a0) * ((w * (w * 6.0f - 15.0f) + 10.0f) * w * w * w) + a0;
+[[nodiscard]] float perlinDerived(float x, float y)
+{
+    // Determine grid cell coordinates
+    int x0 = (int)floor(x);
+    int x1 = x0 + 1;
+    int y0 = (int)floor(y);
+    int y1 = y0 + 1;
+
+    // Determine interpolation weights
+    // Could also use higher order polynomial/s-curve here
+    float sx = x - (float)x0;
+    float sy = y - (float)y0;
+
+    // Interpolate between grid point gradients
+    float n0 = perlinDotGridGradient(x0, y0, x, y);
+    float n1 = perlinDotGridGradient(x1, y0, x, y);
+
+    //float ix0 = perlinInterpolate(n0, n1, sx);
+    float ix0 = (n1 - n0) * ((sx * (sx * 6.0f - 15.0f) + 10.0f) * sx * sx * sx) + n0;
+
+    float n0_1 = perlinDotGridGradient(x0, y1, x, y);
+    float n1_1 = perlinDotGridGradient(x1, y1, x, y);
+
+    //float ix1 = perlinInterpolate(n0_1, n1_1, sx);
+    float ix1 = (n1_1 - n0_1) * ((sx * (sx * 6.0f - 15.0f) + 10.0f) * sx * sx * sx) + n0_1;
+
+    // float value = perlinInterpolate(ix0, ix1, sy);
+    float value = (ix1 - ix0) * ((sy * (sy * 6.0f - 15.0f) + 10.0f) * sy * sy * sy) + ix0;
+
+    return value;
 }
 
 // texture coordinates: (top left = 0, 0) (bottom right = 1, 1)
@@ -709,6 +766,8 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
             float z = extents.minY + (float)zIndex * zStep;
 
             float y = 0.1f * perlin(x * 8, z * 8) + 2.0f * perlin(x / 2, z / 2) + 3.0f * perlin(x / 9, z / 12);
+            float derivedY = 0.1f * perlinDerived(x * 8, z * 8) + 2.0f * perlinDerived(x / 2, z / 2) + 3.0f * perlinDerived(x / 9, z / 12);
+            assert(y == derivedY);
 
             vertices[zIndex * xCount + xIndex] = VertexData{
                 .position{x, y, z, 1}, .color{0, 1, 0, 1}
@@ -843,7 +902,7 @@ void onLaunch(App* app)
         NSTextView* textView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, app->config->sidepanelWidth, splitView.frame.size.height)];
         [textView setDelegate:app->textViewDelegate];
         [textView setAutomaticTextCompletionEnabled:NO];
-        [textView setString:[[NSString alloc] initWithCString:app->currentText.c_str()]];
+        [textView setString:[[NSString alloc] initWithCString:app->currentText.c_str() encoding:NSUTF8StringEncoding]];
         [splitView addSubview:textView];
         app->sidepanel = textView;
         [textView retain];
@@ -891,7 +950,7 @@ void onLaunch(App* app)
         }
 
         std::string s = buffer.str();
-        NSString* shaderSource = [NSString stringWithCString:s.c_str()];
+        NSString* shaderSource = [NSString stringWithCString:s.c_str() encoding:NSUTF8StringEncoding];
 
         NSError* error = nullptr;
         MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
@@ -997,7 +1056,7 @@ void onLaunch(App* app)
 
     // create terrain
     app->terrain = createTerrain(app, RectMinMaxf{-20, -20, 20, 20}, 1000, 1000);
-    app->terrainTexture = importTexture(app, app->config->assetsPath / "terrain.png");
+    app->terrainTexture = importTexture(app, app->config->assetsPath / "terrain_green.png");
     [app->terrainTexture retain];
 
     // make window active
@@ -1117,7 +1176,15 @@ void clearDepthBuffer(App* app, id <MTLRenderCommandEncoder> encoder)
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
-void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewProjection, id <MTLRenderPipelineState> pipelineOverride)
+struct DrawSceneOverrides
+{
+    bool overrideCullMode;
+    bool overrideRenderPipeline;
+    MTLCullMode cullMode;
+    id <MTLRenderPipelineState> renderPipeline;
+};
+
+void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewProjection, DrawSceneOverrides overrides)
 {
     assert(encoder != nullptr);
 
@@ -1129,13 +1196,13 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
 
     // draw terrain
     {
-        [encoder setCullMode:MTLCullModeBack];
+        [encoder setCullMode:overrides.overrideCullMode ? overrides.cullMode : MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:pipelineOverride == nullptr ? app->terrainRenderPipelineState : pipelineOverride];
+        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->terrainRenderPipelineState];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->terrainTexture atIndex:0];
         std::vector<InstanceData> instances{
-            {.localToWorld = glm::rotate(glm::radians(45.0f), glm::vec3(0, 1, 0))},
+            {.localToWorld = glm::rotate(app->time, glm::vec3(0, 1, 0))},
 //            {.localToWorld = glm::scale(glm::translate(glm::vec3(0, 0, 9)), glm::vec3(0.5f))},
 //            {.localToWorld = glm::translate(glm::vec3(9, 0, 9))},
 //            {.localToWorld = glm::translate(glm::vec3(9, 0, 0))},
@@ -1181,10 +1248,10 @@ void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transfor
 // main render loop
 void onDraw(App* app)
 {
-    app->time += 0.025f;
-    if (app->time > 2.0f * (float)pi)
+    app->time += 0.005f;
+    if (app->time > 2.0f * pi_)
     {
-        app->time -= 2.0f * (float)pi;
+        app->time -= 2.0f * pi_;
     }
 
     // update sun and camera transform
@@ -1247,8 +1314,10 @@ void onDraw(App* app)
         glm::mat4 projection = glm::ortho(-30.0f, 30.0f,-20.0f, 20.0f, 1.0f, 50.0f);
         glm::mat4 view = glm::inverse(transformToMatrix(&app->sunTransform));
         lightData.lightSpace = projection * view;
-        drawScene(app, encoder, lightData.lightSpace, app->shadowRenderPipelineState);
-
+        drawScene(app, encoder, lightData.lightSpace, {
+            .overrideRenderPipeline = true,
+            .renderPipeline = app->shadowRenderPipelineState
+        });
         [encoder endEncoding];
         [cmd commit];
     }
@@ -1278,7 +1347,7 @@ void onDraw(App* app)
             [encoder setFragmentTexture:app->shadowMap atIndex:1];
             [encoder setVertexBytes:&lightData length:sizeof(LightData) atIndex:3];
 
-            drawScene(app, encoder, projection * view, nullptr);
+            drawScene(app, encoder, projection * view, {});
         }
 
         // clear depth buffer
