@@ -981,8 +981,8 @@ void onLaunch(App* app)
             shadersPath / "shader_terrain.metal",
 
             // 3D
-            shadersPath / "shader_3d_lit.metal",
-            shadersPath / "shader_3d_unlit.metal"
+            shadersPath / "shader_lit.metal",
+            shadersPath / "shader_unlit.metal"
         };
         std::stringstream buffer;
         for (std::filesystem::path& path: paths)
