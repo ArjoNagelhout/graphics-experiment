@@ -1,26 +1,3 @@
-float calculateIsInLight(float4 positionLightSpace, depth2d<float, access::sample> texture)
-{
-    // perform perspective divide
-    float3 projected = positionLightSpace.xyz / positionLightSpace.w;
-
-    // transform from NDC (between -1 and 1) to texture coordinates (between 0 and 1)
-    float4x4 toTextureCoordinates(
-        0.5, 0.0, 0.0, 0.0,
-        0.0, -0.5, 0.0, 0.0, // flipped y axis
-        0.0, 0.0, 0.5, 0.0,
-        0.5, 0.5, 0.5, 1.0
-    );
-
-    float3 textureCoordinates = (toTextureCoordinates * float4(projected, 1)).xyz;
-
-    // get depth of current fragment from light's perspective
-    float depthOfThisFragment = projected.z - 0.001;
-
-    constexpr sampler s(address::clamp_to_edge, filter::linear, compare_func::less_equal);
-    float shadow = texture.sample_compare(s, textureCoordinates.xy, depthOfThisFragment);
-    return shadow;
-}
-
 vertex RasterizerData terrain_vertex(
     uint vertexID [[vertex_id]],
     uint instanceID [[instance_id]],
@@ -62,5 +39,8 @@ fragment half4 terrain_fragment(
     // fog
     half4 fogColor = half4(0, 1, 1, 1);
     float fog = (in.position.z / in.position.w) * 0.02;
-    return mix(shadowedTerrain, fogColor, fog);
+
+    // fix alpha
+    half4 final = mix(shadowedTerrain, fogColor, fog);
+    return half4(final.xyz, terrainColor.w);
 }

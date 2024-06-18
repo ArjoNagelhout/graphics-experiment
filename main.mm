@@ -238,6 +238,12 @@ enum class CocoaKeyCode : unsigned short
     Last = kVK_UpArrow
 };
 
+enum ShaderFeatureFlags_
+{
+    ShaderFeatureFlags_None = 0,
+    ShaderFeatureFlags_AlphaBlend = 1 << 0
+};
+
 struct AppConfig
 {
     NSRect windowRect;
@@ -643,7 +649,7 @@ void destroyMesh(Mesh* mesh)
     }
 }
 
-id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertexFunctionName, NSString* fragmentFunctionName)
+id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertexFunctionName, NSString* fragmentFunctionName, ShaderFeatureFlags_ features)
 {
     // use function specialization to create shader variants
     id <MTLFunction> vertexFunction = [app->library newFunctionWithName:vertexFunctionName];
@@ -654,6 +660,16 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
     MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
     descriptor.vertexFunction = vertexFunction;
     descriptor.fragmentFunction = fragmentFunction;
+    if (features & ShaderFeatureFlags_AlphaBlend)
+    {
+        [descriptor.colorAttachments[0] setBlendingEnabled: YES];
+        descriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+        descriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+        descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+        descriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+        descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    }
     id <CAMetalDrawable> drawable = [app->view currentDrawable];
     descriptor.colorAttachments[0].pixelFormat = drawable.texture.pixelFormat;
 
@@ -1018,44 +1034,12 @@ void onLaunch(App* app)
     }
 
     // create render pipeline states
-    app->uiRenderPipelineState = createRenderPipelineState(app, @"ui_vertex", @"ui_fragment");
-    app->threeDRenderPipelineState = createRenderPipelineState(app, @"main_vertex", @"main_fragment");
-    app->terrainRenderPipelineState = createRenderPipelineState(app, @"terrain_vertex", @"terrain_fragment");
-    app->threeDTexturedRenderPipelineState = createRenderPipelineState(app, @"textured_vertex", @"textured_fragment");
-    app->shadowRenderPipelineState = createRenderPipelineState(app, @"shadow_vertex", @"shadow_fragment");
-
-    //app->treeRenderPipelineState = createRenderPipelineState(app, @"tree_vertex", @"tree_fragment");
-    // create tree render pipeline state
-    {
-        // use function specialization to create shader variants
-        id <MTLFunction> vertexFunction = [app->library newFunctionWithName:@"tree_vertex"];
-        assert(vertexFunction != nullptr);
-        id <MTLFunction> fragmentFunction = [app->library newFunctionWithName:@"tree_fragment"];
-        assert(fragmentFunction != nullptr);
-
-        MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
-        descriptor.vertexFunction = vertexFunction;
-        descriptor.fragmentFunction = fragmentFunction;
-        id <CAMetalDrawable> drawable = [app->view currentDrawable];
-        descriptor.colorAttachments[0].pixelFormat = drawable.texture.pixelFormat;
-        [descriptor.colorAttachments[0] setBlendingEnabled: YES];
-        descriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
-        descriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
-        descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
-        descriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-        descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
-        descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-
-        NSError* error = nullptr;
-        app->treeRenderPipelineState = [app->device newRenderPipelineStateWithDescriptor:descriptor error:&error];
-        if (error)
-        {
-            std::cout << [error.debugDescription cStringUsingEncoding:NSUTF8StringEncoding] << std::endl;
-            exit(1);
-        }
-        [vertexFunction release];
-        [fragmentFunction release];
-    }
+    app->uiRenderPipelineState = createRenderPipelineState(app, @"ui_vertex", @"ui_fragment", ShaderFeatureFlags_None);
+    app->threeDRenderPipelineState = createRenderPipelineState(app, @"main_vertex", @"main_fragment", ShaderFeatureFlags_None);
+    app->terrainRenderPipelineState = createRenderPipelineState(app, @"terrain_vertex", @"terrain_fragment", ShaderFeatureFlags_None);
+    app->threeDTexturedRenderPipelineState = createRenderPipelineState(app, @"textured_vertex", @"textured_fragment", ShaderFeatureFlags_AlphaBlend);
+    app->shadowRenderPipelineState = createRenderPipelineState(app, @"shadow_vertex", @"shadow_fragment", ShaderFeatureFlags_None);
+    app->treeRenderPipelineState = createRenderPipelineState(app, @"tree_vertex", @"tree_fragment", ShaderFeatureFlags_AlphaBlend);
 
     // create depth clear pipeline state and depth stencil state
     {
@@ -1380,14 +1364,14 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
     }
 
     // draw shrubs
-    {
-        [encoder setCullMode:overrides.overrideCullMode ? overrides.cullMode : MTLCullModeNone];
-        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->treeRenderPipelineState];
-        [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->shrubTexture atIndex:0];
-        drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
-    }
+//    {
+//        [encoder setCullMode:overrides.overrideCullMode ? overrides.cullMode : MTLCullModeNone];
+//        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+//        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->treeRenderPipelineState];
+//        [encoder setDepthStencilState:app->depthStencilStateDefault];
+//        [encoder setFragmentTexture:app->shrubTexture atIndex:0];
+//        drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
+//    }
 }
 
 void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transform)
@@ -1416,7 +1400,7 @@ void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transfor
 // main render loop
 void onDraw(App* app)
 {
-    app->time += 0.005f;
+    app->time += 0.025f;
     if (app->time > 2.0f * pi_)
     {
         app->time -= 2.0f * pi_;
