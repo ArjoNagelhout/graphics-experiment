@@ -21,7 +21,11 @@ fragment half4 unlit_fragment(
     texture2d< half, access::sample > tex [[texture(0)]])
 {
     constexpr sampler s(address::repeat, filter::nearest);
-
-    return half4(in.color);
     return tex.sample(s, in.uv0);
+}
+
+fragment half4 unlit_colored_fragment(
+    RasterizerData in [[stage_in]])
+{
+    return half4(in.color);
 }

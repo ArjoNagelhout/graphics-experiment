@@ -493,9 +493,10 @@ struct App
     id <MTLRenderPipelineState> terrainRenderPipeline;
 
     id <MTLRenderPipelineState> litRenderPipeline;
-    id <MTLRenderPipelineState> unlitRenderPipeline;
     id <MTLRenderPipelineState> litAlphaBlendRenderPipeline;
+    id <MTLRenderPipelineState> unlitRenderPipeline;
     id <MTLRenderPipelineState> unlitAlphaBlendRenderPipeline;
+    id <MTLRenderPipelineState> unlitColoredRenderPipeline; // simplest shader possible, only uses the color
 
     // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
     id <MTLDepthStencilState> depthStencilStateClear;
@@ -630,7 +631,7 @@ id <MTLRenderPipelineState> createRenderPipeline(App* app, NSString* vertexFunct
     descriptor.fragmentFunction = fragmentFunction;
     if (features & ShaderFeatureFlags_AlphaBlend)
     {
-        [descriptor.colorAttachments[0] setBlendingEnabled: YES];
+        [descriptor.colorAttachments[0] setBlendingEnabled:YES];
         descriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
         descriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
         descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
@@ -1023,6 +1024,7 @@ void onLaunch(App* app)
         app->litAlphaBlendRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", ShaderFeatureFlags_AlphaBlend);
         app->unlitRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_fragment", ShaderFeatureFlags_None);
         app->unlitAlphaBlendRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_fragment", ShaderFeatureFlags_AlphaBlend);
+        app->unlitColoredRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_colored_fragment", ShaderFeatureFlags_None);
     }
 
     // create depth clear pipeline state and depth stencil state
@@ -1250,6 +1252,28 @@ struct DrawSceneOverrides
     id <MTLRenderPipelineState> renderPipeline;
 };
 
+void drawMesh(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, InstanceData* instance)
+{
+    [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:2];
+    [encoder setVertexBuffer:mesh->vertexBuffer offset:0 atIndex:0];
+    if (mesh->indexed)
+    {
+        [encoder
+            drawIndexedPrimitives:mesh->primitiveType
+            indexCount:mesh->indexCount
+            indexType:mesh->indexType
+            indexBuffer:mesh->indexBuffer
+            indexBufferOffset:0];
+    }
+    else
+    {
+        [encoder
+            drawPrimitives:mesh->primitiveType
+            vertexStart:0
+            vertexCount:mesh->vertexCount];
+    }
+}
+
 void drawMeshInstanced(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, std::vector<InstanceData>* instances)
 {
     [encoder setVertexBytes:instances->data() length:instances->size() * sizeof(InstanceData) atIndex:2];
@@ -1264,8 +1288,7 @@ void drawMeshInstanced(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, std::ve
             indexBufferOffset:0
             instanceCount:instances->size()
             baseVertex:0
-            baseInstance:0
-        ];
+            baseInstance:0];
     }
     else
     {
@@ -1330,22 +1353,9 @@ void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transfor
     [encoder setCullMode:MTLCullModeNone];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
-    [encoder setRenderPipelineState:app->unlitRenderPipeline];
-    InstanceData instance{
-        .localToWorld = transform
-    };
-    [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
-    [encoder setVertexBuffer:app->axes.vertexBuffer offset:0 atIndex:0];
-    [encoder
-        drawIndexedPrimitives:app->axes.primitiveType
-        indexCount:app->axes.indexCount
-        indexType:app->axes.indexType
-        indexBuffer:app->axes.indexBuffer
-        indexBufferOffset:0
-        instanceCount:1
-        baseVertex:0
-        baseInstance:0
-    ];
+    [encoder setRenderPipelineState:app->unlitColoredRenderPipeline];
+    InstanceData instance{.localToWorld = transform};
+    drawMesh(encoder, &app->axes, &instance);
 }
 
 // main render loop
@@ -1463,22 +1473,10 @@ void onDraw(App* app)
             [encoder setDepthStencilState:app->depthStencilStateDefault];
             [encoder setRenderPipelineState:app->unlitAlphaBlendRenderPipeline];
             [encoder setFragmentTexture:app->iconSunTexture atIndex:0];
-
             InstanceData instance{
                 .localToWorld = glm::scale(transformToMatrix(&app->sunTransform), glm::vec3(0.25f))
             };
-            [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:2];
-            [encoder setVertexBuffer:app->cube.vertexBuffer offset:0 atIndex:0];
-            [encoder
-                drawIndexedPrimitives:app->cube.primitiveType
-                indexCount:app->cube.indexCount
-                indexType:app->cube.indexType
-                indexBuffer:app->cube.indexBuffer
-                indexBufferOffset:0
-                instanceCount:1
-                baseVertex:0
-                baseInstance:0
-            ];
+            drawMesh(encoder, &app->cube, &instance);
         }
 
         // draw axes at sun position
