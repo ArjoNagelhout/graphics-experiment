@@ -550,6 +550,10 @@ struct App
     // tree
     Mesh tree;
     id <MTLTexture> treeTexture;
+    std::vector<InstanceData> treeInstances;
+
+    id <MTLTexture> shrubTexture;
+    std::vector<InstanceData> shrubInstances;
 
     // shadow and lighting
     Transform sunTransform;
@@ -767,10 +771,10 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
 [[nodiscard]] Mesh createTree(App* app, float width, float height)
 {
     std::vector<VertexData> vertices{
-        {.position{-width/2, 0, 0, 1}, .uv0{0, 1}},
-        {.position{-width/2, +height, 0, 1}, .uv0{0, 0}},
-        {.position{+width/2, 0, 0, 1}, .uv0{1, 0}},
-        {.position{+width/2, +height, 0, 1}, .uv0{1, 1}},
+        {.position{-width / 2, 0, 0, 1}, .uv0{0, 1}},
+        {.position{-width / 2, +height, 0, 1}, .uv0{0, 0}},
+        {.position{+width / 2, 0, 0, 1}, .uv0{1, 1}},
+        {.position{+width / 2, +height, 0, 1}, .uv0{1, 0}},
     };
     return createMesh(app, &vertices, MTLPrimitiveTypeTriangleStrip);
 }
@@ -863,6 +867,29 @@ id <MTLTexture> importTexture(App* app, std::filesystem::path const& path)
         bytesPerImage:0]; // only single image
 
     return texture;
+}
+
+
+// works, but not the best, see: https://stackoverflow.com/questions/12657962/how-do-i-generate-a-random-number-between-two-variables-that-i-have-stored
+int randomInt(int min, int max)
+{
+    return rand() % (max - min + 1) + min;
+}
+
+// https://stackoverflow.com/questions/686353/random-float-number-generation
+float randomFloatMinMax(float min, float max)
+{
+    return min + (float)rand() / ((float)RAND_MAX / (max - min));
+}
+
+float randomFloatZeroMax(float max)
+{
+    return (float)rand() / ((float)(RAND_MAX) / max);
+}
+
+float randomFloatZeroOne()
+{
+    return (float)rand() / (float)RAND_MAX;
 }
 
 void onLaunch(App* app)
@@ -996,7 +1023,39 @@ void onLaunch(App* app)
     app->terrainRenderPipelineState = createRenderPipelineState(app, @"terrain_vertex", @"terrain_fragment");
     app->threeDTexturedRenderPipelineState = createRenderPipelineState(app, @"textured_vertex", @"textured_fragment");
     app->shadowRenderPipelineState = createRenderPipelineState(app, @"shadow_vertex", @"shadow_fragment");
-    app->treeRenderPipelineState = createRenderPipelineState(app, @"tree_vertex", @"tree_fragment");
+
+    //app->treeRenderPipelineState = createRenderPipelineState(app, @"tree_vertex", @"tree_fragment");
+    // create tree render pipeline state
+    {
+        // use function specialization to create shader variants
+        id <MTLFunction> vertexFunction = [app->library newFunctionWithName:@"tree_vertex"];
+        assert(vertexFunction != nullptr);
+        id <MTLFunction> fragmentFunction = [app->library newFunctionWithName:@"tree_fragment"];
+        assert(fragmentFunction != nullptr);
+
+        MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+        descriptor.vertexFunction = vertexFunction;
+        descriptor.fragmentFunction = fragmentFunction;
+        id <CAMetalDrawable> drawable = [app->view currentDrawable];
+        descriptor.colorAttachments[0].pixelFormat = drawable.texture.pixelFormat;
+        [descriptor.colorAttachments[0] setBlendingEnabled: YES];
+        descriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+        descriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+        descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+        descriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+        descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+
+        NSError* error = nullptr;
+        app->treeRenderPipelineState = [app->device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+        if (error)
+        {
+            std::cout << [error.debugDescription cStringUsingEncoding:NSUTF8StringEncoding] << std::endl;
+            exit(1);
+        }
+        [vertexFunction release];
+        [fragmentFunction release];
+    }
 
     // create depth clear pipeline state and depth stencil state
     {
@@ -1084,21 +1143,46 @@ void onLaunch(App* app)
 
     // create terrain and trees on terrain
     {
+        std::vector<VertexData> vertices{};
+        std::vector<uint32_t> indices{};
+        MTLPrimitiveType primitiveType;
+        createTerrain(app, RectMinMaxf{-30, -30, 30, 30}, 2000, 2000, &vertices, &indices, &primitiveType);
+        app->terrain = createIndexedMesh(app, &vertices, &indices, primitiveType);
+        app->terrainGreenTexture = importTexture(app, app->config->assetsPath / "terrain_green.png");
+        app->terrainYellowTexture = importTexture(app, app->config->assetsPath / "terrain.png");
 
+        app->tree = createTree(app, 2.0f, 2.0f);
+
+        int maxIndex = (int)vertices.size();
+        // create tree instances at random positions from vertex data of the terrain
+        int treeCount = 500;
+        app->treeInstances.resize(treeCount);
+        for (int i = 0; i < treeCount; i++)
+        {
+            // get random vertex from vertices
+            int index = randomInt(0, maxIndex);
+            VertexData& v = vertices[index];
+            app->treeInstances[i] = InstanceData{
+                .localToWorld = glm::scale(glm::translate(glm::vec3(v.position.x, v.position.y, v.position.z)), glm::vec3(randomFloatMinMax(0.5f, 1.0f)))
+            };
+        }
+
+        // create shrub instances
+        int shrubCount = 500;
+        app->shrubInstances.resize(shrubCount);
+        for (int i = 0; i < shrubCount; i++)
+        {
+            // get random vertex from vertices
+            int index = randomInt(0, maxIndex);
+            VertexData& v = vertices[index];
+            app->shrubInstances[i] = InstanceData{
+                .localToWorld = glm::scale(glm::translate(glm::vec3(v.position.x, v.position.y, v.position.z)), glm::vec3(randomFloatMinMax(0.2f, 0.5f)))
+            };
+        }
+
+        app->treeTexture = importTexture(app, app->config->assetsPath / "tree.png");
+        app->shrubTexture = importTexture(app, app->config->assetsPath / "shrub.png");
     }
-
-    std::vector<VertexData> vertices{};
-    std::vector<uint32_t> indices{};
-    MTLPrimitiveType primitiveType;
-    createTerrain(app, RectMinMaxf{-20, -20, 20, 20}, 1000, 1000, &vertices, &indices, &primitiveType);
-    app->terrain = createIndexedMesh(app, &vertices, &indices, primitiveType);
-
-    app->terrainGreenTexture = importTexture(app, app->config->assetsPath / "terrain_green.png");
-    app->terrainYellowTexture = importTexture(app, app->config->assetsPath / "terrain.png");
-
-    app->tree = createTree(app, 1.0f, 1.0f);
-
-    // create tree
 
     // make window active
     [window makeKeyAndOrderFront:NSApp];
@@ -1125,10 +1209,13 @@ void onTerminate(App* app)
     [app->fontAtlas.texture release];
     [app->terrainGreenTexture release];
     [app->terrainYellowTexture release];
+    [app->treeTexture release];
+    [app->shrubTexture release];
     [app->shadowMap release];
 
     // icons
     [app->iconSunTexture release];
+
 
     [app->view release];
     [app->sidepanel release];
@@ -1286,16 +1373,20 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
     {
         [encoder setCullMode:overrides.overrideCullMode ? overrides.cullMode : MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->terrainRenderPipelineState];
+        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->treeRenderPipelineState];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->terrainYellowTexture atIndex:0];
-        std::vector<InstanceData> instances{
-            {.localToWorld = glm::mat4(1)}//glm::rotate(app->time, glm::vec3(0, 1, 0))},
-//            {.localToWorld = glm::scale(glm::translate(glm::vec3(0, 0, 9)), glm::vec3(0.5f))},
-//            {.localToWorld = glm::translate(glm::vec3(9, 0, 9))},
-//            {.localToWorld = glm::translate(glm::vec3(9, 0, 0))},
-        };
-        drawMeshInstanced(encoder, &app->tree, &instances);
+        [encoder setFragmentTexture:app->treeTexture atIndex:0];
+        drawMeshInstanced(encoder, &app->tree, &app->treeInstances);
+    }
+
+    // draw shrubs
+    {
+        [encoder setCullMode:overrides.overrideCullMode ? overrides.cullMode : MTLCullModeNone];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setRenderPipelineState:overrides.overrideRenderPipeline ? overrides.renderPipeline : app->treeRenderPipelineState];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setFragmentTexture:app->shrubTexture atIndex:0];
+        drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
     }
 }
 
@@ -1534,6 +1625,9 @@ int main(int argc, char const* argv[])
     char const* assetsFolder = argv[1];
 
     std::string fontCharacterMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZ.,!?/_[]{}'\"()&^#@%*=+-;:<>~`abcdefghijklmnopqrstuvwxyz0123456789 ";
+
+    // seed the time
+    srand(time(nullptr));
 
     AppConfig config{
         .windowRect = NSMakeRect(0, 0, 1200, 800),
