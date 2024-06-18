@@ -765,9 +765,9 @@ id <MTLRenderPipelineState> createRenderPipelineState(App* app, NSString* vertex
             float x = extents.minX + (float)xIndex * xStep;
             float z = extents.minY + (float)zIndex * zStep;
 
-            float y = 0.1f * perlin(x * 8, z * 8) + 2.0f * perlin(x / 2, z / 2) + 3.0f * perlin(x / 9, z / 12);
-            float derivedY = 0.1f * perlinDerived(x * 8, z * 8) + 2.0f * perlinDerived(x / 2, z / 2) + 3.0f * perlinDerived(x / 9, z / 12);
-            assert(y == derivedY);
+            float y = 0.1f * perlin(x * 8, z * 8) + 2.0f * perlin(x / 2, z / 2) + 10.0f * perlin(x / 9, z / 12);
+            //float derivedY = 0.1f * perlinDerived(x * 8, z * 8) + 2.0f * perlinDerived(x / 2, z / 2) + 3.0f * perlinDerived(x / 9, z / 12);
+            //assert(y == derivedY);
 
             vertices[zIndex * xCount + xIndex] = VertexData{
                 .position{x, y, z, 1}, .color{0, 1, 0, 1}
@@ -1202,7 +1202,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->terrainTexture atIndex:0];
         std::vector<InstanceData> instances{
-            {.localToWorld = glm::rotate(app->time, glm::vec3(0, 1, 0))},
+            {.localToWorld = glm::mat4(1)}//glm::rotate(app->time, glm::vec3(0, 1, 0))},
 //            {.localToWorld = glm::scale(glm::translate(glm::vec3(0, 0, 9)), glm::vec3(0.5f))},
 //            {.localToWorld = glm::translate(glm::vec3(9, 0, 9))},
 //            {.localToWorld = glm::translate(glm::vec3(9, 0, 0))},
@@ -1424,7 +1424,7 @@ void onDraw(App* app)
             std::string b = fmt::format("sun ({0:+.3f}, {1:+.3f}, {2:+.3f})", pos->x, pos->y, pos->z);
             addText(app, b, &vertices, 0, 14, 14);
 
-            addText(app, app->currentText, &vertices, 600, 14, 12);
+            //addText(app, app->currentText, &vertices, 600, 14, 12);
 
             // create vertex buffer
             MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;

@@ -1,4 +1,4 @@
-float calculateShadow(float4 positionLightSpace, depth2d<float, access::sample> texture)
+float calculateIsInLight(float4 positionLightSpace, depth2d<float, access::sample> texture)
 {
     // perform perspective divide
     float3 projected = positionLightSpace.xyz / positionLightSpace.w;
@@ -49,8 +49,18 @@ fragment half4 terrain_fragment(
 {
     constexpr sampler s(address::repeat, filter::nearest);
 
-    float shadow = clamp(0.3 + calculateShadow(in.fragmentPositionLightSpace, shadowMap), 0.0f, 1.0f);
-    return shadow * texture.sample(s, in.uv0);
-    return shadow;
-    //return texture.sample(s, in.uv0);
+    // base color
+    half4 terrainColor = texture.sample(s, in.uv0);
+
+    // shadow
+    half4 shadowColor = half4(27.f/255.f, 55.f/255.f, 117.f/255.f, 1.f);
+    float shadowOpacity = 0.7f;
+    float isInLight = calculateIsInLight(in.fragmentPositionLightSpace, shadowMap);
+    float shadowAmount = clamp(shadowOpacity - isInLight, 0.0f, 1.0f);
+    half4 shadowedTerrain = mix(terrainColor, shadowColor, shadowAmount);
+
+    // fog
+    half4 fogColor = half4(0, 1, 1, 1);
+    float fog = (in.position.z / in.position.w) * 0.02;
+    return mix(shadowedTerrain, fogColor, fog);
 }
