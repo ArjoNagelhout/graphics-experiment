@@ -3,9 +3,13 @@
 // - [ ] shading (PBR, blinn phong etc.)
 // - [ ] normals (calculate derivatives for perlin noise terrain)
 // - [ ] skybox
+// - [ ] animation / rigging of a mesh
+//          - [ ]
+// - [ ] import mesh
+// - [ ] compilation of shader variants
 // - [ ] lens flare / post-processing
-// - [ ] fog
-// - [ ] foliage / tree shader
+// - [X] fog
+// - [ ] foliage / tree shader (animated with wind etc.)
 // - [ ] water shader
 // - [ ] frustum culling
 // - [ ] LOD system
@@ -15,6 +19,9 @@
 // - [ ] scene / level editor
 // - [ ] 3d text rendering
 // - [ ] erosion
+
+// architecture can be done later, first focus on features
+// (in a way that it can be easily refactored into a better structure)
 
 #include <iostream>
 #include <fstream>
@@ -491,6 +498,7 @@ struct App
     id <MTLRenderPipelineState> uiRenderPipeline;
 
     id <MTLRenderPipelineState> terrainRenderPipeline;
+    id <MTLRenderPipelineState> waterRenderPipeline;
 
     id <MTLRenderPipelineState> litRenderPipeline;
     id <MTLRenderPipelineState> litAlphaBlendRenderPipeline;
@@ -594,7 +602,7 @@ struct App
     return mesh;
 }
 
-[[nodiscard]] Mesh createIndexedMesh(App* app, std::vector<VertexData>* vertices, std::vector<uint32_t>* indices, MTLPrimitiveType primitiveType)
+[[nodiscard]] Mesh createMeshIndexed(App* app, std::vector<VertexData>* vertices, std::vector<uint32_t>* indices, MTLPrimitiveType primitiveType)
 {
     Mesh mesh = createMesh(app, vertices, primitiveType);
 
@@ -606,18 +614,6 @@ struct App
     mesh.indexed = true;
 
     return mesh;
-}
-
-void destroyMesh(Mesh* mesh)
-{
-    assert(mesh->vertexBuffer != nullptr);
-    [mesh->vertexBuffer release];
-
-    if (mesh->indexed)
-    {
-        assert(mesh->indexBuffer != nullptr);
-        [mesh->indexBuffer release];
-    }
 }
 
 id <MTLRenderPipelineState> createRenderPipeline(App* app, NSString* vertexFunctionName, NSString* fragmentFunctionName, ShaderFeatureFlags_ features)
@@ -700,7 +696,7 @@ id <MTLRenderPipelineState> createRenderPipeline(App* app, NSString* vertexFunct
         }
     }
 
-    return createIndexedMesh(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
+    return createMeshIndexed(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }
 
 [[nodiscard]] Mesh createCube(App* app)
@@ -752,7 +748,7 @@ id <MTLRenderPipelineState> createRenderPipeline(App* app, NSString* vertexFunct
         22, 23, 20
     };
 
-    return createIndexedMesh(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
+    return createMeshIndexed(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }
 
 [[nodiscard]] Mesh createPlane(App* app, RectMinMaxf extents)
@@ -773,8 +769,15 @@ id <MTLRenderPipelineState> createRenderPipeline(App* app, NSString* vertexFunct
         {.position{-width / 2, +height, 0, 1}, .uv0{0, 0}},
         {.position{+width / 2, 0, 0, 1}, .uv0{1, 1}},
         {.position{+width / 2, +height, 0, 1}, .uv0{1, 0}},
+        {.position{0, 0, -width / 2, 1}, .uv0{0, 1}},
+        {.position{0, +height, -width / 2, 1}, .uv0{0, 0}},
+        {.position{0, 0, +width / 2, 1}, .uv0{1, 1}},
+        {.position{0, +height, +width / 2, 1}, .uv0{1, 0}},
     };
-    return createMesh(app, &vertices, MTLPrimitiveTypeTriangleStrip);
+    std::vector<uint32_t> indices{
+        0, 1, 2, 3, invalidIndex, 4, 5, 6, 7
+    };
+    return createMeshIndexed(app, &vertices, &indices, MTLPrimitiveTypeTriangleStrip);
 }
 
 void createTerrain(App* app,
@@ -877,16 +880,6 @@ int randomInt(int min, int max)
 float randomFloatMinMax(float min, float max)
 {
     return min + (float)rand() / ((float)RAND_MAX / (max - min));
-}
-
-float randomFloatZeroMax(float max)
-{
-    return (float)rand() / ((float)(RAND_MAX) / max);
-}
-
-float randomFloatZeroOne()
-{
-    return (float)rand() / (float)RAND_MAX;
 }
 
 void onLaunch(App* app)
@@ -1022,7 +1015,8 @@ void onLaunch(App* app)
         app->uiRenderPipeline = createRenderPipeline(app, @"ui_vertex", @"ui_fragment", ShaderFeatureFlags_None);
 
         // specialized
-        app->terrainRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", ShaderFeatureFlags_AlphaBlend);
+        app->terrainRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", ShaderFeatureFlags_None);
+        app->waterRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", ShaderFeatureFlags_AlphaBlend);
 
         // 3D
         app->litRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", ShaderFeatureFlags_None);
@@ -1114,6 +1108,14 @@ void onLaunch(App* app)
         .scale = glm::vec3(1, 1, 1)
     };
 
+    // create skybox cubemap
+    {
+        MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
+        descriptor.textureType = MTLTextureTypeCube;
+        id <MTLTexture> cubemap = [app->device newTextureWithDescriptor:descriptor];
+
+    }
+
     // import textures
     {
         app->terrainGreenTexture = importTexture(app, app->config->assetsPath / "terrain_green.png");
@@ -1127,7 +1129,7 @@ void onLaunch(App* app)
         std::vector<uint32_t> indices{};
         MTLPrimitiveType primitiveType;
         createTerrain(app, RectMinMaxf{-30, -30, 30, 30}, 2000, 2000, &vertices, &indices, &primitiveType);
-        app->terrain = createIndexedMesh(app, &vertices, &indices, primitiveType);
+        app->terrain = createMeshIndexed(app, &vertices, &indices, primitiveType);
 
 
         app->tree = createTree(app, 2.0f, 2.0f);
@@ -1338,19 +1340,13 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shadowRenderPipeline : app->terrainRenderPipeline];
+        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shadowRenderPipeline : app->waterRenderPipeline];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->waterTexture atIndex:0];
         InstanceData instance{
             .localToWorld = glm::mat4(1)
         };
         drawMesh(encoder, &app->plane, &instance);
-    }
-
-    // don't render trees and bushes in the shadow pass, todo: add some way for objects to indicate whether they want to receive shadows
-    if (flags & DrawSceneFlags_IsShadowPass)
-    {
-        return;
     }
 
     // draw trees

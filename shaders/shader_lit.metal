@@ -30,6 +30,11 @@ fragment half4 lit_fragment(
     half4 textured = texture.sample(s, in.uv0);
     float textureAlpha = textured.w;
 
+    if (textureAlpha < 1.0f)
+    {
+        discard_fragment();
+    }
+
     // shadow
     half4 shadowColor = half4(27.f/255.f, 55.f/255.f, 117.f/255.f, 1.f);
     float shadowOpacity = 0.7f;
