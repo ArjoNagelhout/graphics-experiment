@@ -616,13 +616,49 @@ struct App
     return mesh;
 }
 
-id <MTLRenderPipelineState> createRenderPipeline(App* app, NSString* vertexFunctionName, NSString* fragmentFunctionName, ShaderFeatureFlags_ features)
+void checkError(NSError* error)
 {
-    // use function specialization to create shader variants
-    id <MTLFunction> vertexFunction = [app->library newFunctionWithName:vertexFunctionName];
-    assert(vertexFunction != nullptr);
-    id <MTLFunction> fragmentFunction = [app->library newFunctionWithName:fragmentFunctionName];
-    assert(fragmentFunction != nullptr);
+    if (error)
+    {
+        std::cout << [error.debugDescription cStringUsingEncoding:NSUTF8StringEncoding] << std::endl;
+        exit(1);
+    }
+}
+
+id <MTLRenderPipelineState> createRenderPipeline(
+    App* app,
+    NSString* vertexFunctionName,
+    NSString* fragmentFunctionName,
+    MTLFunctionConstantValues* vertexConstants,
+    MTLFunctionConstantValues* fragmentConstants,
+    ShaderFeatureFlags_ features = ShaderFeatureFlags_None)
+{
+    NSError* error = nullptr;
+
+    // constants are a way to create function specializations (i.e. shader variants)
+    // don't use too many constants, as this can lead to a combinatorial explosion
+    id <MTLFunction> vertexFunction;
+    id <MTLFunction> fragmentFunction;
+
+    if (vertexConstants)
+    {
+        vertexFunction = [app->library newFunctionWithName:vertexFunctionName constantValues:vertexConstants error:&error];
+    }
+    else
+    {
+        vertexFunction = [app->library newFunctionWithName:vertexFunctionName];
+    }
+    checkError(error);
+
+    if (fragmentConstants)
+    {
+        fragmentFunction = [app->library newFunctionWithName:fragmentFunctionName constantValues:fragmentConstants error:&error];
+    }
+    else
+    {
+        fragmentFunction = [app->library newFunctionWithName:fragmentFunctionName];
+    }
+    checkError(error);
 
     MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
     descriptor.vertexFunction = vertexFunction;
@@ -640,14 +676,8 @@ id <MTLRenderPipelineState> createRenderPipeline(App* app, NSString* vertexFunct
     id <CAMetalDrawable> drawable = [app->view currentDrawable];
     descriptor.colorAttachments[0].pixelFormat = drawable.texture.pixelFormat;
 
-    NSError* error = nullptr;
     id <MTLRenderPipelineState> renderPipelineState = [app->device newRenderPipelineStateWithDescriptor:descriptor error:&error];
-    if (error)
-    {
-        std::cout << [error.debugDescription cStringUsingEncoding:NSUTF8StringEncoding] << std::endl;
-    }
-    [vertexFunction release];
-    [fragmentFunction release];
+    checkError(error);
     return renderPipelineState;
 }
 
@@ -1009,21 +1039,21 @@ void onLaunch(App* app)
     // create render pipeline states
     {
         // utility
-        app->shadowRenderPipeline = createRenderPipeline(app, @"shadow_vertex", @"shadow_fragment", ShaderFeatureFlags_None);
+        app->shadowRenderPipeline = createRenderPipeline(app, @"shadow_vertex", @"shadow_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         // 2D / UI
-        app->uiRenderPipeline = createRenderPipeline(app, @"ui_vertex", @"ui_fragment", ShaderFeatureFlags_None);
+        app->uiRenderPipeline = createRenderPipeline(app, @"ui_vertex", @"ui_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         // specialized
-        app->terrainRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", ShaderFeatureFlags_None);
-        app->waterRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", ShaderFeatureFlags_AlphaBlend);
+        app->terrainRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->waterRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
 
         // 3D
-        app->litRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", ShaderFeatureFlags_None);
-        app->litAlphaBlendRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", ShaderFeatureFlags_AlphaBlend);
-        app->unlitRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_fragment", ShaderFeatureFlags_None);
-        app->unlitAlphaBlendRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_fragment", ShaderFeatureFlags_AlphaBlend);
-        app->unlitColoredRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_colored_fragment", ShaderFeatureFlags_None);
+        app->litRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->litAlphaBlendRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
+        app->unlitRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->unlitAlphaBlendRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
+        app->unlitColoredRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_colored_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
     }
 
     // create depth clear pipeline state and depth stencil state
