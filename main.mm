@@ -4,9 +4,8 @@
 // - [ ] normals (calculate derivatives for perlin noise terrain)
 // - [ ] skybox
 // - [ ] animation / rigging of a mesh
-//          - [ ]
 // - [ ] import mesh
-// - [ ] compilation of shader variants
+// - [X] compilation of shader variants
 // - [ ] lens flare / post-processing
 // - [X] fog
 // - [ ] foliage / tree shader (animated with wind etc.)
@@ -493,18 +492,19 @@ struct App
 
     // shaders
     id <MTLRenderPipelineState> clearDepthRenderPipelineState;
-    id <MTLRenderPipelineState> shadowRenderPipeline;
+    id <MTLRenderPipelineState> shadowShader;
 
-    id <MTLRenderPipelineState> uiRenderPipeline;
+    id <MTLRenderPipelineState> uiShader;
 
-    id <MTLRenderPipelineState> terrainRenderPipeline;
-    id <MTLRenderPipelineState> waterRenderPipeline;
+    id <MTLRenderPipelineState> terrainShader;
+    id <MTLRenderPipelineState> waterShader;
 
-    id <MTLRenderPipelineState> litRenderPipeline;
-    id <MTLRenderPipelineState> litAlphaBlendRenderPipeline;
-    id <MTLRenderPipelineState> unlitRenderPipeline;
-    id <MTLRenderPipelineState> unlitAlphaBlendRenderPipeline;
-    id <MTLRenderPipelineState> unlitColoredRenderPipeline; // simplest shader possible, only uses the color
+    id <MTLRenderPipelineState> litShader;
+    id <MTLRenderPipelineState> litAlphaBlendShader;
+    id <MTLRenderPipelineState> unlitShader;
+    id <MTLRenderPipelineState> unlitAlphaBlendShader;
+    id <MTLRenderPipelineState> unlitColoredShader; // simplest shader possible, only uses the color
+    id <MTLRenderPipelineState> skyboxShader;
 
     // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
     id <MTLDepthStencilState> depthStencilStateClear;
@@ -625,7 +625,7 @@ void checkError(NSError* error)
     }
 }
 
-id <MTLRenderPipelineState> createRenderPipeline(
+id <MTLRenderPipelineState> createShader(
     App* app,
     NSString* vertexFunctionName,
     NSString* fragmentFunctionName,
@@ -1036,7 +1036,7 @@ void onLaunch(App* app)
         }
     }
 
-    // create render pipeline states
+    // create shaders
     {
         MTLFunctionConstantValues* lit = [[MTLFunctionConstantValues alloc] init];
         bool false_ = false;
@@ -1047,21 +1047,24 @@ void onLaunch(App* app)
         [litCutout setConstantValue:&true_ type:MTLDataTypeBool atIndex:0];
 
         // utility
-        app->shadowRenderPipeline = createRenderPipeline(app, @"shadow_vertex", @"shadow_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->shadowShader = createShader(app, @"shadow_vertex", @"shadow_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         // 2D / UI
-        app->uiRenderPipeline = createRenderPipeline(app, @"ui_vertex", @"ui_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->uiShader = createShader(app, @"ui_vertex", @"ui_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         // specialized
-        app->terrainRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_None);
-        app->waterRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", nullptr, lit, ShaderFeatureFlags_AlphaBlend);
+        app->terrainShader = createShader(app, @"terrain_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_None);
+        app->waterShader = createShader(app, @"terrain_vertex", @"lit_fragment", nullptr, lit, ShaderFeatureFlags_AlphaBlend);
 
         // 3D
-        app->litRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_None);
-        app->litAlphaBlendRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_AlphaBlend);
-        app->unlitRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
-        app->unlitAlphaBlendRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
-        app->unlitColoredRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_colored_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->litShader = createShader(app, @"lit_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_None);
+        app->litAlphaBlendShader = createShader(app, @"lit_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_AlphaBlend);
+        app->unlitShader = createShader(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->unlitAlphaBlendShader = createShader(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
+        app->unlitColoredShader = createShader(app, @"unlit_vertex", @"unlit_colored_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+
+        // Skybox
+        app->skyboxShader = createShader(app, @"skybox_vertex", @"skybox_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
     }
 
     // create depth clear pipeline state and depth stencil state
@@ -1362,7 +1365,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shadowRenderPipeline : app->terrainRenderPipeline];
+        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shadowShader : app->terrainShader];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->terrainGreenTexture atIndex:0];
         std::vector<InstanceData> instances{
@@ -1378,7 +1381,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shadowRenderPipeline : app->waterRenderPipeline];
+        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shadowShader : app->waterShader];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->waterTexture atIndex:0];
         InstanceData instance{
@@ -1391,7 +1394,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
     {
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->litAlphaBlendRenderPipeline];
+        [encoder setRenderPipelineState:app->litAlphaBlendShader];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->treeTexture atIndex:0];
         drawMeshInstanced(encoder, &app->tree, &app->treeInstances);
@@ -1401,7 +1404,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewPro
     {
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->litAlphaBlendRenderPipeline];
+        [encoder setRenderPipelineState:app->litAlphaBlendShader];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->shrubTexture atIndex:0];
         drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
@@ -1413,7 +1416,7 @@ void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transfor
     [encoder setCullMode:MTLCullModeNone];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
-    [encoder setRenderPipelineState:app->unlitColoredRenderPipeline];
+    [encoder setRenderPipelineState:app->unlitColoredShader];
     InstanceData instance{.localToWorld = transform};
     drawMesh(encoder, &app->axes, &instance);
 }
@@ -1520,6 +1523,12 @@ void onDraw(App* app)
             drawScene(app, encoder, projection * view, DrawSceneFlags_None);
         }
 
+        // draw skybox
+        {
+            // skybox is a cube that has to be transformed to appear infinitely far away
+
+        }
+
         // clear depth buffer
         clearDepthBuffer(app, encoder);
 
@@ -1528,7 +1537,7 @@ void onDraw(App* app)
             [encoder setCullMode:MTLCullModeNone];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
-            [encoder setRenderPipelineState:app->unlitAlphaBlendRenderPipeline];
+            [encoder setRenderPipelineState:app->unlitAlphaBlendShader];
             [encoder setFragmentTexture:app->iconSunTexture atIndex:0];
             InstanceData instance{
                 .localToWorld = glm::scale(transformToMatrix(&app->sunTransform), glm::vec3(0.25f))
@@ -1547,7 +1556,7 @@ void onDraw(App* app)
         {
             [encoder setCullMode:MTLCullModeBack];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-            [encoder setRenderPipelineState:app->uiRenderPipeline];
+            [encoder setRenderPipelineState:app->uiShader];
             [encoder setFragmentTexture:app->shadowMap atIndex:0];
 
             RectMinMaxf position = pixelCoordsToNDC(app, {0, 28, 400, 400});
@@ -1567,7 +1576,7 @@ void onDraw(App* app)
         // draw text (2D, on-screen)
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->uiRenderPipeline];
+        [encoder setRenderPipelineState:app->uiShader];
         [encoder setFragmentTexture:app->fontAtlas.texture atIndex:0];
 
         id <MTLBuffer> textBuffer;
