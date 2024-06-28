@@ -19,11 +19,12 @@ vertex RasterizerData lit_vertex(
     return out;
 }
 
+constant bool alphaCutout [[function_constant(0)]];
+
 fragment half4 lit_fragment(
     RasterizerData in [[stage_in]],
     texture2d<half, access::sample> texture [[texture(0)]],
     depth2d<float, access::sample> shadowMap [[texture(1)]])
-// constant bool alphaCutout [[function_constant(0)]]
 {
     constexpr sampler s(address::repeat, filter::nearest);
 
@@ -31,8 +32,7 @@ fragment half4 lit_fragment(
     half4 textured = texture.sample(s, in.uv0);
     float textureAlpha = textured.w;
 
-    // alphaCutout &&
-    if (textureAlpha < 1.0f)
+    if (alphaCutout && textureAlpha < 1.0f)
     {
         discard_fragment();
     }

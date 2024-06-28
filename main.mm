@@ -1038,6 +1038,14 @@ void onLaunch(App* app)
 
     // create render pipeline states
     {
+        MTLFunctionConstantValues* lit = [[MTLFunctionConstantValues alloc] init];
+        bool false_ = false;
+        [lit setConstantValue:&false_ type:MTLDataTypeBool atIndex:0];
+
+        MTLFunctionConstantValues* litCutout = [[MTLFunctionConstantValues alloc] init];
+        bool true_ = true;
+        [litCutout setConstantValue:&true_ type:MTLDataTypeBool atIndex:0];
+
         // utility
         app->shadowRenderPipeline = createRenderPipeline(app, @"shadow_vertex", @"shadow_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
@@ -1045,12 +1053,12 @@ void onLaunch(App* app)
         app->uiRenderPipeline = createRenderPipeline(app, @"ui_vertex", @"ui_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         // specialized
-        app->terrainRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
-        app->waterRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
+        app->terrainRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_None);
+        app->waterRenderPipeline = createRenderPipeline(app, @"terrain_vertex", @"lit_fragment", nullptr, lit, ShaderFeatureFlags_AlphaBlend);
 
         // 3D
-        app->litRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
-        app->litAlphaBlendRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
+        app->litRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_None);
+        app->litAlphaBlendRenderPipeline = createRenderPipeline(app, @"lit_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_AlphaBlend);
         app->unlitRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
         app->unlitAlphaBlendRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
         app->unlitColoredRenderPipeline = createRenderPipeline(app, @"unlit_vertex", @"unlit_colored_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
