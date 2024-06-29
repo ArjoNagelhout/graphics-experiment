@@ -10,6 +10,12 @@
 using char_traits = std::char_traits<char>;
 using int_type = char_traits::int_type;
 
+struct HDRData
+{
+    uint32_t width;
+    uint32_t height;
+};
+
 void importHDR(std::filesystem::path const& path)
 {
     assert(exists(path));
@@ -17,13 +23,39 @@ void importHDR(std::filesystem::path const& path)
 
     std::basic_ifstream<char> file(path);
 
-    int_type a;
-    while ((a = file.get()) != char_traits::eof())
+    // read one char at a time, until we hit the end of the file
+    //int_type a;
+//    while ((a = file.get()) != char_traits::eof())
+//    {
+//        char b = char_traits::to_char_type(a);
+//        //std::cout << b;
+//    }
+
+
+    std::string line;
+    std::getline(file, line);
+    assert(line == "#?RADIANCE"); // first line
+
+    // read information header until the resolution string
+    bool foundResolutionString = false;
+    while (!foundResolutionString)
     {
-        char b = char_traits::to_char_type(a);
-        std::cout << b;
+        std::getline(file, line);
+        if (line.empty())
+        {
+            continue;
+        }
+        if (line.length() > 2
+            && (line[0] == '-' || line[0] == '+')
+            && (line[1] == 'X' || line[1] == 'Y'))
+        {
+            std::cout << "resolution string: \n";
+            foundResolutionString = true;
+        }
+
+        std::cout << line << '\n';
     }
-    std::cout << std::endl;
+    std::cout.flush();
 
     // import hdr (radiance)
     {
