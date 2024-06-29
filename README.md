@@ -9,3 +9,6 @@ It follows these simple rules:
 3. no object oriented programming shenanigans. It's a computer. Computers work with data, not an arbitrary model of the world.
 4. Don't try to encapsulate. Everything can touch everything.
 5. No arbitrary splits of responsibilities. There's only one app running. So there's one data structure: App.
+
+# asset resources
+https://polyhaven.com

@@ -22,3 +22,11 @@ target_link_libraries(bored_c
         "-framework Metal"
         "-framework MetalKit"
 )
+
+# experiments
+
+set(IMPORT_HDR_SOURCES
+    import_hdr.cpp
+)
+
+add_executable(import_hdr ${IMPORT_HDR_SOURCES})

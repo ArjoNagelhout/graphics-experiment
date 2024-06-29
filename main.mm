@@ -493,18 +493,12 @@ struct App
     // shaders
     id <MTLRenderPipelineState> clearDepthRenderPipelineState;
     id <MTLRenderPipelineState> shadowShader;
-
     id <MTLRenderPipelineState> uiShader;
-
-    id <MTLRenderPipelineState> terrainShader;
-    id <MTLRenderPipelineState> waterShader;
-
     id <MTLRenderPipelineState> litShader;
     id <MTLRenderPipelineState> litAlphaBlendShader;
     id <MTLRenderPipelineState> unlitShader;
     id <MTLRenderPipelineState> unlitAlphaBlendShader;
     id <MTLRenderPipelineState> unlitColoredShader; // simplest shader possible, only uses the color
-    id <MTLRenderPipelineState> skyboxShader;
 
     // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
     id <MTLDepthStencilState> depthStencilStateClear;
@@ -519,6 +513,10 @@ struct App
     float cameraPitch;
     float cameraRoll;
 
+    // skybox
+    id <MTLRenderPipelineState> skyboxShader;
+    id <MTLTexture> skyboxTexture;
+
     // primitives
     Mesh cube;
     Mesh plane;
@@ -528,6 +526,8 @@ struct App
 
     // terrain
     Mesh terrain;
+    id <MTLRenderPipelineState> terrainShader;
+    id <MTLRenderPipelineState> waterShader;
     id <MTLTexture> terrainGreenTexture;
     id <MTLTexture> terrainYellowTexture;
     id <MTLTexture> waterTexture;
@@ -733,7 +733,7 @@ id <MTLRenderPipelineState> createShader(
 {
     float uvmin = 0.0f;
     float uvmax = 1.0f;
-    float s = 0.5f;
+    float s = 1.0f;
     std::vector<VertexData> vertices{
         {.position{-s, -s, -s, 1}, .uv0{uvmin, uvmin}},  // A 0
         {.position{+s, -s, -s, 1}, .uv0{uvmax, uvmin}},  // B 1
@@ -900,6 +900,21 @@ id <MTLTexture> importTexture(App* app, std::filesystem::path const& path)
     return texture;
 }
 
+id <MTLTexture> importSkybox(App* app, std::filesystem::path const& path)
+{
+    assert(std::filesystem::exists(path));
+    assert(path.extension() == ".hdr");
+
+    MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
+    descriptor.arrayLength = 1;
+    descriptor.textureType = MTLTextureTypeCube;
+    descriptor.usage = MTLTextureUsageShaderRead;
+
+    id <MTLTexture> texture = [app->device newTextureWithDescriptor:descriptor];
+
+    return texture;
+}
+
 // works, but not the best, see: https://stackoverflow.com/questions/12657962/how-do-i-generate-a-random-number-between-two-variables-that-i-have-stored
 int randomInt(int min, int max)
 {
@@ -1008,12 +1023,13 @@ void onLaunch(App* app)
             // UI and 2D
             shadersPath / "shader_ui.metal",
 
-            // specialized
+            // special
             shadersPath / "shader_terrain.metal",
+            shadersPath / "shader_skybox.metal",
 
             // 3D
             shadersPath / "shader_lit.metal",
-            shadersPath / "shader_unlit.metal"
+            shadersPath / "shader_unlit.metal",
         };
         std::stringstream buffer;
         for (std::filesystem::path& path: paths)
@@ -1052,9 +1068,10 @@ void onLaunch(App* app)
         // 2D / UI
         app->uiShader = createShader(app, @"ui_vertex", @"ui_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
-        // specialized
+        // special
         app->terrainShader = createShader(app, @"terrain_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_None);
         app->waterShader = createShader(app, @"terrain_vertex", @"lit_fragment", nullptr, lit, ShaderFeatureFlags_AlphaBlend);
+        app->skyboxShader = createShader(app, @"skybox_vertex", @"skybox_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         // 3D
         app->litShader = createShader(app, @"lit_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_None);
@@ -1062,9 +1079,6 @@ void onLaunch(App* app)
         app->unlitShader = createShader(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
         app->unlitAlphaBlendShader = createShader(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
         app->unlitColoredShader = createShader(app, @"unlit_vertex", @"unlit_colored_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
-
-        // Skybox
-        app->skyboxShader = createShader(app, @"skybox_vertex", @"skybox_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
     }
 
     // create depth clear pipeline state and depth stencil state
@@ -1098,6 +1112,11 @@ void onLaunch(App* app)
         }
     }
 
+    // import skybox
+    {
+        app->skyboxTexture = importSkybox(app, app->config->assetsPath / "skybox.hdr");
+    }
+
     // import texture atlas
     {
         std::filesystem::path path = app->config->assetsPath / "texturemap.png";
@@ -1108,12 +1127,6 @@ void onLaunch(App* app)
         uint32_t width = app->fontAtlas.texture.width;
         uint32_t height = app->fontAtlas.texture.height;
         createSprites(&app->fontAtlas, spriteSize, spriteSize, width / spriteSize, height / spriteSize);
-    }
-
-    // import icons
-    {
-        app->iconSunTexture = importTexture(app, app->config->assetsPath / "sun.png");
-        [app->iconSunTexture retain];
     }
 
     // create shadow map
@@ -1149,16 +1162,9 @@ void onLaunch(App* app)
         .scale = glm::vec3(1, 1, 1)
     };
 
-    // create skybox cubemap
-    {
-        MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
-        descriptor.textureType = MTLTextureTypeCube;
-        id <MTLTexture> cubemap = [app->device newTextureWithDescriptor:descriptor];
-
-    }
-
     // import textures
     {
+        app->iconSunTexture = importTexture(app, app->config->assetsPath / "sun.png");
         app->terrainGreenTexture = importTexture(app, app->config->assetsPath / "terrain_green.png");
         app->terrainYellowTexture = importTexture(app, app->config->assetsPath / "terrain.png");
         app->waterTexture = importTexture(app, app->config->assetsPath / "water.png");
@@ -1526,7 +1532,11 @@ void onDraw(App* app)
         // draw skybox
         {
             // skybox is a cube that has to be transformed to appear infinitely far away
-
+            [encoder setCullMode:MTLCullModeBack];
+            [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+            [encoder setDepthStencilState:app->depthStencilStateDefault];
+            [encoder setRenderPipelineState:app->skyboxShader];
+            //[encoder setFragmentTexture:app]
         }
 
         // clear depth buffer
@@ -1633,7 +1643,7 @@ int main(int argc, char const* argv[])
         .windowMinSize = NSSize{100.0f, 50.0f},
         .sidepanelWidth = 300.0f,
         .clearColor = MTLClearColorMake(0, 1, 1, 1.0),
-        .assetsPath = argv[1],
+        .assetsPath = assetsFolder,
         .fontCharacterMap = fontCharacterMap,
         .cameraFov = 60.0f,
         .cameraNear = 0.1f,
