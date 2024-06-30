@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <iostream>
 #include <fstream>
+#include <cstdlib>
 
 // https://paulbourke.net/dataformats/pic/
 // https://radsite.lbl.gov/radiance/refer/filefmts.pdf (page 28)
@@ -10,52 +11,104 @@
 using char_traits = std::char_traits<char>;
 using int_type = char_traits::int_type;
 
-struct HDRData
+enum class radiance_memory_layout
 {
-    uint32_t width;
-    uint32_t height;
+    row_major = 0,
+    column_major
 };
 
-void importHDR(std::filesystem::path const& path)
+enum class radiance_format
 {
-    assert(exists(path));
-    assert(path.extension() == ".hdr");
+    rgbe = 0,
+    xyze
+};
 
+// hdr
+struct radiance_picture
+{
+    uint32_t width; // X
+    uint32_t height; // Y
+    radiance_format format;
+    radiance_memory_layout memory_layout;
+    bool x_flipped;
+    bool y_flipped;
+    float exposure; // multiplied all exposure occurrences in header
+};
+
+enum class radiance_picture_result
+{
+    success = 0,
+    error = 1,
+    error_invalid_format = 2,
+    error_invalid_exposure = 3
+};
+
+[[nodiscard]] radiance_picture_result import_radiance_picture(
+    std::filesystem::path const& path,
+    radiance_picture* out)
+{
     std::basic_ifstream<char> file(path);
-
-    // read one char at a time, until we hit the end of the file
-    //int_type a;
-//    while ((a = file.get()) != char_traits::eof())
-//    {
-//        char b = char_traits::to_char_type(a);
-//        //std::cout << b;
-//    }
-
-
     std::string line;
     std::getline(file, line);
-    assert(line == "#?RADIANCE"); // first line
+    assert(line == "#?RADIANCE"); // always first line
 
-    // read information header until the resolution string
-    bool foundResolutionString = false;
-    while (!foundResolutionString)
+    out->exposure = 1.0f;
+
+    // read information header until empty line (marks end of header)
+    while ((std::getline(file, line) && !line.empty()))
     {
-        std::getline(file, line);
-        if (line.empty())
+        // iterator at index of '=' character
+        auto equal_it = std::find(line.begin(), line.end(), '=');
+        assert(equal_it != line.end());
+        for (auto it = line.begin(); it != equal_it; it++)
         {
-            continue;
-        }
-        if (line.length() > 2
-            && (line[0] == '-' || line[0] == '+')
-            && (line[1] == 'X' || line[1] == 'Y'))
-        {
-            std::cout << "resolution string: \n";
-            foundResolutionString = true;
+            *it = (char)toupper(*it); // make uppercase
         }
 
+        std::string_view value(equal_it + 1, line.end()); // skip the '=' character
+        if (line.starts_with("FORMAT"))
+        {
+            if (value == "32-bit_rle_rgbe")
+            {
+                out->format = radiance_format::rgbe;
+            }
+            else if (value == "32-bit_rle_xyze")
+            {
+                out->format = radiance_format::xyze;
+            }
+            else
+            {
+                return radiance_picture_result::error_invalid_format;
+            }
+        }
+        else if (line.starts_with("EXPOSURE"))
+        {
+            // exposure is cumulative (can be present multiple times in the header)
+            // to get original pixel values, value in file must be divided by
+            // all exposures multiplied together.
+
+            // parse value
+            char* end;
+            float v = strtof(value.data(), &end);
+            if (end != value.data() + value.size())
+            {
+                return radiance_picture_result::error_invalid_exposure;
+            }
+            out->exposure *= v;
+        }
+        else if (line.starts_with("COLORCORR"))
+        {
+            
+        }
+        else if (line.starts_with("PRIMARIES"))
+        {
+
+        }
+        // other variables are not relevant
+
+        //else if (line.)
         std::cout << line << '\n';
     }
-    std::cout.flush();
 
     // import hdr (radiance)
     {
@@ -78,16 +131,22 @@ void importHDR(std::filesystem::path const& path)
 
     }
 
-    std::cout << "imported hdr" << std::endl;
+    return radiance_picture_result::success;
 }
 
 int main(int argc, char const* argv[])
 {
     assert(argc == 2); // we expect one additional argument: the assets folder
-    std::filesystem::path assetsFolder = argv[1];
-    assert(exists(assetsFolder) && is_directory(assetsFolder));
+    std::filesystem::path assets_folder = argv[1];
+    assert(exists(assets_folder) && is_directory(assets_folder));
 
-    std::filesystem::path hdr = assetsFolder / "skybox.hdr";
+    std::filesystem::path hdr = assets_folder / "skybox_test.hdr";
 
-    importHDR(hdr);
+    assert(exists(hdr));
+    assert(hdr.extension() == ".hdr");
+    radiance_picture picture{};
+    radiance_picture_result result = import_radiance_picture(hdr, &picture);
+    std::cout << "imported hdr\n";
+
+    std::cout.flush();
 }
