@@ -43,6 +43,17 @@ enum class radiance_picture_result
     error_invalid_exposure = 3
 };
 
+[[nodiscard]] std::string_view to_string(radiance_picture_result result)
+{
+    switch (result)
+    {
+        case radiance_picture_result::success: return "success";
+        case radiance_picture_result::error: return "error";
+        case radiance_picture_result::error_invalid_format: return "invalid format";
+        case radiance_picture_result::error_invalid_exposure: return "invalid exposure";
+    }
+}
+
 [[nodiscard]] radiance_picture_result import_radiance_picture(
     std::filesystem::path const& path,
     radiance_picture* out)
@@ -98,7 +109,7 @@ enum class radiance_picture_result
         }
         else if (line.starts_with("COLORCORR"))
         {
-            
+
         }
         else if (line.starts_with("PRIMARIES"))
         {
@@ -146,7 +157,6 @@ int main(int argc, char const* argv[])
     assert(hdr.extension() == ".hdr");
     radiance_picture picture{};
     radiance_picture_result result = import_radiance_picture(hdr, &picture);
-    std::cout << "imported hdr\n";
-
+    std::cout << to_string(result) << '\n';
     std::cout.flush();
 }
