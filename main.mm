@@ -517,8 +517,10 @@ struct App
     id <MTLRenderPipelineState> skyboxShader;
     id <MTLTexture> skyboxTexture;
     id <MTLTexture> skybox2Texture;
+    id <MTLTexture> skybox3Texture;
 
     // primitives
+    Mesh cubeWithUV;
     Mesh cube;
     Mesh plane;
 
@@ -730,7 +732,32 @@ id <MTLRenderPipelineState> createShader(
     return createMeshIndexed(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }
 
+// create cube without uv coordinates
 [[nodiscard]] Mesh createCube(App* app)
+{
+    float s = 1.0f;
+    std::vector<VertexData> vertices{
+        {{-s, +s, -s, 1}},
+        {{-s, -s, -s, 1}},
+        {{+s, +s, -s, 1}},
+        {{+s, -s, -s, 1}},
+        {{-s, +s, +s, 1}},
+        {{-s, -s, +s, 1}},
+        {{+s, +s, +s, 1}},
+        {{+s, -s, +s, 1}},
+    };
+
+    std::vector<uint32_t> indices{
+        2, 3, 0, 1, invalidIndex,
+        4, 5, 6, 7, invalidIndex,
+        4, 0, 5, 1, 7, 3, 6, 2, 4, 0,
+    };
+
+    return createMeshIndexed(app, &vertices, &indices, MTLPrimitiveTypeTriangleStrip);
+}
+
+// create cube with uv coordinates
+[[nodiscard]] Mesh createCubeWithUV(App* app)
 {
     float uvmin = 0.0f;
     float uvmax = 1.0f;
@@ -1118,6 +1145,7 @@ void onLaunch(App* app)
         // for now the skybox texture is a regular texture
         app->skyboxTexture = importTexture(app, app->config->assetsPath / "skybox.png");
         app->skybox2Texture = importTexture(app, app->config->assetsPath / "skybox_2.png");
+        app->skybox3Texture = importTexture(app, app->config->assetsPath / "skybox_3.png");
     }
 
     // import texture atlas
@@ -1153,6 +1181,7 @@ void onLaunch(App* app)
 
     // create primitives
     app->cube = createCube(app);
+    app->cubeWithUV = createCubeWithUV(app);
     app->plane = createPlane(app, RectMinMaxf{-30, -30, 30, 30});
 
     // create axes
@@ -1455,7 +1484,7 @@ void onDraw(App* app)
         app->time -= 2.0f * pi_;
     }
 
-    app->config->cameraFov = 50.0f + sin(app->time) * 30.0f;
+    //app->config->cameraFov = 90.0f + sin(app->time) * 10.0f;
 
     // update sun and camera transform
     {
@@ -1596,7 +1625,7 @@ void onDraw(App* app)
             InstanceData instance{
                 .localToWorld = glm::scale(transformToMatrix(&app->sunTransform), glm::vec3(0.25f))
             };
-            drawMesh(encoder, &app->cube, &instance);
+            drawMesh(encoder, &app->cubeWithUV, &instance);
         }
 
         // draw axes at sun position
@@ -1609,7 +1638,7 @@ void onDraw(App* app)
         drawTexture(app, encoder, app->shadowMap, RectMinMaxi{0, 28, 200, 200});
 
         // draw skybox (2D, on-screen)
-        drawTexture(app, encoder, app->skyboxTexture, RectMinMaxi{200, 28, 600, 400});
+        //drawTexture(app, encoder, app->skyboxTexture, RectMinMaxi{200, 28, 600, 400});
 
         // draw text (2D, on-screen)
         [encoder setCullMode:MTLCullModeBack];
@@ -1670,7 +1699,7 @@ int main(int argc, char const* argv[])
         .clearColor = MTLClearColorMake(0, 1, 1, 1.0),
         .assetsPath = assetsFolder,
         .fontCharacterMap = fontCharacterMap,
-        .cameraFov = 60.0f,
+        .cameraFov = 90.0f,
         .cameraNear = 0.1f,
         .cameraFar = 1000.0f,
         .shadowMapSize = 4096
