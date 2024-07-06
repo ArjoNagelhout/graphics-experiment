@@ -900,20 +900,20 @@ id <MTLTexture> importTexture(App* app, std::filesystem::path const& path)
     return texture;
 }
 
-id <MTLTexture> importSkybox(App* app, std::filesystem::path const& path)
-{
-    assert(std::filesystem::exists(path));
-    assert(path.extension() == ".hdr");
-
-    MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
-    descriptor.arrayLength = 1;
-    descriptor.textureType = MTLTextureTypeCube;
-    descriptor.usage = MTLTextureUsageShaderRead;
-
-    id <MTLTexture> texture = [app->device newTextureWithDescriptor:descriptor];
-
-    return texture;
-}
+//id <MTLTexture> importSkybox(App* app, std::filesystem::path const& path)
+//{
+//    assert(std::filesystem::exists(path));
+//
+//    MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
+//    descriptor.arrayLength = 1;
+//    descriptor.textureType = MTLTextureTypeCube;
+//    descriptor.usage = MTLTextureUsageShaderRead;
+//
+//    id <MTLTexture> texture = [app->device newTextureWithDescriptor:descriptor];
+//    //texture region
+//
+//    return texture;
+//}
 
 // works, but not the best, see: https://stackoverflow.com/questions/12657962/how-do-i-generate-a-random-number-between-two-variables-that-i-have-stored
 int randomInt(int min, int max)
@@ -1114,7 +1114,8 @@ void onLaunch(App* app)
 
     // import skybox
     {
-        app->skyboxTexture = importSkybox(app, app->config->assetsPath / "skybox.hdr");
+        // for now the skybox texture is a regular texture
+        app->skyboxTexture = importTexture(app, app->config->assetsPath / "skybox.png");
     }
 
     // import texture atlas
@@ -1427,6 +1428,20 @@ void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transfor
     drawMesh(encoder, &app->axes, &instance);
 }
 
+void drawTexture(App* app, id <MTLRenderCommandEncoder> encoder, id <MTLTexture> texture, RectMinMaxi pixelCoords)
+{
+    [encoder setCullMode:MTLCullModeBack];
+    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+    [encoder setRenderPipelineState:app->uiShader];
+    [encoder setFragmentTexture:texture atIndex:0];
+
+    RectMinMaxf extents = pixelCoordsToNDC(app, pixelCoords);
+    std::vector<VertexData> vertices;
+    addQuad(app, &vertices, extents, /*uv*/ RectMinMaxf{0, 0, 1, 1});
+    [encoder setVertexBytes:vertices.data() length:vertices.size() * sizeof(VertexData) atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
+}
+
 // main render loop
 void onDraw(App* app)
 {
@@ -1562,26 +1577,10 @@ void onDraw(App* app)
         drawAxes(app, encoder, glm::mat4(1));
 
         // draw shadow map (2D, on-screen)
-        id <MTLBuffer> shadowMapVertexBuffer;
-        {
-            [encoder setCullMode:MTLCullModeBack];
-            [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-            [encoder setRenderPipelineState:app->uiShader];
-            [encoder setFragmentTexture:app->shadowMap atIndex:0];
+        drawTexture(app, encoder, app->shadowMap, RectMinMaxi{0, 28, 200, 200});
 
-            RectMinMaxf position = pixelCoordsToNDC(app, {0, 28, 400, 400});
-            std::vector<VertexData> vertices;
-            addQuad(app, &vertices, position, RectMinMaxf{0, 0, 1, 1});
-
-            // create vertex buffer
-            MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-            shadowMapVertexBuffer = [app->device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
-            [shadowMapVertexBuffer retain];
-
-            // draw shadow map
-            [encoder setVertexBuffer:shadowMapVertexBuffer offset:0 atIndex:0];
-            [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
-        }
+        // draw skybox (2D, on-screen)
+        drawTexture(app, encoder, app->skyboxTexture, RectMinMaxi{200, 28, 400, 200});
 
         // draw text (2D, on-screen)
         [encoder setCullMode:MTLCullModeBack];
@@ -1617,9 +1616,6 @@ void onDraw(App* app)
         assert(app->view.currentDrawable);
         [cmd presentDrawable:app->view.currentDrawable];
         [cmd commit];
-
-        [textBuffer release];
-        [shadowMapVertexBuffer release];
     }
 }
 
