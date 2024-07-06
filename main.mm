@@ -516,6 +516,7 @@ struct App
     // skybox
     id <MTLRenderPipelineState> skyboxShader;
     id <MTLTexture> skyboxTexture;
+    id <MTLTexture> skybox2Texture;
 
     // primitives
     Mesh cube;
@@ -1116,6 +1117,7 @@ void onLaunch(App* app)
     {
         // for now the skybox texture is a regular texture
         app->skyboxTexture = importTexture(app, app->config->assetsPath / "skybox.png");
+        app->skybox2Texture = importTexture(app, app->config->assetsPath / "skybox_2.png");
     }
 
     // import texture atlas
@@ -1352,21 +1354,21 @@ void drawMeshInstanced(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, std::ve
     }
 }
 
+void setCameraData(id <MTLRenderCommandEncoder> encoder, glm::mat4 viewProjection)
+{
+    CameraData cameraData{viewProjection};
+    [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:1];
+}
+
 enum DrawSceneFlags_
 {
     DrawSceneFlags_None = 0,
     DrawSceneFlags_IsShadowPass = 1 << 0
 };
 
-void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 viewProjection, DrawSceneFlags_ flags)
+void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ flags)
 {
     assert(encoder != nullptr);
-
-    // set camera data
-    {
-        CameraData cameraData{viewProjection};
-        [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:1];
-    }
 
     // draw terrain
     {
@@ -1442,6 +1444,8 @@ void drawTexture(App* app, id <MTLRenderCommandEncoder> encoder, id <MTLTexture>
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
 }
 
+
+
 // main render loop
 void onDraw(App* app)
 {
@@ -1450,6 +1454,8 @@ void onDraw(App* app)
     {
         app->time -= 2.0f * pi_;
     }
+
+    app->config->cameraFov = 50.0f + sin(app->time) * 30.0f;
 
     // update sun and camera transform
     {
@@ -1511,7 +1517,10 @@ void onDraw(App* app)
         glm::mat4 projection = glm::ortho(-40.0f, 40.0f, -40.0f, 40.0f, 1.0f, 50.0f);
         glm::mat4 view = glm::inverse(transformToMatrix(&app->sunTransform));
         lightData.lightSpace = projection * view;
-        drawScene(app, encoder, lightData.lightSpace, DrawSceneFlags_IsShadowPass);
+
+        // set camera data
+        setCameraData(encoder, lightData.lightSpace);
+        drawScene(app, encoder, DrawSceneFlags_IsShadowPass);
         [encoder endEncoding];
         [cmd commit];
     }
@@ -1530,29 +1539,49 @@ void onDraw(App* app)
         [encoder setFrontFacingWinding:MTLWindingClockwise];
         [encoder setCullMode:MTLCullModeBack];
 
+        glm::mat4 projection;
+        glm::mat4 view;
+        glm::mat4 viewProjection;
+
         // calculate camera matrix and draw scene
         {
             CGSize size = app->view.frame.size;
-            glm::mat4 projection = glm::perspective(glm::radians(app->config->cameraFov),
+            projection = glm::perspective(glm::radians(app->config->cameraFov),
                                                     (float)(size.width / size.height),
                                                     app->config->cameraNear, app->config->cameraFar);
-            glm::mat4 view = glm::inverse(transformToMatrix(&app->cameraTransform));
+            view = glm::inverse(transformToMatrix(&app->cameraTransform));
+            viewProjection = projection * view;
 
             [encoder setFragmentTexture:app->shadowMap atIndex:1];
             [encoder setVertexBytes:&lightData length:sizeof(LightData) atIndex:3];
 
-            drawScene(app, encoder, projection * view, DrawSceneFlags_None);
+            setCameraData(encoder, viewProjection);
+            drawScene(app, encoder, DrawSceneFlags_None);
         }
+
+        // we need to sample the equirectangular projection skybox texture using spherical coordinates.
+        // the position of the camera is not taken into account
+        Transform skyboxCameraTransform = app->cameraTransform;
+        skyboxCameraTransform.position = glm::vec3(0);
+        glm::mat4 skyboxView = glm::inverse(transformToMatrix(&skyboxCameraTransform));
+        setCameraData(encoder, projection * skyboxView);
 
         // draw skybox
         {
             // skybox is a cube that has to be transformed to appear infinitely far away
-            [encoder setCullMode:MTLCullModeBack];
+            [encoder setCullMode:MTLCullModeFront];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
             [encoder setRenderPipelineState:app->skyboxShader];
-            //[encoder setFragmentTexture:app]
+            [encoder setFragmentTexture:app->skybox2Texture atIndex:0];
+            InstanceData instance{
+                .localToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(10))
+            };
+            drawMesh(encoder, &app->cube, &instance);
         }
+
+        // set camera data again
+        setCameraData(encoder, viewProjection);
 
         // clear depth buffer
         clearDepthBuffer(app, encoder);
@@ -1580,7 +1609,7 @@ void onDraw(App* app)
         drawTexture(app, encoder, app->shadowMap, RectMinMaxi{0, 28, 200, 200});
 
         // draw skybox (2D, on-screen)
-        drawTexture(app, encoder, app->skyboxTexture, RectMinMaxi{200, 28, 400, 200});
+        drawTexture(app, encoder, app->skyboxTexture, RectMinMaxi{200, 28, 600, 400});
 
         // draw text (2D, on-screen)
         [encoder setCullMode:MTLCullModeBack];
