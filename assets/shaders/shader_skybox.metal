@@ -2,6 +2,7 @@ struct SkyboxRasterizerData
 {
     float4 position [[position]];
     float3 direction; // direction of the vertex
+    float2 uv;
 };
 
 vertex SkyboxRasterizerData skybox_vertex(
@@ -18,6 +19,7 @@ vertex SkyboxRasterizerData skybox_vertex(
     out.position = camera.viewProjection * instance.localToWorld * data.position;
     out.position.z = out.position.w - 0.01f;
     out.direction = normalize((instance.localToWorld * data.position).xyz);
+    out.uv = data.uv0;
     return out;
 }
 
@@ -34,5 +36,5 @@ fragment half4 skybox_fragment(
 
     float2 uv{u, 1.0f-v};
     constexpr sampler s(address::repeat, filter::linear);
-    return tex.sample(s, uv);
+    return tex.sample(s, in.uv);
 }

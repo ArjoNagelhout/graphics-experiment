@@ -7,13 +7,20 @@ add_subdirectory(external)
 add_subdirectory(lib)
 
 set(SOURCES
-        main.mm
+        src/main.mm
+        src/perlin.h
+        src/perlin.cpp
+        src/rect.h
+        src/mesh.h
+        src/mesh.mm
+        src/procedural_mesh.h
+        src/procedural_mesh.mm
 )
 
 add_executable(bored_c ${SOURCES})
 target_link_libraries(bored_c lodepng glm fmt radiance)
 
-set_source_files_properties(main.mm PROPERTIES
+set_source_files_properties(src/main.mm PROPERTIES
         COMPILE_FLAGS "-x objective-c++")
 
 target_link_libraries(bored_c
@@ -27,7 +34,7 @@ target_link_libraries(bored_c
 # experiments
 
 set(IMPORT_HDR_SOURCES
-    import_hdr.cpp
+        src/import_hdr.cpp
 )
 
 add_executable(import_hdr ${IMPORT_HDR_SOURCES})

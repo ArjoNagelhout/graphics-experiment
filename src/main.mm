@@ -36,6 +36,11 @@
 
 #include "lodepng.h"
 
+#include "common.h"
+#include "rect.h"
+#include "mesh.h"
+#include "procedural_mesh.h"
+
 #define GLM_ENABLE_EXPERIMENTAL
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_LEFT_HANDED
@@ -56,10 +61,6 @@ void onTerminate(App*);
 void onDraw(App*);
 
 void onSizeChanged(App*, CGSize size);
-
-// constants
-uint32_t invalidIndex = 0xFFFFFFFF;
-constexpr float pi_ = 3.14159265359f;
 
 // implements NSApplicationDelegate protocol
 // @interface means defining a subclass
@@ -264,14 +265,6 @@ struct AppConfig
     uint32_t shadowMapSize;
 };
 
-struct VertexData
-{
-    simd_float4 position;
-    simd_float4 normal;
-    simd_float4 color;
-    simd_float2 uv0;
-};
-
 struct CameraData
 {
     glm::mat4 viewProjection;
@@ -308,98 +301,6 @@ struct Font
     TextureAtlas* atlas;
 };
 
-// a rect defined by min and max coordinates
-struct RectMinMaxf
-{
-    float minX;
-    float minY;
-    float maxX;
-    float maxY;
-};
-
-struct RectMinMaxi
-{
-    uint32_t minX;
-    uint32_t minY;
-    uint32_t maxX;
-    uint32_t maxY;
-};
-
-// perlin noise
-// https://en.wikipedia.org/wiki/Perlin_noise
-
-// Function to linearly interpolate between a0 and a1
-// Weight w should be in the range [0.0, 1.0]
-[[nodiscard]] float perlinInterpolate(float a0, float a1, float w)
-{
-    // clamp
-    if (0.0f > w)
-    { return a0; }
-    if (1.0f < w)
-    { return a1; }
-
-    // Use Smootherstep for an even smoother result with a second derivative equal to zero on boundaries:
-    return (a1 - a0) * ((w * (w * 6.0f - 15.0f) + 10.0f) * w * w * w) + a0;
-}
-
-// Create pseudorandom direction vector
-[[nodiscard]] glm::vec2 perlinRandomGradient(int ix, int iy)
-{
-    // No precomputed gradients mean this works for any number of grid coordinates
-    const unsigned w = 8 * sizeof(unsigned);
-    const unsigned s = w / 2; // rotation width
-    unsigned a = ix, b = iy;
-    a *= 3284157443;
-    b ^= a << s | a >> (w - s);
-    b *= 1911520717;
-    a ^= b << s | b >> (w - s);
-    a *= 2048419325;
-    float random = (float)a * (3.14159265f / (float)~(~0u >> 1)); // in [0, 2*Pi]
-    return {cos(random), sin(random)};
-}
-
-// Computes the dot product of the distance and gradient vectors.
-[[nodiscard]] float perlinDotGridGradient(int ix, int iy, float x, float y)
-{
-    // Get gradient from integer coordinates
-    glm::vec2 gradient = perlinRandomGradient(ix, iy);
-
-    // Compute the distance vector
-    float dx = x - (float)ix;
-    float dy = y - (float)iy;
-
-    // Compute the dot-product
-    return (dx * gradient.x + dy * gradient.y);
-}
-
-// Compute Perlin noise at coordinates x, y
-[[nodiscard]] float perlin(float x, float y)
-{
-    // Determine grid cell coordinates
-    int x0 = (int)floor(x);
-    int x1 = x0 + 1;
-    int y0 = (int)floor(y);
-    int y1 = y0 + 1;
-
-    // Determine interpolation weights
-    // Could also use higher order polynomial/s-curve here
-    float sx = x - (float)x0;
-    float sy = y - (float)y0;
-
-    // Interpolate between grid point gradients
-    float n0, n1, ix0, ix1, value;
-
-    n0 = perlinDotGridGradient(x0, y0, x, y);
-    n1 = perlinDotGridGradient(x1, y0, x, y);
-    ix0 = perlinInterpolate(n0, n1, sx);
-
-    n0 = perlinDotGridGradient(x0, y1, x, y);
-    n1 = perlinDotGridGradient(x1, y1, x, y);
-    ix1 = perlinInterpolate(n0, n1, sx);
-
-    value = perlinInterpolate(ix0, ix1, sy);
-    return value; // Will return in range -1 to 1. To make it in range 0 to 1, multiply by 0.5 and add 0.5
-}
 
 // texture coordinates: (top left = 0, 0) (bottom right = 1, 1)
 RectMinMaxf spriteToTextureCoords(id <MTLTexture> texture, Sprite* sprite)
@@ -445,17 +346,6 @@ void createSprites(TextureAtlas* atlas, uint32_t spriteWidth, uint32_t spriteHei
         }
     }
 }
-
-struct Mesh
-{
-    id <MTLBuffer> vertexBuffer;
-    bool indexed;
-    id <MTLBuffer> indexBuffer;
-    MTLIndexType indexType;
-    size_t vertexCount;
-    size_t indexCount;
-    MTLPrimitiveType primitiveType;
-};
 
 struct Transform
 {
@@ -526,6 +416,7 @@ struct App
     // primitives
     Mesh cube;
     Mesh cubeWithoutUV;
+    Mesh roundedCube;
     Mesh sphere;
     Mesh plane;
 
@@ -617,35 +508,7 @@ void onKeyPressed(App* app, CocoaKeyCode keyCode)
     }
 }
 
-[[nodiscard]] Mesh createMesh(App* app, std::vector<VertexData>* vertices, MTLPrimitiveType primitiveType)
-{
-    Mesh mesh{};
-    mesh.indexed = false;
-    mesh.indexType = MTLIndexTypeUInt32;
-    mesh.primitiveType = primitiveType;
 
-    // create vertex buffer
-    MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-    mesh.vertexBuffer = [app->device newBufferWithBytes:vertices->data() length:vertices->size() * sizeof(VertexData) options:options];
-    [mesh.vertexBuffer retain];
-    mesh.vertexCount = vertices->size();
-
-    return mesh;
-}
-
-[[nodiscard]] Mesh createMeshIndexed(App* app, std::vector<VertexData>* vertices, std::vector<uint32_t>* indices, MTLPrimitiveType primitiveType)
-{
-    Mesh mesh = createMesh(app, vertices, primitiveType);
-
-    // create index buffer
-    MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-    mesh.indexBuffer = [app->device newBufferWithBytes:indices->data() length:indices->size() * sizeof(uint32_t) options:options];
-    [mesh.indexBuffer retain];
-    mesh.indexCount = indices->size();
-    mesh.indexed = true;
-
-    return mesh;
-}
 
 void checkError(NSError* error)
 {
@@ -757,203 +620,10 @@ id <MTLRenderPipelineState> createShader(
         }
     }
 
-    return createMeshIndexed(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
+    return createMeshIndexed(app->device, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }
 
-// create cube without uv coordinates
-[[nodiscard]] Mesh createCubeWithoutUV(App* app)
-{
-    float s = 1.0f;
-    std::vector<VertexData> vertices{
-        {{-s, +s, -s, 1}},
-        {{-s, -s, -s, 1}},
-        {{+s, +s, -s, 1}},
-        {{+s, -s, -s, 1}},
-        {{-s, +s, +s, 1}},
-        {{-s, -s, +s, 1}},
-        {{+s, +s, +s, 1}},
-        {{+s, -s, +s, 1}},
-    };
 
-    std::vector<uint32_t> indices{
-        2, 3, 0, 1, invalidIndex,
-        4, 5, 6, 7, invalidIndex,
-        4, 0, 5, 1, 7, 3, 6, 2, 4, 0,
-    };
-
-    return createMeshIndexed(app, &vertices, &indices, MTLPrimitiveTypeTriangleStrip);
-}
-
-[[nodiscard]] Mesh createSphere(App* app, int horizontalDivisions, int verticalDivisions)
-{
-    constexpr float angleCorrectionForCenterAlign = -0.5f * pi_;
-
-    std::vector<VertexData> vertices;
-    std::vector<uint32_t> indices;
-
-    int latitudeIndex = 0;
-    int longitudeIndex = 0;
-
-    for (int w = 0; w <= horizontalDivisions; w++) {
-        float theta = ((float)w / (float)horizontalDivisions - 0.5f) * pi_;
-        float sinTheta = sin(theta);
-        float cosTheta = cos(theta);
-
-        for (int h = 0; h <= verticalDivisions; h++) {
-            float phi = ((float)h / (float)verticalDivisions - 0.5f) * 2.0f * pi_ + angleCorrectionForCenterAlign;
-            float sinPhi = sin(phi);
-            float cosPhi = cos(phi);
-            float x = cosPhi * cosTheta;
-            float y = sinTheta;
-            float z = sinPhi * cosTheta;
-            float u = (float)h / (float)verticalDivisions;
-            float v = 1.0f - (float)w / (float)horizontalDivisions;
-
-            vertices.emplace_back(VertexData{.position{x, y, z, 1}, .uv0{u, v}});
-
-            if (h != verticalDivisions && w != horizontalDivisions)
-            {
-                int a = w * (verticalDivisions + 1) + h;
-                int b = a + verticalDivisions + 1;
-
-                indices.emplace_back(a);
-                indices.emplace_back(a + 1);
-                indices.emplace_back(b);
-                indices.emplace_back(b);
-                indices.emplace_back(a + 1);
-                indices.emplace_back(b + 1);
-            }
-        }
-    }
-
-    return createMeshIndexed(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
-}
-
-// create cube with uv coordinates
-[[nodiscard]] Mesh createCube(App* app)
-{
-    float uvmin = 0.0f;
-    float uvmax = 1.0f;
-    float s = 1.0f;
-    std::vector<VertexData> vertices{
-        {.position{-s, -s, -s, 1}, .uv0{uvmin, uvmin}},  // A 0
-        {.position{+s, -s, -s, 1}, .uv0{uvmax, uvmin}},  // B 1
-        {.position{+s, +s, -s, 1}, .uv0{uvmax, uvmax}},  // C 2
-        {.position{-s, +s, -s, 1}, .uv0{uvmin, uvmax}},  // D 3
-        {.position{-s, -s, +s, 1}, .uv0{uvmin, uvmin}},  // E 4
-        {.position{+s, -s, +s, 1}, .uv0{uvmax, uvmin}},  // F 5
-        {.position{+s, +s, +s, 1}, .uv0{uvmax, uvmax}},  // G 6
-        {.position{-s, +s, +s, 1}, .uv0{uvmin, uvmax}},  // H 7
-        {.position{-s, +s, -s, 1}, .uv0{uvmin, uvmin}},  // D 8
-        {.position{-s, -s, -s, 1}, .uv0{uvmax, uvmin}},  // A 9
-        {.position{-s, -s, +s, 1}, .uv0{uvmax, uvmax}},  // E 10
-        {.position{-s, +s, +s, 1}, .uv0{uvmin, uvmax}},  // H 11
-        {.position{+s, -s, -s, 1}, .uv0{uvmin, uvmin}},  // B 12
-        {.position{+s, +s, -s, 1}, .uv0{uvmax, uvmin}},  // C 13
-        {.position{+s, +s, +s, 1}, .uv0{uvmax, uvmax}},  // G 14
-        {.position{+s, -s, +s, 1}, .uv0{uvmin, uvmax}},  // F 15
-        {.position{-s, -s, -s, 1}, .uv0{uvmin, uvmin}},  // A 16
-        {.position{+s, -s, -s, 1}, .uv0{uvmax, uvmin}},  // B 17
-        {.position{+s, -s, +s, 1}, .uv0{uvmax, uvmax}},  // F 18
-        {.position{-s, -s, +s, 1}, .uv0{uvmin, uvmax}},  // E 19
-        {.position{+s, +s, -s, 1}, .uv0{uvmin, uvmin}},  // C 20
-        {.position{-s, +s, -s, 1}, .uv0{uvmax, uvmin}},  // D 21
-        {.position{-s, +s, +s, 1}, .uv0{uvmax, uvmax}},  // H 22
-        {.position{+s, +s, +s, 1}, .uv0{uvmin, uvmax}},  // G 23
-    };
-    std::vector<uint32_t> indices{
-        // front and back
-        0, 3, 2,
-        2, 1, 0,
-        4, 5, 6,
-        6, 7, 4,
-        // left and right
-        11, 8, 9,
-        9, 10, 11,
-        12, 13, 14,
-        14, 15, 12,
-        // bottom and top
-        16, 17, 18,
-        18, 19, 16,
-        20, 21, 22,
-        22, 23, 20
-    };
-
-    return createMeshIndexed(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
-}
-
-[[nodiscard]] Mesh createPlane(App* app, RectMinMaxf extents)
-{
-    std::vector<VertexData> vertices{
-        {.position{extents.minX, 0, extents.minY, 1}, .uv0{0, 1}},
-        {.position{extents.minX, 0, extents.maxY, 1}, .uv0{0, 0}},
-        {.position{extents.maxX, 0, extents.minY, 1}, .uv0{1, 1}},
-        {.position{extents.maxX, 0, extents.maxY, 1}, .uv0{1, 0}},
-    };
-    return createMesh(app, &vertices, MTLPrimitiveTypeTriangleStrip);
-}
-
-[[nodiscard]] Mesh createTree(App* app, float width, float height)
-{
-    std::vector<VertexData> vertices{
-        {.position{-width / 2, 0, 0, 1}, .uv0{0, 1}},
-        {.position{-width / 2, +height, 0, 1}, .uv0{0, 0}},
-        {.position{+width / 2, 0, 0, 1}, .uv0{1, 1}},
-        {.position{+width / 2, +height, 0, 1}, .uv0{1, 0}},
-        {.position{0, 0, -width / 2, 1}, .uv0{0, 1}},
-        {.position{0, +height, -width / 2, 1}, .uv0{0, 0}},
-        {.position{0, 0, +width / 2, 1}, .uv0{1, 1}},
-        {.position{0, +height, +width / 2, 1}, .uv0{1, 0}},
-    };
-    std::vector<uint32_t> indices{
-        0, 1, 2, 3, invalidIndex, 4, 5, 6, 7
-    };
-    return createMeshIndexed(app, &vertices, &indices, MTLPrimitiveTypeTriangleStrip);
-}
-
-void createTerrain(App* app,
-                   RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdivisions,
-                   std::vector<VertexData>* outVertices, std::vector<uint32_t>* outIndices, MTLPrimitiveType* outPrimitiveType)
-{
-    float xSize = extents.maxX - extents.minX;
-    float zSize = extents.maxY - extents.minY;
-    uint32_t xCount = xSubdivisions + 1; // amount of vertices is subdivisions + 1
-    uint32_t zCount = zSubdivisions + 1;
-    outVertices->resize(xCount * zCount);
-
-    float xStep = xSize / (float)xSubdivisions;
-    float zStep = zSize / (float)zSubdivisions;
-
-    for (uint32_t zIndex = 0; zIndex < zCount; zIndex++)
-    {
-        for (uint32_t xIndex = 0; xIndex < xCount; xIndex++)
-        {
-            float x = extents.minX + (float)xIndex * xStep;
-            float z = extents.minY + (float)zIndex * zStep;
-
-            float y = 0.1f * perlin(x * 8, z * 8) + 2.0f * perlin(x / 2, z / 2) + 10.0f * perlin(x / 9, z / 12);
-
-            outVertices->at(zIndex * xCount + xIndex) = VertexData{
-                .position{x, y, z, 1}, .color{0, 1, 0, 1}
-            };
-        }
-    }
-
-    // triangle strip
-    for (uint32_t zIndex = 0; zIndex < zCount - 1; zIndex++)
-    {
-        for (uint32_t xIndex = 0; xIndex < xCount; xIndex++)
-        {
-            uint32_t offset = zIndex * xCount;
-            outIndices->emplace_back(offset + xIndex);
-            outIndices->emplace_back(offset + xIndex + xCount);
-        }
-        // reset primitive
-        outIndices->emplace_back(invalidIndex);
-    }
-
-    *outPrimitiveType = MTLPrimitiveTypeTriangleStrip;
-}
 
 id <MTLTexture> importTexture(App* app, std::filesystem::path const& path)
 {
@@ -1216,16 +886,16 @@ void onLaunch(App* app)
     // import skybox
     {
         // for now the skybox texture is a regular texture
-        app->skyboxTexture = importTexture(app, app->config->assetsPath / "skybox.png");
-        app->skybox2Texture = importTexture(app, app->config->assetsPath / "skybox_2.png");
-        app->skybox3Texture = importTexture(app, app->config->assetsPath / "skybox_3.png");
-        app->skybox4Texture = importTexture(app, app->config->assetsPath / "skybox_4.png");
+        app->skyboxTexture = importTexture(app, app->config->assetsPath / "textures" / "skybox.png");
+        app->skybox2Texture = importTexture(app, app->config->assetsPath / "textures" / "skybox_2.png");
+        app->skybox3Texture = importTexture(app, app->config->assetsPath / "textures" / "skybox_3.png");
+        app->skybox4Texture = importTexture(app, app->config->assetsPath / "textures" / "skybox_4.png");
         app->activeSkybox = app->skyboxTexture;
     }
 
     // import texture atlas
     {
-        std::filesystem::path path = app->config->assetsPath / "texturemap.png";
+        std::filesystem::path path = app->config->assetsPath / "textures" / "texturemap.png";
         app->fontAtlas.texture = importTexture(app, path);
 
         // create sprites from texture
@@ -1255,10 +925,11 @@ void onLaunch(App* app)
     }
 
     // create primitives
-    app->cubeWithoutUV = createCubeWithoutUV(app);
-    app->cube = createCube(app);
-    app->sphere = createSphere(app, 60, 60);
-    app->plane = createPlane(app, RectMinMaxf{-30, -30, 30, 30});
+    app->cubeWithoutUV = createCubeWithoutUV(app->device);
+    app->cube = createCube(app->device);
+    app->roundedCube = createRoundedCube(app->device, simd_float3{1.0f, 2.0f, 3.0f}, 0.2f, 3);
+    app->sphere = createSphere(app->device, 60, 60);
+    app->plane = createPlane(app->device, RectMinMaxf{-30, -30, 30, 30});
 
     // create axes
     app->axes = createAxes(app);
@@ -1272,10 +943,10 @@ void onLaunch(App* app)
 
     // import textures
     {
-        app->iconSunTexture = importTexture(app, app->config->assetsPath / "sun.png");
-        app->terrainGreenTexture = importTexture(app, app->config->assetsPath / "terrain_green.png");
-        app->terrainYellowTexture = importTexture(app, app->config->assetsPath / "terrain.png");
-        app->waterTexture = importTexture(app, app->config->assetsPath / "water.png");
+        app->iconSunTexture = importTexture(app, app->config->assetsPath / "textures" / "sun.png");
+        app->terrainGreenTexture = importTexture(app, app->config->assetsPath / "textures" / "terrain_green.png");
+        app->terrainYellowTexture = importTexture(app, app->config->assetsPath / "textures" / "terrain.png");
+        app->waterTexture = importTexture(app, app->config->assetsPath / "textures" / "water.png");
     }
 
     // create terrain and trees on terrain
@@ -1283,11 +954,10 @@ void onLaunch(App* app)
         std::vector<VertexData> vertices{};
         std::vector<uint32_t> indices{};
         MTLPrimitiveType primitiveType;
-        createTerrain(app, RectMinMaxf{-30, -30, 30, 30}, 2000, 2000, &vertices, &indices, &primitiveType);
-        app->terrain = createMeshIndexed(app, &vertices, &indices, primitiveType);
+        createTerrain(RectMinMaxf{-30, -30, 30, 30}, 2000, 2000, &vertices, &indices, &primitiveType);
+        app->terrain = createMeshIndexed(app->device, &vertices, &indices, primitiveType);
 
-
-        app->tree = createTree(app, 2.0f, 2.0f);
+        app->tree = createTree(app->device, 2.0f, 2.0f);
 
         int maxIndex = (int)vertices.size();
         // create tree instances at random positions from vertex data of the terrain
@@ -1316,8 +986,8 @@ void onLaunch(App* app)
             };
         }
 
-        app->treeTexture = importTexture(app, app->config->assetsPath / "tree.png");
-        app->shrubTexture = importTexture(app, app->config->assetsPath / "shrub.png");
+        app->treeTexture = importTexture(app, app->config->assetsPath / "textures" / "tree.png");
+        app->shrubTexture = importTexture(app, app->config->assetsPath / "textures" / "shrub.png");
     }
 
     // make window active
@@ -1550,7 +1220,6 @@ void drawTexture(App* app, id <MTLRenderCommandEncoder> encoder, id <MTLTexture>
 }
 
 
-
 // main render loop
 void onDraw(App* app)
 {
@@ -1652,8 +1321,8 @@ void onDraw(App* app)
         {
             CGSize size = app->view.frame.size;
             projection = glm::perspective(glm::radians(app->config->cameraFov),
-                                                    (float)(size.width / size.height),
-                                                    app->config->cameraNear, app->config->cameraFar);
+                                          (float)(size.width / size.height),
+                                          app->config->cameraNear, app->config->cameraFar);
             view = glm::inverse(transformToMatrix(&app->cameraTransform));
             viewProjection = projection * view;
 
