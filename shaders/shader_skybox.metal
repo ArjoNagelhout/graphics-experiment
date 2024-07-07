@@ -2,7 +2,6 @@ struct SkyboxRasterizerData
 {
     float4 position [[position]];
     float3 direction; // direction of the vertex
-    float2 uv0;
 };
 
 vertex SkyboxRasterizerData skybox_vertex(
@@ -17,8 +16,8 @@ vertex SkyboxRasterizerData skybox_vertex(
     device InstanceData const& instance = instances[instanceID];
 
     out.position = camera.viewProjection * instance.localToWorld * data.position;
+    out.position.z = out.position.w - 0.01f;
     out.direction = normalize((instance.localToWorld * data.position).xyz);
-    out.uv0 = data.uv0;
     return out;
 }
 

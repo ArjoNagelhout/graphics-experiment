@@ -59,7 +59,7 @@ void onSizeChanged(App*, CGSize size);
 
 // constants
 uint32_t invalidIndex = 0xFFFFFFFF;
-float pi_ = 3.14159265359f;
+constexpr float pi_ = 3.14159265359f;
 
 // implements NSApplicationDelegate protocol
 // @interface means defining a subclass
@@ -520,8 +520,9 @@ struct App
     id <MTLTexture> skybox3Texture;
 
     // primitives
-    Mesh cubeWithUV;
     Mesh cube;
+    Mesh cubeWithoutUV;
+    Mesh sphere;
     Mesh plane;
 
     // axes
@@ -733,7 +734,7 @@ id <MTLRenderPipelineState> createShader(
 }
 
 // create cube without uv coordinates
-[[nodiscard]] Mesh createCube(App* app)
+[[nodiscard]] Mesh createCubeWithoutUV(App* app)
 {
     float s = 1.0f;
     std::vector<VertexData> vertices{
@@ -756,8 +757,53 @@ id <MTLRenderPipelineState> createShader(
     return createMeshIndexed(app, &vertices, &indices, MTLPrimitiveTypeTriangleStrip);
 }
 
+[[nodiscard]] Mesh createSphere(App* app, int horizontalDivisions, int verticalDivisions)
+{
+    constexpr float angleCorrectionForCenterAlign = -0.5f * pi_;
+
+    std::vector<VertexData> vertices;
+    std::vector<uint32_t> indices;
+
+    int latitudeIndex = 0;
+    int longitudeIndex = 0;
+
+    for (int w = 0; w <= horizontalDivisions; w++) {
+        float theta = ((float)w / (float)horizontalDivisions - 0.5f) * pi_;
+        float sinTheta = sin(theta);
+        float cosTheta = cos(theta);
+
+        for (int h = 0; h <= verticalDivisions; h++) {
+            float phi = ((float)h / (float)verticalDivisions - 0.5f) * 2.0f * pi_ + angleCorrectionForCenterAlign;
+            float sinPhi = sin(phi);
+            float cosPhi = cos(phi);
+            float x = cosPhi * cosTheta;
+            float y = sinTheta;
+            float z = sinPhi * cosTheta;
+            float u = (float)h / (float)verticalDivisions;
+            float v = 1.0f - (float)w / (float)horizontalDivisions;
+
+            vertices.emplace_back(VertexData{.position{x, y, z, 1}, .uv0{u, v}});
+
+            if (h != verticalDivisions && w != horizontalDivisions)
+            {
+                int a = w * (verticalDivisions + 1) + h;
+                int b = a + verticalDivisions + 1;
+
+                indices.emplace_back(a);
+                indices.emplace_back(a + 1);
+                indices.emplace_back(b);
+                indices.emplace_back(b);
+                indices.emplace_back(a + 1);
+                indices.emplace_back(b + 1);
+            }
+        }
+    }
+
+    return createMeshIndexed(app, &vertices, &indices, MTLPrimitiveTypeTriangle);
+}
+
 // create cube with uv coordinates
-[[nodiscard]] Mesh createCubeWithUV(App* app)
+[[nodiscard]] Mesh createCube(App* app)
 {
     float uvmin = 0.0f;
     float uvmax = 1.0f;
@@ -1029,7 +1075,7 @@ void onLaunch(App* app)
         [commandQueue retain];
     }
 
-    // create depth stencil state
+    // create default depth stencil state
     {
         MTLDepthStencilDescriptor* descriptor = [[MTLDepthStencilDescriptor alloc] init];
         descriptor.depthWriteEnabled = YES;
@@ -1180,8 +1226,9 @@ void onLaunch(App* app)
     }
 
     // create primitives
+    app->cubeWithoutUV = createCubeWithoutUV(app);
     app->cube = createCube(app);
-    app->cubeWithUV = createCubeWithUV(app);
+    app->sphere = createSphere(app, 60, 60);
     app->plane = createPlane(app, RectMinMaxf{-30, -30, 30, 30});
 
     // create axes
@@ -1598,15 +1645,15 @@ void onDraw(App* app)
         // draw skybox
         {
             // skybox is a cube that has to be transformed to appear infinitely far away
-            [encoder setCullMode:MTLCullModeFront];
+            [encoder setCullMode:MTLCullModeNone];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
             [encoder setRenderPipelineState:app->skyboxShader];
-            [encoder setFragmentTexture:app->skybox2Texture atIndex:0];
+            [encoder setFragmentTexture:app->skyboxTexture atIndex:0];
             InstanceData instance{
                 .localToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(10))
             };
-            drawMesh(encoder, &app->cube, &instance);
+            drawMesh(encoder, &app->sphere, &instance);
         }
 
         // set camera data again
@@ -1625,7 +1672,7 @@ void onDraw(App* app)
             InstanceData instance{
                 .localToWorld = glm::scale(transformToMatrix(&app->sunTransform), glm::vec3(0.25f))
             };
-            drawMesh(encoder, &app->cubeWithUV, &instance);
+            drawMesh(encoder, &app->cube, &instance);
         }
 
         // draw axes at sun position
