@@ -1,6 +1,6 @@
 # metal-experiment 
 
-![Screenshot](https://github.com/ArjoNagelhout/metal-experiment/assets/16051555/cb16a3a9-cec5-4bb2-997a-a233439b8112)
+![Screenshot](https://github.com/ArjoNagelhout/metal-experiment/assets/16051555/5334dd29-dfa7-4e9e-a731-4bb319b7db4b)
 
 This experiment answers the question: "Why build a game engine when you can build directly on top of the graphics API?"
 It follows these simple rules:
