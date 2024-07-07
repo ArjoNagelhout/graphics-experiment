@@ -9,12 +9,15 @@
 
 class RectMinMaxf;
 
+// create rounded cube
 [[nodiscard]] Mesh createRoundedCube(id <MTLDevice> device, simd_float3 size, float cornerRadius, int cornerDivisions);
 
 [[nodiscard]] Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDivisions);
 
+// create cube without uv coordinates
 [[nodiscard]] Mesh createCubeWithoutUV(id <MTLDevice> device);
 
+// create cube
 [[nodiscard]] Mesh createCube(id <MTLDevice> device);
 
 [[nodiscard]] Mesh createPlane(id <MTLDevice> device, RectMinMaxf extents);

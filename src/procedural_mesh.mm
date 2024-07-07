@@ -16,10 +16,15 @@ float clamp(float value, float min, float max)
     return value < min ? min : max < value ? max : value;
 }
 
+//-------------------------------
+// rounded cube
+//-------------------------------
+
 struct RoundedCubeData
 {
     simd_float3 size;
     float cornerRadius;
+    int cornerDivisions;
     int cornerVertices;
     float positionPerIndex;
 
@@ -36,8 +41,8 @@ void roundedCubeSetVertex(RoundedCubeData* data, int vertexIndex, simd_float3 po
 
     vertex.position = simd_make_float4(position, 1.0f);
 
-    simd_float3 min = -data->size / 2.0f + simd_make_float3(1.0f) * data->cornerRadius;
-    simd_float3 max = data->size / 2.0f - simd_make_float3(1.0f) * data->cornerRadius;
+    simd_float3 min = -data->size / 2.0f + simd_make_float3(1.0f, 1.0f, 1.0f) * data->cornerRadius;
+    simd_float3 max = data->size / 2.0f - simd_make_float3(1.0f, 1.0f, 1.0f) * data->cornerRadius;
     inner = simd_clamp(inner, min, max);
 
     simd_float3 normal = simd_normalize(position - inner);
@@ -88,7 +93,115 @@ void roundedCubeAddRow(RoundedCubeData* data, int* const vertexIndex, float y)
     }
 }
 
-// create rounded cube
+void roundedCubeAddHorizontalRow(RoundedCubeData* data, int* const vertexIndex, float y, float z)
+{
+    for (int x = 1; x < data->cornerVertices; x++)
+    {
+        roundedCubeSetVertex(data, (*vertexIndex)++, simd_float3{(float)x * data->positionPerIndex, y, z});
+    }
+    for (int x = 0; x < data->cornerVertices - 1; x++)
+    {
+        roundedCubeSetVertex(data, (*vertexIndex)++, simd_float3{data->size.x - data->cornerRadius + (float)x * data->positionPerIndex, y, z});
+    }
+}
+
+void roundedCubeAddHorizontalPlane(RoundedCubeData* data, int* const vertexIndex, float y)
+{
+    for (int z = 1; z < data->cornerVertices; z++)
+    {
+        roundedCubeAddHorizontalRow(data, vertexIndex, y, (float)z * data->positionPerIndex);
+    }
+    for (int z = 0; z < data->cornerVertices - 1; z++)
+    {
+        roundedCubeAddHorizontalRow(data, vertexIndex, y, data->size.z - data->cornerRadius + (float)z * data->positionPerIndex);
+    }
+}
+
+int roundedCubeSetQuad(RoundedCubeData* data, int index, int v00, int v10, int v01, int v11)
+{
+    data->indices[index] = v00;
+    data->indices[index + 1] = data->indices[index + 4] = v01;
+    data->indices[index + 2] = data->indices[index + 3] = v10;
+    data->indices[index + 5] = v11;
+    return index + 6;
+}
+
+int roundedCubeCreateTopFace(RoundedCubeData* data, int t, int ring)
+{
+    int sizePerAxis = (data->cornerDivisions + 2) * 2 - 1;
+    int v = ring * sizePerAxis;
+    for (int x = 0; x < (sizePerAxis) - 1; x++, v++)
+    {
+        t = roundedCubeSetQuad(data, t, v, v + 1, v + ring - 1, v + ring);
+    }
+    t = roundedCubeSetQuad(data, t, v, v + 1, v + ring - 1, v + 2);
+
+    int vMin = ring * (sizePerAxis + 1) - 1;
+    int vMid = vMin + 1;
+    int vMax = v + 2;
+
+    for (int z = 1; z < sizePerAxis - 1; z++, vMin--, vMid++, vMax++)
+    {
+        t = roundedCubeSetQuad(data, t, vMin, vMid, vMin - 1, vMid + sizePerAxis - 1);
+        for (int x = 1; x < sizePerAxis - 1; x++, vMid++)
+        {
+            t = roundedCubeSetQuad(
+                data, t,
+                vMid, vMid + 1, vMid + sizePerAxis - 1, vMid + sizePerAxis);
+        }
+        t = roundedCubeSetQuad(data, t, vMid, vMax, vMid + sizePerAxis - 1, vMax + 1);
+    }
+
+    int vTop = vMin - 2;
+    t = roundedCubeSetQuad(data, t, vMin, vMid, vTop + 1, vTop);
+    for (int x = 1; x < sizePerAxis - 1; x++, vTop--, vMid++)
+    {
+        t = roundedCubeSetQuad(data, t, vMid, vMid + 1, vTop, vTop - 1);
+    }
+    t = roundedCubeSetQuad(data, t, vMid, vTop - 2, vTop, vTop - 1);
+
+    return t;
+}
+
+int roundedCubeCreateBottomFace(RoundedCubeData* data, int t, int ring)
+{
+    int sizePerAxis = (data->cornerDivisions + 2) * 2 - 1;
+    int v = 1;
+    int vMid = (int)data->vertices.size() - (sizePerAxis - 1) * (sizePerAxis - 1);
+    t = roundedCubeSetQuad(data, t, ring - 1, vMid, 0, 1);
+    for (int x = 1; x < sizePerAxis - 1; x++, v++, vMid++)
+    {
+        t = roundedCubeSetQuad(data, t, vMid, vMid + 1, v, v + 1);
+    }
+    t = roundedCubeSetQuad(data, t, vMid, v + 2, v, v + 1);
+
+    int vMin = ring - 2;
+    vMid -= sizePerAxis - 2;
+    int vMax = v + 2;
+
+    for (int z = 1; z < sizePerAxis - 1; z++, vMin--, vMid++, vMax++)
+    {
+        t = roundedCubeSetQuad(data, t, vMin, vMid + sizePerAxis - 1, vMin + 1, vMid);
+        for (int x = 1; x < sizePerAxis - 1; x++, vMid++)
+        {
+            t = roundedCubeSetQuad(
+                data, t,
+                vMid + sizePerAxis - 1, vMid + sizePerAxis, vMid, vMid + 1);
+        }
+        t = roundedCubeSetQuad(data, t, vMid + sizePerAxis - 1, vMax + 1, vMid, vMax);
+    }
+
+    int vTop = vMin - 1;
+    t = roundedCubeSetQuad(data, t, vTop + 1, vTop, vTop + 2, vMid);
+    for (int x = 1; x < sizePerAxis - 1; x++, vTop--, vMid++)
+    {
+        t = roundedCubeSetQuad(data, t, vTop, vTop - 1, vMid, vMid + 1);
+    }
+    t = roundedCubeSetQuad(data, t, vTop, vTop - 1, vMid, vTop - 2);
+
+    return t;
+}
+
 [[nodiscard]] Mesh createRoundedCube(id <MTLDevice> device, simd_float3 size, float cornerRadius, int cornerDivisions)
 {
     float smallestSize = std::numeric_limits<float>::max();
@@ -100,44 +213,74 @@ void roundedCubeAddRow(RoundedCubeData* data, int* const vertexIndex, float y)
         }
     }
 
-    RoundedCubeData data{
-        .size = size,
-        .cornerRadius = clamp(cornerRadius, 0, smallestSize / 2.0f),
-    };
+    RoundedCubeData data{};
+    data.size = size;
+    data.cornerRadius = clamp(cornerRadius, 0, smallestSize / 2.0f);
+    data.cornerDivisions = cornerDivisions;
+    data.cornerVertices = data.cornerDivisions + 2;
+    data.positionPerIndex = data.cornerRadius / (float)(data.cornerVertices - 1);
 
     // create vertices
     {
-        int cornerVertices = cornerDivisions + 2;
-        int ring = cornerVertices * 8 - 4;
-        int around = ring * (cornerVertices * 2);
-        int rowVertices = (cornerVertices * 2) - 2;
+        int ring = data.cornerVertices * 8 - 4;
+        int around = ring * (data.cornerVertices * 2);
+        int rowVertices = (data.cornerVertices * 2) - 2;
         int planeVertices = rowVertices * rowVertices;
         int totalVertices = 2 * planeVertices + around;
         data.vertices.resize(totalVertices);
 
         int v = 0;
-        data.positionPerIndex = cornerRadius / (float)(cornerVertices - 1);
-        for (int y = 0; y < cornerVertices; y++)
+        for (int y = 0; y < data.cornerVertices; y++)
         {
             roundedCubeAddRow(
                 &data,
                 &v,
                 (float)y * data.positionPerIndex);
         }
-        for (int y = 0; y < cornerVertices; y++)
+        for (int y = 0; y < data.cornerVertices; y++)
         {
             roundedCubeAddRow(
                 &data,
                 &v,
-                size.y - cornerRadius + (float)y * data.positionPerIndex);
+                size.y - data.cornerRadius + (float)y * data.positionPerIndex);
         }
+
+        roundedCubeAddHorizontalPlane(&data, &v, data.size.y);
+        roundedCubeAddHorizontalPlane(&data, &v, 0);
     }
 
-    // create triangles
+    // create indices
     {
+        int quadsPerCornerOneAxis = data.cornerDivisions + 1;
+        int quadsPerRowOneFace = quadsPerCornerOneAxis * 2 + 1;
+        int quadsPerFace = quadsPerRowOneFace * quadsPerRowOneFace;
 
+        int quads = quadsPerFace * 6;
+        data.indices.resize(quads * 6);
+
+        int ring = data.cornerVertices * 8 - 4;
+        int t = 0, v = 0;
+
+        // Do the sides of the cube
+        for (int y = 0; y < quadsPerRowOneFace; y++, v++)
+        {
+            for (int q = 0; q < ring - 1; q++, v++)
+            {
+                t = roundedCubeSetQuad(&data, t, v, v + 1, v + ring, v + ring + 1);
+            }
+            t = roundedCubeSetQuad(&data, t, v, v - ring + 1, v + ring, v + 1);
+        }
+
+        t = roundedCubeCreateTopFace(&data, t, ring);
+        t = roundedCubeCreateBottomFace(&data, t, ring);
     }
+
+    return createMeshIndexed(device, &data.vertices, &data.indices, MTLPrimitiveTypeTriangle);
 }
+
+//-------------------------------
+// sphere
+//-------------------------------
 
 Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDivisions)
 {
@@ -186,7 +329,10 @@ Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDi
     return createMeshIndexed(device, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }
 
-// create cube without uv coordinates
+//-------------------------------
+// cube without uv
+//-------------------------------
+
 [[nodiscard]] Mesh createCubeWithoutUV(id <MTLDevice> device)
 {
     float s = 1.0f;
@@ -210,7 +356,10 @@ Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDi
     return createMeshIndexed(device, &vertices, &indices, MTLPrimitiveTypeTriangleStrip);
 }
 
-// create cube
+//-------------------------------
+// cube
+//-------------------------------
+
 [[nodiscard]] Mesh createCube(id <MTLDevice> device)
 {
     float uvmin = 0.0f;
@@ -263,6 +412,10 @@ Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDi
     return createMeshIndexed(device, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }
 
+//-------------------------------
+// plane
+//-------------------------------
+
 [[nodiscard]] Mesh createPlane(id <MTLDevice> device, RectMinMaxf extents)
 {
     std::vector<VertexData> vertices{
@@ -273,6 +426,10 @@ Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDi
     };
     return createMesh(device, &vertices, MTLPrimitiveTypeTriangleStrip);
 }
+
+//-------------------------------
+// tree
+//-------------------------------
 
 [[nodiscard]] Mesh createTree(id <MTLDevice> device, float width, float height)
 {
@@ -291,6 +448,10 @@ Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDi
     };
     return createMeshIndexed(device, &vertices, &indices, MTLPrimitiveTypeTriangleStrip);
 }
+
+//-------------------------------
+// terrain
+//-------------------------------
 
 void createTerrain(RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdivisions,
                    std::vector<VertexData>* outVertices, std::vector<uint32_t>* outIndices, MTLPrimitiveType* outPrimitiveType)
