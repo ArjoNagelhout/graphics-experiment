@@ -1146,66 +1146,66 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     assert(encoder != nullptr);
 
     // draw terrain
-//    {
-//        [encoder setCullMode:MTLCullModeBack];
-//        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-//        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shadowShader : app->terrainShader];
-//        [encoder setDepthStencilState:app->depthStencilStateDefault];
-//        [encoder setFragmentTexture:app->terrainGreenTexture atIndex:0];
-//        std::vector<InstanceData> instances{
-//            {.localToWorld = glm::mat4(1)}//glm::rotate(app->time, glm::vec3(0, 1, 0))},
-////            {.localToWorld = glm::scale(glm::translate(glm::vec3(0, 0, 9)), glm::vec3(0.5f))},
-////            {.localToWorld = glm::translate(glm::vec3(9, 0, 9))},
-////            {.localToWorld = glm::translate(glm::vec3(9, 0, 0))},
-//        };
-//        drawMeshInstanced(encoder, &app->terrain, &instances);
-//    }
-//
-//    // draw water
-//    {
-//        [encoder setCullMode:MTLCullModeBack];
-//        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-//        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shadowShader : app->waterShader];
-//        [encoder setDepthStencilState:app->depthStencilStateDefault];
-//        [encoder setFragmentTexture:app->waterTexture atIndex:0];
-//        InstanceData instance{
-//            .localToWorld = glm::mat4(1)
-//        };
-//        drawMesh(encoder, &app->plane, &instance);
-//    }
+    {
+        [encoder setCullMode:MTLCullModeBack];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shadowShader : app->terrainShader];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setFragmentTexture:app->terrainGreenTexture atIndex:0];
+        std::vector<InstanceData> instances{
+            {.localToWorld = glm::mat4(1)}//glm::rotate(app->time, glm::vec3(0, 1, 0))},
+//            {.localToWorld = glm::scale(glm::translate(glm::vec3(0, 0, 9)), glm::vec3(0.5f))},
+//            {.localToWorld = glm::translate(glm::vec3(9, 0, 9))},
+//            {.localToWorld = glm::translate(glm::vec3(9, 0, 0))},
+        };
+        drawMeshInstanced(encoder, &app->terrain, &instances);
+    }
+
+    // draw water
+    {
+        [encoder setCullMode:MTLCullModeBack];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shadowShader : app->waterShader];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setFragmentTexture:app->waterTexture atIndex:0];
+        InstanceData instance{
+            .localToWorld = glm::mat4(1)
+        };
+        drawMesh(encoder, &app->plane, &instance);
+    }
 
     // draw rounded cube
     {
         [encoder setCullMode:MTLCullModeBack];
-        [encoder setTriangleFillMode:MTLTriangleFillModeLines];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shadowShader : app->litShader];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->terrainYellowTexture atIndex:0];
         InstanceData instance{
-            .localToWorld = glm::mat4(1)
+            .localToWorld = glm::translate(glm::vec3{0, 3, 0})
         };
         drawMesh(encoder, &app->roundedCube, &instance);
     }
 
-//    // draw trees
-//    {
-//        [encoder setCullMode:MTLCullModeNone];
-//        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-//        [encoder setRenderPipelineState:app->litAlphaBlendShader];
-//        [encoder setDepthStencilState:app->depthStencilStateDefault];
-//        [encoder setFragmentTexture:app->treeTexture atIndex:0];
-//        drawMeshInstanced(encoder, &app->tree, &app->treeInstances);
-//    }
-//
-//    // draw shrubs
-//    {
-//        [encoder setCullMode:MTLCullModeNone];
-//        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-//        [encoder setRenderPipelineState:app->litAlphaBlendShader];
-//        [encoder setDepthStencilState:app->depthStencilStateDefault];
-//        [encoder setFragmentTexture:app->shrubTexture atIndex:0];
-//        drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
-//    }
+    // draw trees
+    {
+        [encoder setCullMode:MTLCullModeNone];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setRenderPipelineState:app->litAlphaBlendShader];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setFragmentTexture:app->treeTexture atIndex:0];
+        drawMeshInstanced(encoder, &app->tree, &app->treeInstances);
+    }
+
+    // draw shrubs
+    {
+        [encoder setCullMode:MTLCullModeNone];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setRenderPipelineState:app->litAlphaBlendShader];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setFragmentTexture:app->shrubTexture atIndex:0];
+        drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
+    }
 }
 
 void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transform)
