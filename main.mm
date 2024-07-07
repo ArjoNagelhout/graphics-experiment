@@ -520,6 +520,9 @@ struct App
     id <MTLTexture> skybox3Texture;
     id <MTLTexture> skybox4Texture;
 
+    // active skybox:
+    id <MTLTexture> activeSkybox;
+
     // primitives
     Mesh cube;
     Mesh cubeWithoutUV;
@@ -570,6 +573,8 @@ struct App
 }
 @end
 
+void onKeyPressed(App* app, CocoaKeyCode keyCode);
+
 @implementation MetalView
 
 // ui responder
@@ -579,6 +584,7 @@ struct App
 
 - (void)keyDown:(NSEvent*)event {
     _app->keys[event.keyCode] = true;
+    onKeyPressed(_app, static_cast<CocoaKeyCode>(event.keyCode));
 }
 
 - (void)keyUp:(NSEvent*)event {
@@ -589,6 +595,26 @@ struct App
 [[nodiscard]] bool isKeyPressed(App* app, CocoaKeyCode keyCode)
 {
     return app->keys[static_cast<unsigned short>(keyCode)];
+}
+
+void onKeyPressed(App* app, CocoaKeyCode keyCode)
+{
+    if (keyCode == CocoaKeyCode::kVK_ANSI_1)
+    {
+        app->activeSkybox = app->skyboxTexture;
+    }
+    else if (keyCode == CocoaKeyCode::kVK_ANSI_2)
+    {
+        app->activeSkybox = app->skybox2Texture;
+    }
+    else if (keyCode == CocoaKeyCode::kVK_ANSI_3)
+    {
+        app->activeSkybox = app->skybox3Texture;
+    }
+    else if (keyCode == CocoaKeyCode::kVK_ANSI_4)
+    {
+        app->activeSkybox = app->skybox4Texture;
+    }
 }
 
 [[nodiscard]] Mesh createMesh(App* app, std::vector<VertexData>* vertices, MTLPrimitiveType primitiveType)
@@ -1194,6 +1220,7 @@ void onLaunch(App* app)
         app->skybox2Texture = importTexture(app, app->config->assetsPath / "skybox_2.png");
         app->skybox3Texture = importTexture(app, app->config->assetsPath / "skybox_3.png");
         app->skybox4Texture = importTexture(app, app->config->assetsPath / "skybox_4.png");
+        app->activeSkybox = app->skyboxTexture;
     }
 
     // import texture atlas
@@ -1650,7 +1677,7 @@ void onDraw(App* app)
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
             [encoder setRenderPipelineState:app->skyboxShader];
-            [encoder setFragmentTexture:app->skybox4Texture atIndex:0];
+            [encoder setFragmentTexture:app->activeSkybox atIndex:0];
             InstanceData instance{
                 .localToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(10))
             };
@@ -1686,7 +1713,7 @@ void onDraw(App* app)
         drawTexture(app, encoder, app->shadowMap, RectMinMaxi{0, 28, 200, 200});
 
         // draw skybox (2D, on-screen)
-        //drawTexture(app, encoder, app->skyboxTexture, RectMinMaxi{200, 28, 600, 400});
+        drawTexture(app, encoder, app->activeSkybox, RectMinMaxi{200, 28, 600, 200});
 
         // draw text (2D, on-screen)
         [encoder setCullMode:MTLCullModeBack];
