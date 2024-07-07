@@ -518,6 +518,7 @@ struct App
     id <MTLTexture> skyboxTexture;
     id <MTLTexture> skybox2Texture;
     id <MTLTexture> skybox3Texture;
+    id <MTLTexture> skybox4Texture;
 
     // primitives
     Mesh cube;
@@ -1192,6 +1193,7 @@ void onLaunch(App* app)
         app->skyboxTexture = importTexture(app, app->config->assetsPath / "skybox.png");
         app->skybox2Texture = importTexture(app, app->config->assetsPath / "skybox_2.png");
         app->skybox3Texture = importTexture(app, app->config->assetsPath / "skybox_3.png");
+        app->skybox4Texture = importTexture(app, app->config->assetsPath / "skybox_4.png");
     }
 
     // import texture atlas
@@ -1644,12 +1646,11 @@ void onDraw(App* app)
 
         // draw skybox
         {
-            // skybox is a cube that has to be transformed to appear infinitely far away
             [encoder setCullMode:MTLCullModeNone];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
             [encoder setRenderPipelineState:app->skyboxShader];
-            [encoder setFragmentTexture:app->skyboxTexture atIndex:0];
+            [encoder setFragmentTexture:app->skybox4Texture atIndex:0];
             InstanceData instance{
                 .localToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(10))
             };
