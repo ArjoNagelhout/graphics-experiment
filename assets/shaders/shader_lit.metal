@@ -1,4 +1,4 @@
-vertex RasterizerData lit_vertex(
+vertex RasterizerDataLit lit_vertex(
     uint vertexID [[vertex_id]],
     uint instanceID [[instance_id]],
     device VertexData const* vertices [[buffer(0)]],
@@ -6,7 +6,7 @@ vertex RasterizerData lit_vertex(
     device InstanceData const* instances [[buffer(2)]],
     device LightData const& light [[buffer(3)]])
 {
-    RasterizerData out;
+    RasterizerDataLit out;
     device VertexData const& data = vertices[vertexID];
     device InstanceData const& instance = instances[instanceID];
 
@@ -22,7 +22,7 @@ vertex RasterizerData lit_vertex(
 constant bool alphaCutout [[function_constant(0)]];
 
 fragment half4 lit_fragment(
-    RasterizerData in [[stage_in]],
+    RasterizerDataLit in [[stage_in]],
     texture2d<half, access::sample> texture [[texture(0)]],
     depth2d<float, access::sample> shadowMap [[texture(1)]])
 {

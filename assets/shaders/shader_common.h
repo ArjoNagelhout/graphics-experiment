@@ -8,6 +8,14 @@ struct RasterizerData
     float4 color;
     float2 uv0;
     float4 normal;
+};
+
+struct RasterizerDataLit
+{
+    float4 position [[position]];
+    float4 color;
+    float2 uv0;
+    float4 normal;
     float4 fragmentPosition;
     float4 fragmentPositionLightSpace;
 };

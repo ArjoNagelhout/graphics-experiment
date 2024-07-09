@@ -1,4 +1,4 @@
-vertex RasterizerData terrain_vertex(
+vertex RasterizerDataLit terrain_vertex(
     uint vertexID [[vertex_id]],
     uint instanceID [[instance_id]],
     device VertexData const* vertices [[buffer(0)]],
@@ -6,7 +6,7 @@ vertex RasterizerData terrain_vertex(
     device InstanceData const* instances [[buffer(2)]],
     device LightData const& light [[buffer(3)]])
 {
-    RasterizerData out;
+    RasterizerDataLit out;
     device VertexData const& data = vertices[vertexID];
     device InstanceData const& instance = instances[instanceID];
 
