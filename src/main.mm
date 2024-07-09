@@ -1,20 +1,20 @@
 // some things I could implement:
 //
 // - [X] blinn phong shading
-// - [ ] PBR shading (Epic Games and Disney PBR)
-// - [ ] normals (calculate derivatives for perlin noise terrain)
-// - [X] skybox
-// - [ ] animation / rigging of a mesh
-// - [ ] import mesh
-// - [X] compilation of shader variants
-// - [ ] lens flare / post-processing
 // - [X] fog
-// - [ ] foliage / tree shader (animated with wind etc.)
+// - [X] skybox
+// - [X] compilation of shader variants
+// - [ ] animation / rigging of a mesh, skinning
+// - [ ] PBR shading (Epic Games and Disney PBR)
+// - [ ] terrain normals (calculate derivatives for perlin noise terrain)
+// - [ ] import mesh
+// - [ ] lens flare / post-processing
+// - [ ] grass / foliage / tree shader (animated with wind etc.)
 // - [ ] water shader
 // - [ ] frustum culling
 // - [ ] LOD system
 // - [ ] collisions (terrain collider, box collider)
-// - [ ] chunks
+// - [ ] terrain chunks
 // - [ ] scene file format, scene / level editor -> use Blender with GLTF
 // - [ ] 3d text rendering
 // - [ ] stereoscopic rendering
@@ -40,6 +40,7 @@
 #include "rect.h"
 #include "mesh.h"
 #include "procedural_mesh.h"
+#include "gltf.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -644,7 +645,7 @@ id <MTLRenderPipelineState> createShader(
 
 
 
-id <MTLTexture> importTexture(App* app, std::filesystem::path const& path)
+id <MTLTexture> importTexture(id <MTLDevice> device, std::filesystem::path const& path)
 {
     assert(std::filesystem::exists(path));
 
@@ -674,7 +675,7 @@ id <MTLTexture> importTexture(App* app, std::filesystem::path const& path)
     descriptor.arrayLength = 1;
     descriptor.textureType = MTLTextureType2D;
     descriptor.usage = MTLTextureUsageShaderRead;
-    id <MTLTexture> texture = [app->device newTextureWithDescriptor:descriptor];
+    id <MTLTexture> texture = [device newTextureWithDescriptor:descriptor];
 
     size_t strideInBytes = 4; // for each component 1 byte = 8 bits
 
@@ -904,17 +905,17 @@ void onLaunch(App* app)
     // import skybox
     {
         // for now the skybox texture is a regular texture
-        app->skyboxTexture = importTexture(app, app->config->assetsPath / "textures" / "skybox.png");
-        app->skybox2Texture = importTexture(app, app->config->assetsPath / "textures" / "skybox_2.png");
-        app->skybox3Texture = importTexture(app, app->config->assetsPath / "textures" / "skybox_3.png");
-        app->skybox4Texture = importTexture(app, app->config->assetsPath / "textures" / "skybox_4.png");
+        app->skyboxTexture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox.png");
+        app->skybox2Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_2.png");
+        app->skybox3Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_3.png");
+        app->skybox4Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_4.png");
         app->activeSkybox = app->skyboxTexture;
     }
 
     // import texture atlas
     {
         std::filesystem::path path = app->config->assetsPath / "textures" / "texturemap.png";
-        app->fontAtlas.texture = importTexture(app, path);
+        app->fontAtlas.texture = importTexture(app->device, path);
 
         // create sprites from texture
         uint32_t spriteSize = 32;
@@ -961,10 +962,10 @@ void onLaunch(App* app)
 
     // import textures
     {
-        app->iconSunTexture = importTexture(app, app->config->assetsPath / "textures" / "sun.png");
-        app->terrainGreenTexture = importTexture(app, app->config->assetsPath / "textures" / "terrain_green.png");
-        app->terrainYellowTexture = importTexture(app, app->config->assetsPath / "textures" / "terrain.png");
-        app->waterTexture = importTexture(app, app->config->assetsPath / "textures" / "water.png");
+        app->iconSunTexture = importTexture(app->device, app->config->assetsPath / "textures" / "sun.png");
+        app->terrainGreenTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain_green.png");
+        app->terrainYellowTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain.png");
+        app->waterTexture = importTexture(app->device, app->config->assetsPath / "textures" / "water.png");
     }
 
     // create terrain and trees on terrain
@@ -1004,8 +1005,8 @@ void onLaunch(App* app)
             };
         }
 
-        app->treeTexture = importTexture(app, app->config->assetsPath / "textures" / "tree.png");
-        app->shrubTexture = importTexture(app, app->config->assetsPath / "textures" / "shrub.png");
+        app->treeTexture = importTexture(app->device, app->config->assetsPath / "textures" / "tree.png");
+        app->shrubTexture = importTexture(app->device, app->config->assetsPath / "textures" / "shrub.png");
     }
 
     // make window active
@@ -1017,7 +1018,7 @@ void onTerminate(App* app)
 
 }
 
-void addQuad(App* app, std::vector<VertexData>* vertices, RectMinMaxf position, RectMinMaxf uv)
+void addQuad(std::vector<VertexData>* vertices, RectMinMaxf position, RectMinMaxf uv)
 {
     VertexData topLeft{.position = {position.minX, position.minY, 0.0f, 1.0f}, .uv0 = {uv.minX, uv.minY}};
     VertexData topRight{.position = {position.maxX, position.minY, 0.0f, 1.0f}, .uv0 = {uv.maxX, uv.minY}};
@@ -1070,7 +1071,7 @@ void addText(App* app, std::string const& text, std::vector<VertexData>* vertice
         RectMinMaxf textureCoords = spriteToTextureCoords(app->fontAtlas.texture, &app->fontAtlas.sprites[index]);
 
         // create quad at pixel positions
-        addQuad(app, vertices, positionCoords, textureCoords);
+        addQuad(vertices, positionCoords, textureCoords);
 
         i++;
     }
@@ -1276,7 +1277,7 @@ void drawTexture(App* app, id <MTLRenderCommandEncoder> encoder, id <MTLTexture>
 
     RectMinMaxf extents = pixelCoordsToNDC(app, pixelCoords);
     std::vector<VertexData> vertices;
-    addQuad(app, &vertices, extents, /*uv*/ RectMinMaxf{0, 0, 1, 1});
+    addQuad(&vertices, extents, /*uv*/ RectMinMaxf{0, 0, 1, 1});
     [encoder setVertexBytes:vertices.data() length:vertices.size() * sizeof(VertexData) atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
 }

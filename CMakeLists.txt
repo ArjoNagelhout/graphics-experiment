@@ -15,10 +15,12 @@ set(SOURCES
         src/mesh.mm
         src/procedural_mesh.h
         src/procedural_mesh.mm
+        src/gltf.h
+        src/gltf.cpp
 )
 
 add_executable(bored_c ${SOURCES})
-target_link_libraries(bored_c lodepng glm fmt radiance)
+target_link_libraries(bored_c lodepng glm fmt radiance tinygltf)
 
 set_source_files_properties(src/main.mm PROPERTIES
         COMPILE_FLAGS "-x objective-c++")

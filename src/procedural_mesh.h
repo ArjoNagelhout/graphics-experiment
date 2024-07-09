@@ -2,8 +2,8 @@
 // Created by Arjo Nagelhout on 07/07/2024.
 //
 
-#ifndef BORED_C_ROUNDED_CUBE_H
-#define BORED_C_ROUNDED_CUBE_H
+#ifndef BORED_C_PROCEDURAL_MESH_H
+#define BORED_C_PROCEDURAL_MESH_H
 
 #include "mesh.h"
 
@@ -27,4 +27,4 @@ class RectMinMaxf;
 void createTerrain(RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdivisions,
                    std::vector<VertexData>* outVertices, std::vector<uint32_t>* outIndices, MTLPrimitiveType* outPrimitiveType);
 
-#endif //BORED_C_ROUNDED_CUBE_H
+#endif //BORED_C_PROCEDURAL_MESH_H
