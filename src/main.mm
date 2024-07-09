@@ -1,8 +1,9 @@
 // some things I could implement:
 //
-// - [ ] shading (PBR, blinn phong etc.)
+// - [X] blinn phong shading
+// - [ ] PBR shading (Epic Games and Disney PBR)
 // - [ ] normals (calculate derivatives for perlin noise terrain)
-// - [ ] skybox
+// - [X] skybox
 // - [ ] animation / rigging of a mesh
 // - [ ] import mesh
 // - [X] compilation of shader variants
@@ -14,10 +15,9 @@
 // - [ ] LOD system
 // - [ ] collisions (terrain collider, box collider)
 // - [ ] chunks
-// - [ ] scene file format
-// - [ ] scene / level editor
+// - [ ] scene file format, scene / level editor -> use Blender with GLTF
 // - [ ] 3d text rendering
-// - [ ] erosion
+// - [ ] stereoscopic rendering
 
 // architecture can be done later, first focus on features
 // (in a way that it can be easily refactored into a better structure)
@@ -528,8 +528,6 @@ void onKeyPressed(App* app, CocoaKeyCode keyCode)
         app->activeSkybox = app->skybox4Texture;
     }
 }
-
-
 
 void checkError(NSError* error)
 {
