@@ -70,7 +70,6 @@ struct BlinnPhongFragmentData
 
     // colors
     float3 ambientColor;
-    float3 diffuseColor;
     float3 specularColor;
     float3 lightColor;
 
@@ -87,7 +86,7 @@ fragment half4 blinn_phong_fragment(
     constexpr sampler s(address::repeat, filter::nearest);
     float3 diffuseColor = tex.sample(s, in.uv0).xyz;
 
-    float3 lightDirection = -blinnPhong.lightDirection; // light direction is already normalized
+    float3 lightDirection = normalize(-blinnPhong.lightDirection);
     float3 viewDirection = normalize(blinnPhong.cameraPosition - in.worldSpacePosition);
 
     float3 radiance = blinnPhong.ambientColor;

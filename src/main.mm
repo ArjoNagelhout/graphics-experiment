@@ -292,7 +292,6 @@ struct BlinnPhongFragmentData
 
     // colors
     simd::float3 ambientColor;
-    simd::float3 diffuseColor;
     simd::float3 specularColor;
     simd::float3 lightColor;
 
@@ -1223,17 +1222,16 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         };
         BlinnPhongFragmentData fragmentData{
             .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
-            .lightDirection = simd::normalize(glmVec3ToSimdFloat3(quaternionToDirectionVector(app->cameraTransform.rotation))),
+            .lightDirection = glmVec3ToSimdFloat3(quaternionToDirectionVector(app->sunTransform.rotation)),
 
             // colors
-            .ambientColor = {0, 0, 0},
-            .diffuseColor = {0, 0, 0},
+            .ambientColor = {0, 0.1, 0.1},
             .specularColor = {0, 1, 0},
             .lightColor = {1, 1, 0.5},
 
             // parameters
             .irradiancePerp = 1.0f,
-            .shininess = 50.0f + 50.0f * sin(app->time),
+            .shininess = 50.0f//.shininess = 50.0f + 50.0f * sin(app->time),
         };
         [encoder setVertexBytes:&vertexData length:sizeof(BlinnPhongVertexData) atIndex:3];
         [encoder setFragmentBytes:&fragmentData length:sizeof(BlinnPhongFragmentData) atIndex:1];
