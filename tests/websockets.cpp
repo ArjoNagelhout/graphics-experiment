@@ -8,6 +8,6 @@ namespace websockets_test
 {
     TEST(Websocket, Test)
     {
-        
+
     }
 }
