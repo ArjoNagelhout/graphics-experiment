@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 add_subdirectory(external)
 add_subdirectory(lib)
+add_subdirectory(tests)
 
 set(SOURCES
         src/main.mm
