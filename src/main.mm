@@ -5,6 +5,8 @@
 // - [X] skybox
 // - [X] compilation of shader variants
 // - [ ] animation / rigging of a mesh, skinning
+// - [ ] multiple light sources
+// - [ ] deferred rendering
 // - [ ] PBR shading (Epic Games and Disney PBR)
 // - [ ] terrain normals (calculate derivatives for perlin noise terrain)
 // - [ ] import mesh

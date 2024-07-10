@@ -7,9 +7,6 @@
 [submodule "external/fmt"]
 	path = external/fmt
 	url = https://github.com/fmtlib/fmt.git
-[submodule "external/tinygltf"]
-	path = external/tinygltf
-	url = https://github.com/syoyo/tinygltf.git
 [submodule "external/imgui"]
 	path = external/imgui
 	url = https://github.com/ocornut/imgui.git
@@ -22,3 +19,9 @@
 [submodule "tests/external/googletest"]
 	path = tests/external/googletest
 	url = https://github.com/google/googletest.git
+[submodule "external/cgltf"]
+	path = external/cgltf
+	url = https://github.com/jkuhlmann/cgltf.git
+[submodule "external/libjpeg-turbo"]
+	path = external/libjpeg-turbo
+	url = https://github.com/libjpeg-turbo/libjpeg-turbo.git

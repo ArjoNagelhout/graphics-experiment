@@ -8,7 +8,7 @@
 #include <cstdint>
 
 // constants
-static uint32_t invalidIndex = 0xFFFFFFFF;
+static constexpr uint32_t invalidIndex = 0xFFFFFFFF;
 static constexpr float pi_ = 3.14159265359f;
 
 #endif //BORED_C_COMMON_H

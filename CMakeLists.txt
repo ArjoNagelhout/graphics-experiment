@@ -8,7 +8,6 @@ add_subdirectory(lib)
 add_subdirectory(tests)
 
 set(SOURCES
-        src/main.mm
         src/perlin.h
         src/perlin.cpp
         src/rect.h
@@ -17,22 +16,29 @@ set(SOURCES
         src/procedural_mesh.h
         src/procedural_mesh.mm
         src/gltf.h
-        src/gltf.cpp
+        src/gltf.mm
 )
 
-add_executable(bored_c ${SOURCES})
-target_link_libraries(bored_c lodepng glm fmt radiance tinygltf)
+add_library(bored_c_lib ${SOURCES})
+target_link_libraries(bored_c_lib PUBLIC lodepng glm fmt radiance cgltf libjpeg-turbo)#${CMAKE_CURRENT_SOURCE_DIR}/external/libjpeg-turbo/libjpeg.a)
+target_include_directories(bored_c_lib PUBLIC src)
+
+#add_dependencies(bored_c_lib build_libjpeg-turbo)
 
 set_source_files_properties(src/main.mm PROPERTIES
         COMPILE_FLAGS "-x objective-c++")
 
-target_link_libraries(bored_c
+target_link_libraries(bored_c_lib PUBLIC
         "-framework Cocoa"
         "-framework Foundation"
         "-framework AppKit"
         "-framework Metal"
         "-framework MetalKit"
 )
+
+add_executable(bored_c src/main.mm)
+
+target_link_libraries(bored_c bored_c_lib)
 
 # experiments
 
