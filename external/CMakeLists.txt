@@ -54,12 +54,13 @@ target_include_directories(cgltf INTERFACE cgltf)
 # libjpeg-turbo
 include(ExternalProject)
 set(LIBJPEG_TURBO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libjpeg-turbo)
+set(LIBJPEG_TURBO_LIB ${LIBJPEG_TURBO_DIR}/libturbojpeg.a)
 ExternalProject_Add(build_libjpeg-turbo
         PREFIX ${LIBJPEG_TURBO_DIR}
         SOURCE_DIR ${LIBJPEG_TURBO_DIR}
         CONFIGURE_COMMAND ${CMAKE_COMMAND} -G "Unix Makefiles" ${LIBJPEG_TURBO_DIR}
         BUILD_COMMAND ${CMAKE_COMMAND} --build ${LIBJPEG_TURBO_DIR}
-        BUILD_BYPRODUCTS ${LIBJPEG_TURBO_DIR}/libjpeg.a # required for ninja
+        BUILD_BYPRODUCTS ${LIBJPEG_TURBO_LIB} # required for ninja
         INSTALL_COMMAND ""
         BUILD_IN_SOURCE 1
 )
@@ -68,6 +69,6 @@ ExternalProject_Add(build_libjpeg-turbo
 add_library(libjpeg-turbo STATIC IMPORTED GLOBAL)
 add_dependencies(libjpeg-turbo build_libjpeg-turbo)
 set_target_properties(libjpeg-turbo PROPERTIES
-        IMPORTED_LOCATION ${LIBJPEG_TURBO_DIR}/libjpeg.a
+        IMPORTED_LOCATION ${LIBJPEG_TURBO_LIB}
 )
 target_include_directories(libjpeg-turbo INTERFACE ${LIBJPEG_TURBO_DIR})
