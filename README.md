@@ -1,6 +1,6 @@
 # metal-experiment 
 
-![Screenshot](https://github.com/ArjoNagelhout/metal-experiment/assets/16051555/5334dd29-dfa7-4e9e-a731-4bb319b7db4b)
+![Screenshot](https://github.com/ArjoNagelhout/metal-experiment/assets/16051555/eb9d8299-b013-4595-b360-22e8d4c0bbcb)
 
 This experiment is an antithesis to my tendency to try to write "clean" code and "good" abstractions. 
 It's written in a C-style manner, with simple functions and structs, and does not attempt to be 
