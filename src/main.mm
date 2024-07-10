@@ -953,7 +953,7 @@ void onLaunch(App* app)
     // create primitives
     app->cubeWithoutUV = createCubeWithoutUV(app->device);
     app->cube = createCube(app->device);
-    app->roundedCube = createRoundedCube(app->device, simd_float3{2.0f, 2.0f, 2.0f}, 0.5f, 3);
+    app->roundedCube = createRoundedCube(app->device, simd_float3{2.0f, 4.0f, 10.0f}, 0.5f, 3);
     app->sphere = createSphere(app->device, 60, 60);
     app->plane = createPlane(app->device, RectMinMaxf{-30, -30, 30, 30});
 
