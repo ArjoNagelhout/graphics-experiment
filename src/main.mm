@@ -261,6 +261,7 @@ struct AppConfig
     float sidepanelWidth;
     MTLClearColor clearColor;
     std::filesystem::path assetsPath;
+    std::filesystem::path privateAssetsPath;
     std::string fontCharacterMap;
     float cameraFov;
     float cameraNear;
@@ -463,6 +464,11 @@ struct App
     id <MTLTexture> shrubTexture;
     std::vector<InstanceData> shrubInstances;
 
+    // gltf model
+    GltfModel gltfModel{};
+
+    GltfModel gltfVrLoftLivingRoomBaked{};
+
     // shadow and lighting
     Transform sunTransform;
     id <MTLTexture> shadowMap;
@@ -644,7 +650,6 @@ id <MTLRenderPipelineState> createShader(
 
     return createMeshIndexed(app->device, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }
-
 
 
 id <MTLTexture> importTexture(id <MTLDevice> device, std::filesystem::path const& path)
@@ -1009,6 +1014,15 @@ void onLaunch(App* app)
 
         app->treeTexture = importTexture(app->device, app->config->assetsPath / "textures" / "tree.png");
         app->shrubTexture = importTexture(app->device, app->config->assetsPath / "textures" / "shrub.png");
+    }
+
+    // import gltfs
+    {
+        bool success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfModel);
+        assert(success);
+
+        success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
+        assert(success);
     }
 
     // make window active
@@ -1449,6 +1463,36 @@ void onDraw(App* app)
         // draw skybox (2D, on-screen)
         drawTexture(app, encoder, app->activeSkybox, RectMinMaxi{200, 28, 600, 200});
 
+        // draw gltf textures (2D, on-screen)
+        for (size_t i = 0; i < app->gltfModel.textures.size(); i++)
+        {
+            id <MTLTexture> texture = app->gltfModel.textures[i];
+            uint32_t size = 150;
+            uint32_t y = 220;
+            drawTexture(app, encoder, texture, RectMinMaxi{size * (uint32_t)i, y, size * (uint32_t)i + size, y + size});
+        }
+
+        // draw gltf textures (2D, on-screen)
+        for (size_t i = 0; i < app->gltfVrLoftLivingRoomBaked.textures.size(); i++)
+        {
+            id <MTLTexture> texture = app->gltfVrLoftLivingRoomBaked.textures[i];
+            uint32_t size = 50;
+            uint32_t y = 220 + 160;
+            uint32_t xCount = 10;
+            uint32_t yIndex = i / xCount;
+            uint32_t xIndex = i % xCount;
+            uint32_t padding = 2;
+            drawTexture(
+                app, encoder, texture,
+                RectMinMaxi{
+                    size * xIndex + (xIndex * padding),
+                    y + yIndex * size + (yIndex * padding),
+                    size * xIndex + size + (xIndex * padding),
+                    y + size + yIndex * size + (yIndex * padding)
+                }
+            );
+        }
+
         // draw text (2D, on-screen)
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1493,8 +1537,9 @@ void onSizeChanged(App* app, CGSize size)
 
 int main(int argc, char const* argv[])
 {
-    assert(argc == 2); // we expect one additional argument: the assets folder
-    char const* assetsFolder = argv[1];
+    assert(argc == 3); // we expect one additional argument: the assets folder
+    char const* assetsDirectory = argv[1];
+    char const* privateAssetsDirectory = argv[2];
 
     std::string fontCharacterMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZ.,!?/_[]{}'\"()&^#@%*=+-;:<>~`abcdefghijklmnopqrstuvwxyz0123456789 ";
 
@@ -1506,7 +1551,8 @@ int main(int argc, char const* argv[])
         .windowMinSize = NSSize{100.0f, 50.0f},
         .sidepanelWidth = 300.0f,
         .clearColor = MTLClearColorMake(0, 1, 1, 1.0),
-        .assetsPath = assetsFolder,
+        .assetsPath = assetsDirectory,
+        .privateAssetsPath = privateAssetsDirectory,
         .fontCharacterMap = fontCharacterMap,
         .cameraFov = 90.0f,
         .cameraNear = 0.1f,
