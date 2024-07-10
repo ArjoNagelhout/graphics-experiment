@@ -59,14 +59,15 @@ ExternalProject_Add(build_libjpeg-turbo
         SOURCE_DIR ${LIBJPEG_TURBO_DIR}
         CONFIGURE_COMMAND ${CMAKE_COMMAND} -G "Unix Makefiles" ${LIBJPEG_TURBO_DIR}
         BUILD_COMMAND ${CMAKE_COMMAND} --build ${LIBJPEG_TURBO_DIR}
+        BUILD_BYPRODUCTS ${LIBJPEG_TURBO_DIR}/libjpeg.a # required for ninja
         INSTALL_COMMAND ""
         BUILD_IN_SOURCE 1
 )
 
 # GLOBAL is important: https://stackoverflow.com/questions/23565564/cmake-cant-find-imported-library
 add_library(libjpeg-turbo STATIC IMPORTED GLOBAL)
+add_dependencies(libjpeg-turbo build_libjpeg-turbo)
 set_target_properties(libjpeg-turbo PROPERTIES
         IMPORTED_LOCATION ${LIBJPEG_TURBO_DIR}/libjpeg.a
 )
-add_dependencies(libjpeg-turbo build_libjpeg-turbo)
 target_include_directories(libjpeg-turbo INTERFACE ${LIBJPEG_TURBO_DIR})
