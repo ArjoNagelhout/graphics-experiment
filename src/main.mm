@@ -416,6 +416,7 @@ struct App
     id <MTLRenderPipelineState> shaderUnlitAlphaBlend;
     id <MTLRenderPipelineState> shaderUnlitColored; // simplest shader possible, only uses the color
     id <MTLRenderPipelineState> shaderBlinnPhong;
+    id <MTLRenderPipelineState> shaderGltf;
 
     // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
     id <MTLDepthStencilState> depthStencilStateClear;
@@ -815,7 +816,8 @@ void onLaunch(App* app)
             // 3D
             shadersPath / "shader_lit.metal",
             shadersPath / "shader_unlit.metal",
-            shadersPath / "shader_blinn_phong.metal"
+            shadersPath / "shader_blinn_phong.metal",
+            shadersPath / "shader_gltf.metal"
         };
         std::stringstream buffer;
         for (std::filesystem::path& path: paths)
@@ -863,6 +865,7 @@ void onLaunch(App* app)
         app->shaderUnlitAlphaBlend = createShader(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
         app->shaderUnlitColored = createShader(app, @"unlit_vertex", @"unlit_colored_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
         app->shaderBlinnPhong = createShader(app, @"blinn_phong_vertex", @"blinn_phong_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->shaderGltf = createShader(app, @"gltf_vertex", @"gltf_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
     }
 
     // create depth clear pipeline state and depth stencil state
@@ -1008,8 +1011,8 @@ void onLaunch(App* app)
         bool success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfCathedral);
         assert(success);
 
-        success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
-        assert(success);
+//        success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
+//        assert(success);
     }
 
     // make window active
@@ -1180,6 +1183,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     assert(encoder != nullptr);
 
     // draw terrain
+    if (0)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1196,6 +1200,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw water
+    if (0)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1209,6 +1214,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw rounded cube (blinn phong test)
+    if (0)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1241,6 +1247,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw trees
+    if (0)
     {
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1251,6 +1258,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw shrubs
+    if (0)
     {
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1263,14 +1271,54 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     // draw gltf
     {
         [encoder setCullMode:MTLCullModeNone];
-        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->shaderLit];
+        [encoder setTriangleFillMode:MTLTriangleFillModeLines];
+        [encoder setRenderPipelineState:app->shaderGltf];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
+        int a = 0;
         for (auto& mesh: app->gltfCathedral.meshes)
         {
+            if (a == 0)
+            {
+                a++;
+                continue;
+            }
+            a++;
+            InstanceData instance{
+                .localToWorld = glm::scale(glm::mat4(1), glm::vec3(0.05, 0.05, 0.05))
+            };
+            [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:bindings::instanceData];
             for (auto& primitive: mesh.primitives)
             {
-
+                // bind vertex attributes
+                size_t offset = 0;
+                for (auto& attribute: primitive.attributes)
+                {
+                    int i = 0;
+                    switch (attribute.type)
+                    {
+                        case cgltf_attribute_type_invalid:assert(false); break;
+                        case cgltf_attribute_type_position:i = bindings::positions; break;
+                        case cgltf_attribute_type_normal:i = bindings::normals; break;
+                        case cgltf_attribute_type_tangent:i = bindings::tangents; break;
+                        case cgltf_attribute_type_texcoord:i = bindings::uv0s; break;
+                        case cgltf_attribute_type_color:i = bindings::colors; break;
+                        case cgltf_attribute_type_joints:assert(false); break;
+                        case cgltf_attribute_type_weights:assert(false); break;
+                        case cgltf_attribute_type_custom:assert(false); break;
+                        case cgltf_attribute_type_max_enum:assert(false); break;
+                    }
+                    [encoder setVertexBuffer:primitive.vertexBuffer offset:offset atIndex:i];
+                    offset += attribute.size;
+                }
+                [encoder
+                    drawIndexedPrimitives:primitive.primitiveType
+                    indexCount:primitive.indexCount
+                    indexType:primitive.indexType
+                    indexBuffer:primitive.indexBuffer
+                    indexBufferOffset:0
+                    instanceCount:1
+                    baseVertex:0
+                    baseInstance:0];
             }
         }
     }

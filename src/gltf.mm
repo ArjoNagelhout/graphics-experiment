@@ -234,19 +234,21 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                 }
 
                 // populate vertex buffer
-                std::vector<float> values(totalVertexBufferSize);
+                std::vector<unsigned char> values(totalVertexBufferSize);
                 size_t offset = 0;
                 for (int k = 0; k < primitive->attributes_count; k++)
                 {
                     GltfVertexAttribute* outAttribute = &outPrimitive->attributes[k];
                     cgltf_attribute* attribute = &primitive->attributes[k];
 
-                    float* begin = &values[offset];
+                    auto* begin = (float*)&values[offset];
                     size_t floatCount = outAttribute->componentCount * outPrimitive->vertexCount;
                     size_t floatsUnpacked = cgltf_accessor_unpack_floats(attribute->data, begin, floatCount);
                     assert(floatsUnpacked == floatCount);
+
                     offset += outAttribute->size;
                 }
+
 
                 // upload vertex buffer to GPU
                 {

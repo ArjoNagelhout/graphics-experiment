@@ -26,6 +26,7 @@ namespace bindings
     CONST_ID int uv0s = 4;
     CONST_ID int colors = 5;
     CONST_ID int lightMapUvs = 6;
+    CONST_ID int tangents = 7;
 }
 
 #endif //BORED_C_SHADER_CONSTANTS_H
