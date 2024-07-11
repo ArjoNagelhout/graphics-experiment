@@ -8,9 +8,49 @@
 
 #include "mesh.h"
 
+#include "cgltf.h"
+
+enum class DataType
+{
+    simd_float4,
+    simd_float3,
+    simd_float2,
+};
+
+struct GltfVertexAttribute
+{
+    cgltf_attribute_type type;
+    size_t componentCount;
+    size_t size; // size of this part of the buffer
+};
+
+struct GltfPrimitive
+{
+    // buffers
+    id <MTLBuffer> vertexBuffer;
+    id <MTLBuffer> indexBuffer;
+
+    size_t vertexCount;
+    MTLPrimitiveType primitiveType;
+    MTLIndexType indexType;
+    size_t indexCount;
+
+    // attributes descriptor
+    std::vector<GltfVertexAttribute> attributes;
+
+    // material reference
+    int materialId;
+};
+
+// contains multiple materials
+struct GltfMesh
+{
+    std::vector<GltfPrimitive> primitives;
+};
+
 struct GltfModel
 {
-    std::vector<Mesh> meshes;
+    std::vector<GltfMesh> meshes;
     std::vector<id <MTLTexture>> textures;
 };
 

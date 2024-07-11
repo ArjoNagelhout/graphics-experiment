@@ -12,7 +12,6 @@ Mesh createMesh(id <MTLDevice> device, std::vector<VertexData>* vertices, MTLPri
     // create vertex buffer
     MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
     mesh.vertexBuffer = [device newBufferWithBytes:vertices->data() length:vertices->size() * sizeof(VertexData) options:options];
-    [mesh.vertexBuffer retain];
     mesh.vertexCount = vertices->size();
 
     return mesh;
@@ -25,7 +24,6 @@ Mesh createMeshIndexed(id <MTLDevice> device, std::vector<VertexData>* vertices,
     // create index buffer
     MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
     mesh.indexBuffer = [device newBufferWithBytes:indices->data() length:indices->size() * sizeof(uint32_t) options:options];
-    [mesh.indexBuffer retain];
     mesh.indexCount = indices->size();
     mesh.indexed = true;
 

@@ -5,6 +5,7 @@
 #include "gltf.h"
 
 #define CGLTF_IMPLEMENTATION
+
 #include "cgltf.h"
 #include "turbojpeg.h"
 #include "lodepng.h"
@@ -15,14 +16,15 @@
 bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfModel* outModel)
 {
     assert(exists(path));
+    assert(outModel != nullptr);
 
     // parse file
-    cgltf_options options = {
+    cgltf_options cgltfOptions = {
         .type = cgltf_file_type_invalid, // = auto detect
         .file = cgltf_file_options{}
     };
     cgltf_data* cgltfData = nullptr;
-    cgltf_result parseFileResult = cgltf_parse_file(&options, path.c_str(), &cgltfData);
+    cgltf_result parseFileResult = cgltf_parse_file(&cgltfOptions, path.c_str(), &cgltfData);
     if (parseFileResult != cgltf_result_success)
     {
         cgltf_free(cgltfData);
@@ -31,7 +33,7 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
     }
 
     // load buffers
-    cgltf_result loadBuffersResult = cgltf_load_buffers(&options, cgltfData, path.c_str());
+    cgltf_result loadBuffersResult = cgltf_load_buffers(&cgltfOptions, cgltfData, path.c_str());
     if (loadBuffersResult != cgltf_result_success)
     {
         cgltf_free(cgltfData);
@@ -40,6 +42,7 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
     }
 
     // images
+    if (0)
     {
         for (int i = 0; i < cgltfData->images_count; i++)
         {
@@ -159,13 +162,73 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                     outModel->textures.emplace_back(texture);
                 }
 
-                std::cout << "imported image: name: " << (bufferView->name ? bufferView->name : "") << ", width: " << width << ", height: " << height << std::endl;
+                std::cout << "imported image: name: " << (bufferView->name ? bufferView->name : "") << ", width: " << width << ", height: " << height
+                          << std::endl;
             }
 
             //std::cout << imagePath << std::endl;
         }
     }
 
+    // meshes / primitives
+    {
+        static_assert(std::is_same_v<cgltf_float, float>);
+        static_assert(std::is_same_v<cgltf_size, size_t>);
+
+        for (int i = 0; i < cgltfData->meshes_count; i++)
+        {
+            GltfMesh* outMesh = &outModel->meshes.emplace_back();
+
+            cgltf_mesh* mesh = &cgltfData->meshes[i];
+            std::cout << "mesh name: " << (mesh->name ? mesh->name : "") << std::endl;
+
+            for (int j = 0; j < mesh->primitives_count; j++)
+            {
+                GltfPrimitive* outPrimitive = &outMesh->primitives.emplace_back();
+                cgltf_primitive* primitive = &mesh->primitives[j];
+
+                // get data for each attribute
+                outPrimitive->vertexCount = std::numeric_limits<size_t>::max();
+                size_t totalVertexBufferSize = 0;
+                for (int k = 0; k < primitive->attributes_count; k++)
+                {
+                    GltfVertexAttribute* outAttribute = &outPrimitive->attributes.emplace_back();
+                    cgltf_attribute* attribute = &primitive->attributes[k];
+                    outAttribute->type = attribute->type;
+                    std::cout << "attribute: " << (attribute->name ? attribute->name : "") << std::endl;
+
+                    assert(outPrimitive->vertexCount == std::numeric_limits<size_t>::max() || outPrimitive->vertexCount == attribute->data->count);
+                    outPrimitive->vertexCount = attribute->data->count;
+                    assert(attribute->data->component_type == cgltf_component_type_r_32f && "only float component type is implemented");
+
+                    outAttribute->componentCount = cgltf_num_components(attribute->data->type);
+                    outAttribute->size = outAttribute->componentCount * sizeof(float) * outPrimitive->vertexCount;
+                    totalVertexBufferSize += outAttribute->size;
+                }
+
+                // populate vertex buffer
+                std::vector<float> values(totalVertexBufferSize);
+                size_t offset = 0;
+                for (int k = 0; k < primitive->attributes_count; k++)
+                {
+                    GltfVertexAttribute* outAttribute = &outPrimitive->attributes[k];
+                    cgltf_attribute* attribute = &primitive->attributes[k];
+
+                    float* begin = &values[offset];
+                    size_t floatCount = outAttribute->componentCount * outPrimitive->vertexCount;
+                    size_t floatsUnpacked = cgltf_accessor_unpack_floats(attribute->data, begin, floatCount);
+                    assert(floatsUnpacked == floatCount);
+                    offset += outAttribute->size;
+                }
+
+                // upload vertex buffer to GPU
+                {
+                    MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
+                    outPrimitive->vertexBuffer = [device newBufferWithBytes:values.data() length:values.size() * sizeof(float) options:options];
+                }
+            }
+        }
+    }
 
     cgltf_free(cgltfData);
     return true;
