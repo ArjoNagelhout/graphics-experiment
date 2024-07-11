@@ -22,8 +22,7 @@ set(SOURCES
 add_library(bored_c_lib ${SOURCES})
 target_link_libraries(bored_c_lib PUBLIC lodepng glm fmt radiance cgltf libjpeg-turbo)#${CMAKE_CURRENT_SOURCE_DIR}/external/libjpeg-turbo/libjpeg.a)
 target_include_directories(bored_c_lib PUBLIC src)
-
-#add_dependencies(bored_c_lib build_libjpeg-turbo)
+target_include_directories(bored_c_lib PUBLIC assets/shaders)
 
 set_source_files_properties(src/main.mm PROPERTIES
         COMPILE_FLAGS "-x objective-c++")

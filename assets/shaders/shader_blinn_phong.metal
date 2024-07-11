@@ -28,9 +28,9 @@ struct BlinnPhongVertexData
 vertex RasterizerDataBlinnPhong blinn_phong_vertex(
     uint vertexID [[vertex_id]],
     uint instanceID [[instance_id]],
-    device VertexData const* vertices [[buffer(0)]],
-    device CameraData const& camera [[buffer(1)]],
-    device InstanceData const* instances [[buffer(2)]],
+    device VertexData const* vertices [[buffer(bindings::vertexData)]],
+    device CameraData const& camera [[buffer(bindings::cameraData)]],
+    device InstanceData const* instances [[buffer(bindings::instanceData)]],
     device BlinnPhongVertexData const& blinnPhong [[buffer(3)]])
 {
     RasterizerDataBlinnPhong out;

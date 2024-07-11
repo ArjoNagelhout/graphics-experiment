@@ -43,6 +43,8 @@
 #include "mesh.h"
 #include "procedural_mesh.h"
 #include "gltf.h"
+#define SHADER_CONSTANTS_MAIN
+#include "shader_constants.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -796,6 +798,7 @@ void onLaunch(App* app)
         // read shader source from metal source file (Metal Shading Language, MSL)
         std::filesystem::path shadersPath = app->config->assetsPath / "shaders";
         std::vector<std::filesystem::path> paths{
+            shadersPath / "shader_constants.h",
             shadersPath / "shader_common.h",
 
             // utility
@@ -1101,8 +1104,8 @@ void clearDepthBuffer(App* app, id <MTLRenderCommandEncoder> encoder)
 
 void drawMesh(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, InstanceData* instance)
 {
-    [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:2];
-    [encoder setVertexBuffer:mesh->vertexBuffer offset:0 atIndex:0];
+    [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:bindings::instanceData];
+    [encoder setVertexBuffer:mesh->vertexBuffer offset:0 atIndex:bindings::vertexData];
     if (mesh->indexed)
     {
         [encoder
@@ -1123,8 +1126,8 @@ void drawMesh(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, InstanceData* in
 
 void drawMeshInstanced(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, std::vector<InstanceData>* instances)
 {
-    [encoder setVertexBytes:instances->data() length:instances->size() * sizeof(InstanceData) atIndex:2];
-    [encoder setVertexBuffer:mesh->vertexBuffer offset:0 atIndex:0];
+    [encoder setVertexBytes:instances->data() length:instances->size() * sizeof(InstanceData) atIndex:bindings::instanceData];
+    [encoder setVertexBuffer:mesh->vertexBuffer offset:0 atIndex:bindings::vertexData];
     if (mesh->indexed)
     {
         [encoder
@@ -1151,7 +1154,7 @@ void drawMeshInstanced(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, std::ve
 void setCameraData(id <MTLRenderCommandEncoder> encoder, glm::mat4 viewProjection)
 {
     CameraData cameraData{viewProjection};
-    [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:1];
+    [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:bindings::cameraData];
 }
 
 enum DrawSceneFlags_
@@ -1256,6 +1259,21 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         [encoder setFragmentTexture:app->shrubTexture atIndex:0];
         drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
     }
+
+    // draw gltf
+    {
+        [encoder setCullMode:MTLCullModeNone];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setRenderPipelineState:app->shaderLit];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        for (auto& mesh: app->gltfCathedral.meshes)
+        {
+            for (auto& primitive: mesh.primitives)
+            {
+
+            }
+        }
+    }
 }
 
 void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transform)
@@ -1278,7 +1296,7 @@ void drawTexture(App* app, id <MTLRenderCommandEncoder> encoder, id <MTLTexture>
     RectMinMaxf extents = pixelCoordsToNDC(app, pixelCoords);
     std::vector<VertexData> vertices;
     addQuad(&vertices, extents, /*uv*/ RectMinMaxf{0, 0, 1, 1});
-    [encoder setVertexBytes:vertices.data() length:vertices.size() * sizeof(VertexData) atIndex:0];
+    [encoder setVertexBytes:vertices.data() length:vertices.size() * sizeof(VertexData) atIndex:bindings::vertexData];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
 }
 
@@ -1291,8 +1309,6 @@ void onDraw(App* app)
     {
         app->time -= 2.0f * pi_;
     }
-
-    //app->config->cameraFov = 90.0f + sin(app->time) * 10.0f;
 
     // update sun and camera transform
     {
@@ -1494,8 +1510,6 @@ void onDraw(App* app)
             pos = &app->sunTransform.position;
             std::string b = fmt::format("sun ({0:+.3f}, {1:+.3f}, {2:+.3f})", pos->x, pos->y, pos->z);
             addText(app, b, &vertices, 0, 14, 14);
-
-            //addText(app, app->currentText, &vertices, 600, 14, 8);
 
             // create vertex buffer
             MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;

@@ -1,8 +1,8 @@
 vertex RasterizerData ui_vertex(
     uint vertexID [[vertex_id]],
-    device VertexData const* vertices [[buffer(0)]],
-    device CameraData const& camera [[buffer(1)]],
-    device InstanceData const& instance [[buffer(2)]])
+    device VertexData const* vertices [[buffer(bindings::vertexData)]],
+    device CameraData const& camera [[buffer(bindings::cameraData)]],
+    device InstanceData const& instance [[buffer(bindings::instanceData)]])
 {
     RasterizerData out;
     device VertexData const& data = vertices[vertexID];
