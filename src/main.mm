@@ -465,7 +465,7 @@ struct App
     std::vector<InstanceData> shrubInstances;
 
     // gltf model
-    GltfModel gltfModel{};
+    GltfModel gltfCathedral{};
 
     GltfModel gltfVrLoftLivingRoomBaked{};
 
@@ -651,7 +651,6 @@ id <MTLRenderPipelineState> createShader(
     return createMeshIndexed(app->device, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }
 
-
 id <MTLTexture> importTexture(id <MTLDevice> device, std::filesystem::path const& path)
 {
     assert(std::filesystem::exists(path));
@@ -697,21 +696,6 @@ id <MTLTexture> importTexture(id <MTLDevice> device, std::filesystem::path const
 
     return texture;
 }
-
-//id <MTLTexture> importSkybox(App* app, std::filesystem::path const& path)
-//{
-//    assert(std::filesystem::exists(path));
-//
-//    MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
-//    descriptor.arrayLength = 1;
-//    descriptor.textureType = MTLTextureTypeCube;
-//    descriptor.usage = MTLTextureUsageShaderRead;
-//
-//    id <MTLTexture> texture = [app->device newTextureWithDescriptor:descriptor];
-//    //texture region
-//
-//    return texture;
-//}
 
 // works, but not the best, see: https://stackoverflow.com/questions/12657962/how-do-i-generate-a-random-number-between-two-variables-that-i-have-stored
 int randomInt(int min, int max)
@@ -1018,7 +1002,7 @@ void onLaunch(App* app)
 
     // import gltfs
     {
-        bool success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfModel);
+        bool success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfCathedral);
         assert(success);
 
         success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
@@ -1464,9 +1448,9 @@ void onDraw(App* app)
         drawTexture(app, encoder, app->activeSkybox, RectMinMaxi{200, 28, 600, 200});
 
         // draw gltf textures (2D, on-screen)
-        for (size_t i = 0; i < app->gltfModel.textures.size(); i++)
+        for (size_t i = 0; i < app->gltfCathedral.textures.size(); i++)
         {
-            id <MTLTexture> texture = app->gltfModel.textures[i];
+            id <MTLTexture> texture = app->gltfCathedral.textures[i];
             uint32_t size = 150;
             uint32_t y = 220;
             drawTexture(app, encoder, texture, RectMinMaxi{size * (uint32_t)i, y, size * (uint32_t)i + size, y + size});
