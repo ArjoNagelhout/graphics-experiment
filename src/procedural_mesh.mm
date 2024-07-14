@@ -348,8 +348,8 @@ Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDi
     };
 
     std::vector<uint32_t> indices{
-        2, 3, 0, 1, invalidIndex,
-        4, 5, 6, 7, invalidIndex,
+        2, 3, 0, 1, invalidMeshIndex,
+        4, 5, 6, 7, invalidMeshIndex,
         4, 0, 5, 1, 7, 3, 6, 2, 4, 0,
     };
 
@@ -444,7 +444,7 @@ Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDi
         {.position{0, +height, +width / 2, 1}, .uv0{1, 0}},
     };
     std::vector<uint32_t> indices{
-        0, 1, 2, 3, invalidIndex, 4, 5, 6, 7
+        0, 1, 2, 3, invalidMeshIndex, 4, 5, 6, 7
     };
     return createMeshIndexed(device, &vertices, &indices, MTLPrimitiveTypeTriangleStrip);
 }
@@ -490,7 +490,7 @@ void createTerrain(RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdiv
             outIndices->emplace_back(offset + xIndex + xCount);
         }
         // reset primitive
-        outIndices->emplace_back(invalidIndex);
+        outIndices->emplace_back(invalidMeshIndex);
     }
 
     *outPrimitiveType = MTLPrimitiveTypeTriangleStrip;

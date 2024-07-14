@@ -249,7 +249,6 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                     offset += outAttribute->size;
                 }
 
-
                 // upload vertex buffer to GPU
                 {
                     MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
@@ -282,6 +281,43 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                         newBufferWithBytes:indexBuffer.data()
                         length:indexBuffer.size() * sizeof(unsigned char) options:options];
                 }
+
+                // material
+                {
+                    if (primitive->material != nullptr)
+                    {
+                        outPrimitive->material = cgltf_material_index(cgltfData, primitive->material);
+                    }
+                }
+            }
+        }
+    }
+
+    // materials
+    {
+        for (int i = 0; i < cgltfData->materials_count; i++)
+        {
+            GltfMaterial* outMaterial = &outModel->materials.emplace_back();
+            cgltf_material* material = &cgltfData->materials[i];
+            assert(material->has_pbr_metallic_roughness);
+            cgltf_pbr_metallic_roughness mat = material->pbr_metallic_roughness;
+
+            cgltf_texture* baseColor = mat.base_color_texture.texture;
+            if (baseColor != nullptr)
+            {
+                outMaterial->baseColor = cgltf_image_index(cgltfData, baseColor->image);
+            }
+
+            cgltf_texture* metallicRoughness = mat.metallic_roughness_texture.texture;
+            if (metallicRoughness != nullptr)
+            {
+                outMaterial->metallicRoughness = cgltf_image_index(cgltfData, metallicRoughness->image);
+            }
+
+            cgltf_texture* emissive = material->emissive_texture.texture;
+            if (emissive != nullptr)
+            {
+                outMaterial->baseColor = cgltf_image_index(cgltfData, emissive->image);
             }
         }
     }

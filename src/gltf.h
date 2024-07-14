@@ -10,11 +10,13 @@
 
 #include "cgltf.h"
 
-enum class DataType
+static constexpr size_t invalidIndex = std::numeric_limits<size_t>::max();
+
+struct GltfMaterial
 {
-    simd_float4,
-    simd_float3,
-    simd_float2,
+    // texture indices
+    size_t baseColor = invalidIndex;
+    size_t metallicRoughness = invalidIndex;
 };
 
 struct GltfVertexAttribute
@@ -39,7 +41,7 @@ struct GltfPrimitive
     std::vector<GltfVertexAttribute> attributes;
 
     // material reference
-    int materialId;
+    size_t material = invalidIndex;
 };
 
 // contains multiple materials
@@ -52,6 +54,7 @@ struct GltfModel
 {
     std::vector<GltfMesh> meshes;
     std::vector<id <MTLTexture>> textures;
+    std::vector<GltfMaterial> materials;
 };
 
 // returns true when successful

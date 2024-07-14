@@ -4,12 +4,12 @@
 // - [X] fog
 // - [X] skybox
 // - [X] compilation of shader variants
+// - [ ] gltf import
 // - [ ] animation / rigging of a mesh, skinning
 // - [ ] multiple light sources
 // - [ ] deferred rendering
 // - [ ] PBR shading (Epic Games and Disney PBR)
 // - [ ] terrain normals (calculate derivatives for perlin noise terrain)
-// - [ ] import mesh
 // - [ ] lens flare / post-processing
 // - [ ] grass / foliage / tree shader (animated with wind etc.)
 // - [ ] water shader
@@ -1178,12 +1178,66 @@ enum DrawSceneFlags_
     return glm::normalize(directionVector);
 }
 
+void drawGltfPrimitive(id <MTLRenderCommandEncoder> encoder, GltfModel* model, size_t meshIndex, size_t primitiveIndex)
+{
+    GltfMesh* mesh = &model->meshes[meshIndex];
+    GltfPrimitive* primitive = &mesh->primitives[primitiveIndex];
+
+    InstanceData instance{
+        .localToWorld = glm::scale(glm::mat4(1), glm::vec3(0.05, 0.05, 0.05))
+    };
+    [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:bindings::instanceData];
+
+    // bind vertex attributes
+    size_t offset = 0;
+    for (auto& attribute: primitive->attributes)
+    {
+        int i = 0;
+        switch (attribute.type)
+        {
+            case cgltf_attribute_type_invalid:assert(false); break;
+            case cgltf_attribute_type_position:i = bindings::positions; break;
+            case cgltf_attribute_type_normal:i = bindings::normals; break;
+            case cgltf_attribute_type_tangent:i = bindings::tangents; break;
+            case cgltf_attribute_type_texcoord:i = bindings::uv0s; break;
+            case cgltf_attribute_type_color:i = bindings::colors; break;
+            case cgltf_attribute_type_joints:assert(false); break;
+            case cgltf_attribute_type_weights:assert(false); break;
+            case cgltf_attribute_type_custom:assert(false); break;
+            case cgltf_attribute_type_max_enum:assert(false); break;
+        }
+        [encoder setVertexBuffer:primitive->vertexBuffer offset:offset atIndex:i];
+        offset += attribute.size;
+    }
+
+//     set correct fragment texture
+    if (primitive->material != invalidIndex)
+    {
+        GltfMaterial* mat = &model->materials[primitive->material];
+        if (mat->baseColor != invalidIndex)
+        {
+            id <MTLTexture> texture = model->textures[mat->baseColor];
+            [encoder setFragmentTexture:texture atIndex:0];
+        }
+    }
+
+    [encoder
+        drawIndexedPrimitives:primitive->primitiveType
+        indexCount:primitive->indexCount
+        indexType:primitive->indexType
+        indexBuffer:primitive->indexBuffer
+        indexBufferOffset:0
+        instanceCount:1
+        baseVertex:0
+        baseInstance:0];
+}
+
 void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ flags)
 {
     assert(encoder != nullptr);
 
     // draw terrain
-    if (0)
+    if (1)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1200,7 +1254,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw water
-    if (0)
+    if (1)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1214,7 +1268,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw rounded cube (blinn phong test)
-    if (0)
+    if (1)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1247,78 +1301,59 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw trees
-    if (0)
+    if (1)
     {
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->shaderLitAlphaBlend];
+        [encoder setRenderPipelineState:app->shaderLit];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->treeTexture atIndex:0];
         drawMeshInstanced(encoder, &app->tree, &app->treeInstances);
     }
 
     // draw shrubs
-    if (0)
+    if (1)
     {
-        [encoder setCullMode:MTLCullModeNone];
-        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->shaderLitAlphaBlend];
-        [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->shrubTexture atIndex:0];
-        drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
+        //[encoder setCullMode:MTLCullModeNone];
+        //[encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        //[encoder setRenderPipelineState:app->shaderLitAlphaBlend];
+        //[encoder setDepthStencilState:app->depthStencilStateDefault];
+        //[encoder setFragmentTexture:app->shrubTexture atIndex:0];
+        //drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
+
+        std::vector<InstanceData>* instances = &app->shrubInstances;
+        Mesh* mesh = &app->tree;
+
+        [encoder setVertexBytes:instances->data() length:instances->size() * sizeof(InstanceData) atIndex:bindings::instanceData];
+        [encoder setVertexBuffer:mesh->vertexBuffer offset:0 atIndex:bindings::vertexData];
+
+//        [encoder
+//            drawIndexedPrimitives:mesh->primitiveType
+//            indexCount:mesh->indexCount
+//            indexType:mesh->indexType
+//            indexBuffer:mesh->indexBuffer
+//            indexBufferOffset:0
+//            instanceCount:instances->size()
+//            baseVertex:0
+//            baseInstance:0];
     }
 
     // draw gltf
+    if (1)
     {
+        GltfModel* gltfModel = &app->gltfCathedral;
+
         [encoder setCullMode:MTLCullModeNone];
-        [encoder setTriangleFillMode:MTLTriangleFillModeLines];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:app->shaderGltf];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        int a = 0;
-        for (auto& mesh: app->gltfCathedral.meshes)
+
+        for (int i = 0; i < gltfModel->meshes.size(); i++)
         {
-            if (a == 0)
+            GltfMesh* mesh = &gltfModel->meshes[i];
+            for (int j = 0; j < mesh->primitives.size(); j++)
             {
-                a++;
-                continue;
-            }
-            a++;
-            InstanceData instance{
-                .localToWorld = glm::scale(glm::mat4(1), glm::vec3(0.05, 0.05, 0.05))
-            };
-            [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:bindings::instanceData];
-            for (auto& primitive: mesh.primitives)
-            {
-                // bind vertex attributes
-                size_t offset = 0;
-                for (auto& attribute: primitive.attributes)
-                {
-                    int i = 0;
-                    switch (attribute.type)
-                    {
-                        case cgltf_attribute_type_invalid:assert(false); break;
-                        case cgltf_attribute_type_position:i = bindings::positions; break;
-                        case cgltf_attribute_type_normal:i = bindings::normals; break;
-                        case cgltf_attribute_type_tangent:i = bindings::tangents; break;
-                        case cgltf_attribute_type_texcoord:i = bindings::uv0s; break;
-                        case cgltf_attribute_type_color:i = bindings::colors; break;
-                        case cgltf_attribute_type_joints:assert(false); break;
-                        case cgltf_attribute_type_weights:assert(false); break;
-                        case cgltf_attribute_type_custom:assert(false); break;
-                        case cgltf_attribute_type_max_enum:assert(false); break;
-                    }
-                    [encoder setVertexBuffer:primitive.vertexBuffer offset:offset atIndex:i];
-                    offset += attribute.size;
-                }
-                [encoder
-                    drawIndexedPrimitives:primitive.primitiveType
-                    indexCount:primitive.indexCount
-                    indexType:primitive.indexType
-                    indexBuffer:primitive.indexBuffer
-                    indexBufferOffset:0
-                    instanceCount:1
-                    baseVertex:0
-                    baseInstance:0];
+                drawGltfPrimitive(encoder, gltfModel, i, j);
             }
         }
     }
@@ -1469,7 +1504,7 @@ void onDraw(App* app)
 
         // draw skybox
         {
-            [encoder setCullMode:MTLCullModeNone];
+            [encoder setCullMode:MTLCullModeBack];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
             [encoder setRenderPipelineState:app->skyboxShader];
@@ -1542,13 +1577,11 @@ void onDraw(App* app)
         }
 
         // draw text (2D, on-screen)
-        [encoder setCullMode:MTLCullModeBack];
-        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->shaderUI];
-        [encoder setFragmentTexture:app->fontAtlas.texture atIndex:0];
-
-        id <MTLBuffer> textBuffer;
         {
+            [encoder setCullMode:MTLCullModeBack];
+            [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+            [encoder setRenderPipelineState:app->shaderUI];
+            [encoder setFragmentTexture:app->fontAtlas.texture atIndex:0];
             std::vector<VertexData> vertices;
 
             glm::vec3* pos = &app->cameraTransform.position;
@@ -1559,13 +1592,8 @@ void onDraw(App* app)
             std::string b = fmt::format("sun ({0:+.3f}, {1:+.3f}, {2:+.3f})", pos->x, pos->y, pos->z);
             addText(app, b, &vertices, 0, 14, 14);
 
-            // create vertex buffer
-            MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-            textBuffer = [app->device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
-            [textBuffer retain];
-
             // draw text
-            [encoder setVertexBuffer:textBuffer offset:0 atIndex:0];
+            [encoder setVertexBytes:vertices.data() length:vertices.size() * sizeof(VertexData) atIndex:bindings::vertexData];
             [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
         }
 
