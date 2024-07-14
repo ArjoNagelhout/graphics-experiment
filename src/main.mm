@@ -1011,11 +1011,12 @@ void onLaunch(App* app)
     }
 
     // import gltfs
+    if (0)
     {
         bool success;
 
-//        success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfCathedral);
-//        assert(success);
+        success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfCathedral);
+        assert(success);
 
         success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
         assert(success);
@@ -1250,6 +1251,45 @@ struct GltfDFSData
     glm::mat4 localToWorld; // calculated
 };
 
+void drawGltf(App* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 transform)
+{
+    [encoder setCullMode:MTLCullModeNone];
+    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+    [encoder setRenderPipelineState:app->shaderGltf];
+    [encoder setDepthStencilState:app->depthStencilStateDefault];
+
+    // traverse scene
+    GltfScene* scene = &model->scenes[0];
+
+    // dfs
+    std::stack<GltfDFSData> stack;
+    GltfNode* rootNode = &model->nodes[scene->rootNode];
+    stack.push({.node = rootNode, .localToWorld = transform});
+    while (!stack.empty())
+    {
+        GltfDFSData d = stack.top();
+        stack.pop();
+
+        // draw mesh at transform
+        if (d.node->meshIndex != invalidIndex)
+        {
+            drawGltfMesh(encoder, model, d.localToWorld, &model->meshes[d.node->meshIndex]);
+        }
+
+        // iterate over children
+        for (int i = 0; i < d.node->childNodes.size(); i++)
+        {
+            size_t childIndex = d.node->childNodes[i];
+            GltfNode* child = &model->nodes[childIndex];
+
+            // calculate localToWorld
+            glm::mat4 localToWorld = d.localToWorld * child->localTransform;
+
+            stack.push({.node = child, .localToWorld = localToWorld});
+        }
+    }
+}
+
 void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ flags)
 {
     assert(encoder != nullptr);
@@ -1319,7 +1359,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw trees
-    if (1)
+    if (0)
     {
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1330,7 +1370,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw shrubs
-    if (1)
+    if (0)
     {
         //[encoder setCullMode:MTLCullModeNone];
         //[encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1357,46 +1397,8 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw gltf
-    if (0)
-    {
-        GltfModel* gltfModel = &app->gltfVrLoftLivingRoomBaked;
-
-        [encoder setCullMode:MTLCullModeNone];
-        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->shaderGltf];
-        [encoder setDepthStencilState:app->depthStencilStateDefault];
-
-        // traverse scene
-        GltfScene* scene = &gltfModel->scenes[0];
-
-        // dfs
-        std::stack<GltfDFSData> stack;
-        GltfNode* rootNode = &gltfModel->nodes[scene->rootNode];
-        stack.push({.node = rootNode, .localToWorld = glm::mat4(1)});
-        while (!stack.empty())
-        {
-            GltfDFSData d = stack.top();
-            stack.pop();
-
-            // draw mesh at transform
-            if (d.node->meshIndex != invalidIndex)
-            {
-                drawGltfMesh(encoder, gltfModel, d.localToWorld, &gltfModel->meshes[d.node->meshIndex]);
-            }
-
-            // iterate over children
-            for (int i = 0; i < d.node->childNodes.size(); i++)
-            {
-                size_t childIndex = d.node->childNodes[i];
-                GltfNode* child = &gltfModel->nodes[childIndex];
-
-                // calculate localToWorld
-                glm::mat4 localToWorld = d.localToWorld * child->localTransform;
-
-                stack.push({.node = child, .localToWorld = localToWorld});
-            }
-        }
-    }
+    //drawGltf(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
+    //drawGltf(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 10, 0)));
 }
 
 void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transform)
@@ -1543,6 +1545,7 @@ void onDraw(App* app)
         setCameraData(encoder, projection * skyboxView);
 
         // draw skybox
+        if (0)
         {
             [encoder setCullMode:MTLCullModeBack];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1555,11 +1558,11 @@ void onDraw(App* app)
             drawMesh(encoder, &app->sphere, &instance);
         }
 
-        // set camera data again
-        setCameraData(encoder, viewProjection);
-
-        // clear depth buffer
+        // clear depth buffer (sets vertex bytes at index 0)
         clearDepthBuffer(app, encoder);
+
+        // set camera data again (sets vertex bytes at index 0, so has to be called after clearDepthBuffer)
+        setCameraData(encoder, viewProjection);
 
         // draw cube at sun position
         {
@@ -1590,7 +1593,7 @@ void onDraw(App* app)
         for (size_t i = 0; i < app->gltfCathedral.textures.size(); i++)
         {
             id <MTLTexture> texture = app->gltfCathedral.textures[i];
-            uint32_t size = 150;
+            uint32_t size = 75;
             uint32_t y = 220;
             drawTexture(app, encoder, texture, RectMinMaxi{size * (uint32_t)i, y, size * (uint32_t)i + size, y + size});
         }
