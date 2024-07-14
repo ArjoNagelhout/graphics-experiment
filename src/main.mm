@@ -4,7 +4,7 @@
 // - [X] fog
 // - [X] skybox
 // - [X] compilation of shader variants
-// - [ ] gltf import
+// - [X] gltf import
 // - [ ] animation / rigging of a mesh, skinning
 // - [ ] multiple light sources
 // - [ ] deferred rendering
@@ -23,6 +23,11 @@
 
 // architecture can be done later, first focus on features
 // (in a way that it can be easily refactored into a better structure)
+
+// should be defined before including any headers that use glm, otherwise things break
+#define GLM_ENABLE_EXPERIMENTAL
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_FORCE_LEFT_HANDED
 
 #include <iostream>
 #include <fstream>
@@ -43,12 +48,9 @@
 #include "mesh.h"
 #include "procedural_mesh.h"
 #include "gltf.h"
+
 #define SHADER_CONSTANTS_MAIN
 #include "shader_constants.h"
-
-#define GLM_ENABLE_EXPERIMENTAL
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#define GLM_FORCE_LEFT_HANDED
 
 #include "glm/glm.hpp"
 #include "glm/detail/type_quat.hpp"
@@ -56,6 +58,8 @@
 #include "glm/gtx/quaternion.hpp"
 
 #include "fmt/format.h"
+
+#include <stack>
 
 struct App;
 
@@ -1008,11 +1012,13 @@ void onLaunch(App* app)
 
     // import gltfs
     {
-        bool success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfCathedral);
-        assert(success);
+        bool success;
 
-//        success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
+//        success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfCathedral);
 //        assert(success);
+
+        success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
+        assert(success);
     }
 
     // make window active
@@ -1178,16 +1184,8 @@ enum DrawSceneFlags_
     return glm::normalize(directionVector);
 }
 
-void drawGltfPrimitive(id <MTLRenderCommandEncoder> encoder, GltfModel* model, size_t meshIndex, size_t primitiveIndex)
+void drawGltfPrimitive(id <MTLRenderCommandEncoder> encoder, GltfModel* model, GltfPrimitive* primitive)
 {
-    GltfMesh* mesh = &model->meshes[meshIndex];
-    GltfPrimitive* primitive = &mesh->primitives[primitiveIndex];
-
-    InstanceData instance{
-        .localToWorld = glm::scale(glm::mat4(1), glm::vec3(0.05, 0.05, 0.05))
-    };
-    [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:bindings::instanceData];
-
     // bind vertex attributes
     size_t offset = 0;
     for (auto& attribute: primitive->attributes)
@@ -1210,7 +1208,7 @@ void drawGltfPrimitive(id <MTLRenderCommandEncoder> encoder, GltfModel* model, s
         offset += attribute.size;
     }
 
-//     set correct fragment texture
+    // set correct fragment texture
     if (primitive->material != invalidIndex)
     {
         GltfMaterial* mat = &model->materials[primitive->material];
@@ -1231,6 +1229,26 @@ void drawGltfPrimitive(id <MTLRenderCommandEncoder> encoder, GltfModel* model, s
         baseVertex:0
         baseInstance:0];
 }
+
+
+void drawGltfMesh(id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 localToWorld, GltfMesh* mesh)
+{
+    InstanceData instance{
+        .localToWorld = localToWorld
+    };
+    [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:bindings::instanceData];
+
+    for (auto& primitive: mesh->primitives)
+    {
+        drawGltfPrimitive(encoder, model, &primitive);
+    }
+}
+
+struct GltfDFSData
+{
+    GltfNode* node;
+    glm::mat4 localToWorld; // calculated
+};
 
 void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ flags)
 {
@@ -1339,21 +1357,43 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw gltf
-    if (1)
+    if (0)
     {
-        GltfModel* gltfModel = &app->gltfCathedral;
+        GltfModel* gltfModel = &app->gltfVrLoftLivingRoomBaked;
 
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:app->shaderGltf];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
 
-        for (int i = 0; i < gltfModel->meshes.size(); i++)
+        // traverse scene
+        GltfScene* scene = &gltfModel->scenes[0];
+
+        // dfs
+        std::stack<GltfDFSData> stack;
+        GltfNode* rootNode = &gltfModel->nodes[scene->rootNode];
+        stack.push({.node = rootNode, .localToWorld = glm::mat4(1)});
+        while (!stack.empty())
         {
-            GltfMesh* mesh = &gltfModel->meshes[i];
-            for (int j = 0; j < mesh->primitives.size(); j++)
+            GltfDFSData d = stack.top();
+            stack.pop();
+
+            // draw mesh at transform
+            if (d.node->meshIndex != invalidIndex)
             {
-                drawGltfPrimitive(encoder, gltfModel, i, j);
+                drawGltfMesh(encoder, gltfModel, d.localToWorld, &gltfModel->meshes[d.node->meshIndex]);
+            }
+
+            // iterate over children
+            for (int i = 0; i < d.node->childNodes.size(); i++)
+            {
+                size_t childIndex = d.node->childNodes[i];
+                GltfNode* child = &gltfModel->nodes[childIndex];
+
+                // calculate localToWorld
+                glm::mat4 localToWorld = d.localToWorld * child->localTransform;
+
+                stack.push({.node = child, .localToWorld = localToWorld});
             }
         }
     }

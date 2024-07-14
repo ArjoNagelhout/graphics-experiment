@@ -10,6 +10,8 @@
 
 #include "cgltf.h"
 
+#import "glm/detail/type_mat4x4.hpp"
+
 static constexpr size_t invalidIndex = std::numeric_limits<size_t>::max();
 
 struct GltfMaterial
@@ -50,11 +52,28 @@ struct GltfMesh
     std::vector<GltfPrimitive> primitives;
 };
 
+struct GltfScene
+{
+    size_t rootNode;
+};
+
+struct GltfNode
+{
+    size_t meshIndex = invalidIndex;
+    glm::mat4 localTransform;
+    std::vector<size_t> childNodes;
+};
+
 struct GltfModel
 {
+    // data
     std::vector<GltfMesh> meshes;
     std::vector<id <MTLTexture>> textures;
     std::vector<GltfMaterial> materials;
+
+    // scenes
+    std::vector<GltfScene> scenes;
+    std::vector<GltfNode> nodes;
 };
 
 // returns true when successful

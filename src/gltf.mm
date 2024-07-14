@@ -13,6 +13,8 @@
 #include <cassert>
 #include <iostream>
 
+#include <glm/gtc/type_ptr.hpp>
+
 bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfModel* outModel)
 {
     assert(exists(path));
@@ -318,6 +320,49 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
             if (emissive != nullptr)
             {
                 outMaterial->baseColor = cgltf_image_index(cgltfData, emissive->image);
+            }
+        }
+    }
+
+    // nodes
+    {
+        for (int i = 0; i < cgltfData->nodes_count; i++)
+        {
+            cgltf_node* node = &cgltfData->nodes[i];
+            GltfNode* outNode = &outModel->nodes.emplace_back();
+
+            float* a = glm::value_ptr(outNode->localTransform);
+            cgltf_node_transform_local(node, a);
+
+            if (node->mesh != nullptr)
+            {
+                outNode->meshIndex = cgltf_mesh_index(cgltfData, node->mesh);
+            }
+
+            for (int j = 0; j < node->children_count; j++)
+            {
+                outNode->childNodes.emplace_back(cgltf_node_index(cgltfData, node->children[j]));
+            }
+        }
+    }
+
+    // scenes
+    {
+        for (int i = 0; i < cgltfData->scenes_count; i++)
+        {
+            cgltf_scene* scene = &cgltfData->scenes[i];
+            GltfScene* outScene = &outModel->scenes.emplace_back();
+
+            // create root node that contains scene root nodes as children
+            // makes traversal easier
+            GltfNode* rootNode = &outModel->nodes.emplace_back();
+            size_t rootNodeIndex = outModel->nodes.size() - 1;
+            outScene->rootNode = rootNodeIndex;
+
+            for (int j = 0; j < scene->nodes_count; j++)
+            {
+                cgltf_node* node = scene->nodes[j];
+                rootNode->childNodes.emplace_back(cgltf_node_index(cgltfData, node));
             }
         }
     }
