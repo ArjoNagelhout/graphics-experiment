@@ -85,6 +85,8 @@
 
 // now: implement OpenPBR specification from: https://academysoftwarefoundation.github.io/OpenPBR
 
+// refer to this article for the difference between BRDF and BSDF: https://en.wikipedia.org/wiki/Bidirectional_scattering_distribution_function
+
 // the following should be defined before including any headers that use glm, otherwise things break
 #define GLM_ENABLE_EXPERIMENTAL
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
