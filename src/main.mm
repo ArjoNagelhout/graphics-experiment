@@ -1,3 +1,6 @@
+// architecture can be done later, first focus on features
+// (in a way that it can be easily refactored into a better structure)
+//
 // some things I could implement:
 //
 // - [X] blinn phong shading
@@ -40,6 +43,7 @@
 // Autodesk Standard Surface https://autodesk.github.io/standard-surface/
 // Adobe Standard Material https://helpx.adobe.com/content/dam/help/en/substance-3d/documentation/s3d/files/225969597/225969613/1/1647027222890/adobe-standard-material-specification.pdf
 // Disney's Principled Shader
+// Pixar's PxrSurface
 
 // these shaders are über-shaders, which capture a wide range of materials, rather than requiring
 // specialized shaders for each type of material. Unfortunately not all materials can be captured in a single
@@ -58,13 +62,28 @@
 // - used by Houdini, Apple Reality Composer / RealityKit,
 // cons:
 // - dependency on a standard that might get abandoned / superseded
-// - time to implement is larger than writing a singular PBR shader ourselves
+// - time to implement is larger than writing a singular PBR shader ourselves -> dubious
 
 // approach:
 // for now write custom PBR über-shader for learning purposes, and later adopt MaterialX for "production ready" code
 
-// architecture can be done later, first focus on features
-// (in a way that it can be easily refactored into a better structure)
+// alternative approach:
+// https://www.khronos.org/spir/
+// write a custom shader language that compiles to SPIR-V and MSL (apparently SPIR-V can be cross-compiled to MSL using SPIRV-Cross)
+// or: simply write in an existing shading language and cross-compile to all others.
+// Vulkan and Metal are the only graphics APIs I intend to support, so this latter approach
+// might be best.
+// rewriting shaders from MSL to GLSL also won't be too hard, as the concepts and supported feature-sets of the languages / hardware are roughly the same.
+// simplicity is key, so just writing the shader directly might be the easiest.
+// we can always import MaterialX, just not use it internally.
+
+// brdf = bidirectional reflectance distribution function
+
+// compile shader variants:
+// shader variants can strip out features that are not used to improve performance
+// e.g. no alpha cutout, alpha blending or texture sampling when these are not enabled.
+
+// now: implement OpenPBR specification from: https://academysoftwarefoundation.github.io/OpenPBR
 
 // the following should be defined before including any headers that use glm, otherwise things break
 #define GLM_ENABLE_EXPERIMENTAL
@@ -463,6 +482,7 @@ struct App
     id <MTLRenderPipelineState> shaderUnlitColored; // simplest shader possible, only uses the color
     id <MTLRenderPipelineState> shaderBlinnPhong;
     id <MTLRenderPipelineState> shaderGltf;
+    id <MTLRenderPipelineState> shaderOpenPBRSurface; // OpenPBR Surface implementation from https://academysoftwarefoundation.github.io/OpenPBR/
 
     // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
     id <MTLDepthStencilState> depthStencilStateClear;
@@ -863,7 +883,8 @@ void onLaunch(App* app)
             shadersPath / "shader_lit.metal",
             shadersPath / "shader_unlit.metal",
             shadersPath / "shader_blinn_phong.metal",
-            shadersPath / "shader_gltf.metal"
+            shadersPath / "shader_gltf.metal",
+            shadersPath / "shader_openpbr_surface.metal"
         };
         std::stringstream buffer;
         for (std::filesystem::path& path: paths)
@@ -910,8 +931,10 @@ void onLaunch(App* app)
         app->shaderUnlit = createShader(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
         app->shaderUnlitAlphaBlend = createShader(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
         app->shaderUnlitColored = createShader(app, @"unlit_vertex", @"unlit_colored_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+
         app->shaderBlinnPhong = createShader(app, @"blinn_phong_vertex", @"blinn_phong_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
         app->shaderGltf = createShader(app, @"gltf_vertex", @"gltf_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->shaderOpenPBRSurface = createShader(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
     }
 
     // create depth clear pipeline state and depth stencil state
