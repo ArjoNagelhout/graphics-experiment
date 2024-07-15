@@ -2,29 +2,71 @@
 //
 // - [X] blinn phong shading
 // - [X] fog
-// - [X] skybox
+// - [X] skybox (panoramic / 360 spherical)
 // - [X] compilation of shader variants
 // - [X] gltf import
-// - [ ] animation / rigging of a mesh, skinning
-// - [ ] multiple light sources
-// - [ ] deferred rendering
+
+// rendering:
 // - [ ] PBR shading (Epic Games and Disney PBR)
-// - [ ] terrain normals (calculate derivatives for perlin noise terrain)
+// - [ ] deferred rendering
+// - [ ] animation / rigging of a mesh, skinning
+// - [ ] multiple light sources (point light, directional light, colored lights) probably best with deferred rendering
+// - [ ] mip-mapping of textures
 // - [ ] lens flare / post-processing
-// - [ ] grass / foliage / tree shader (animated with wind etc.)
+// - [ ] specular reflection probes (cubemaps)
+// - [ ] skybox using cubemap
+// - [ ] terrain system
+//      - [ ] terrain normals (calculate derivatives for perlin noise terrain)
+//      - [ ] grass / foliage / tree shader (animated with wind etc.)
+//      - [ ] terrain chunks
 // - [ ] water shader
-// - [ ] frustum culling
+// - [ ] frustum culling -> meshes should have bounds
 // - [ ] LOD system
 // - [ ] collisions (terrain collider, box collider)
-// - [ ] terrain chunks
-// - [ ] scene file format, scene / level editor -> use Blender with GLTF
+// - [ ] scene file format -> utilize GLTF instead of inventing own scene model?
+// - [ ] level editor
 // - [ ] 3d text rendering
 // - [ ] stereoscopic rendering
+
+// data:
+// CAD or BIM data
+// 3D city data (Open Street Maps), Cesium (https://cesium.com/why-cesium/3d-tiles/)
+
+// PBR:
+// Blender Principled BSDF https://docs.blender.org/manual/en/latest/render/shader_nodes/shader/principled.html
+// OpenPBR https://github.com/AcademySoftwareFoundation/OpenPBR (is the result of collaboration between Autodesk and Adobe, taking inspiration from
+// Autodesk Standard Surface and Adobe Standard Material).
+// MaterialX https://materialx.org
+// Autodesk Standard Surface https://autodesk.github.io/standard-surface/
+// Adobe Standard Material https://helpx.adobe.com/content/dam/help/en/substance-3d/documentation/s3d/files/225969597/225969613/1/1647027222890/adobe-standard-material-specification.pdf
+// Disney's Principled Shader
+
+// these shaders are über-shaders, which capture a wide range of materials, rather than requiring
+// specialized shaders for each type of material. Unfortunately not all materials can be captured in a single
+// model, so for high quality skin or cloth, a custom shader needs to be created.
+// but for the large majority of materials, this singular über shader would suffice. e.g. for wood, metal, glass etc.
+
+// https://github.com/AcademySoftwareFoundation/MaterialX/tree/main/libraries/bxdf
+// so MaterialX is a common format that is a graph of nodes that represents a material
+// this format is in XML, and gets compiled into MSL (Metal Shading Language), GLSL etc.
+// this does immediately look quite complex. the git repository is also large.
+//
+// adopting it would have the advantage of being able to reuse materials from other programs
+// https://zoewave.medium.com/explore-materialx-b8979808d512
+// pros:
+// - don't have to invent our own shader language, can use MaterialX to define all shaders -> might not cover all shader use cases
+// - used by Houdini, Apple Reality Composer / RealityKit,
+// cons:
+// - dependency on a standard that might get abandoned / superseded
+// - time to implement is larger than writing a singular PBR shader ourselves
+
+// approach:
+// for now write custom PBR über-shader for learning purposes, and later adopt MaterialX for "production ready" code
 
 // architecture can be done later, first focus on features
 // (in a way that it can be easily refactored into a better structure)
 
-// should be defined before including any headers that use glm, otherwise things break
+// the following should be defined before including any headers that use glm, otherwise things break
 #define GLM_ENABLE_EXPERIMENTAL
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_LEFT_HANDED
@@ -50,6 +92,7 @@
 #include "gltf.h"
 
 #define SHADER_CONSTANTS_MAIN
+
 #include "shader_constants.h"
 
 #include "glm/glm.hpp"
@@ -330,7 +373,6 @@ struct Font
     std::unordered_map<char, size_t> map; // mapping of character to index in atlas
     TextureAtlas* atlas;
 };
-
 
 // texture coordinates: (top left = 0, 0) (bottom right = 1, 1)
 RectMinMaxf spriteToTextureCoords(id <MTLTexture> texture, Sprite* sprite)
@@ -1194,16 +1236,26 @@ void drawGltfPrimitive(id <MTLRenderCommandEncoder> encoder, GltfModel* model, G
         int i = 0;
         switch (attribute.type)
         {
-            case cgltf_attribute_type_invalid:assert(false); break;
-            case cgltf_attribute_type_position:i = bindings::positions; break;
-            case cgltf_attribute_type_normal:i = bindings::normals; break;
-            case cgltf_attribute_type_tangent:i = bindings::tangents; break;
-            case cgltf_attribute_type_texcoord:i = bindings::uv0s; break;
-            case cgltf_attribute_type_color:i = bindings::colors; break;
-            case cgltf_attribute_type_joints:assert(false); break;
-            case cgltf_attribute_type_weights:assert(false); break;
-            case cgltf_attribute_type_custom:assert(false); break;
-            case cgltf_attribute_type_max_enum:assert(false); break;
+            case cgltf_attribute_type_invalid:assert(false);
+                break;
+            case cgltf_attribute_type_position:i = bindings::positions;
+                break;
+            case cgltf_attribute_type_normal:i = bindings::normals;
+                break;
+            case cgltf_attribute_type_tangent:i = bindings::tangents;
+                break;
+            case cgltf_attribute_type_texcoord:i = bindings::uv0s;
+                break;
+            case cgltf_attribute_type_color:i = bindings::colors;
+                break;
+            case cgltf_attribute_type_joints:assert(false);
+                break;
+            case cgltf_attribute_type_weights:assert(false);
+                break;
+            case cgltf_attribute_type_custom:assert(false);
+                break;
+            case cgltf_attribute_type_max_enum:assert(false);
+                break;
         }
         [encoder setVertexBuffer:primitive->vertexBuffer offset:offset atIndex:i];
         offset += attribute.size;
@@ -1230,7 +1282,6 @@ void drawGltfPrimitive(id <MTLRenderCommandEncoder> encoder, GltfModel* model, G
         baseVertex:0
         baseInstance:0];
 }
-
 
 void drawGltfMesh(id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 localToWorld, GltfMesh* mesh)
 {
@@ -1424,7 +1475,6 @@ void drawTexture(App* app, id <MTLRenderCommandEncoder> encoder, id <MTLTexture>
     [encoder setVertexBytes:vertices.data() length:vertices.size() * sizeof(VertexData) atIndex:bindings::vertexData];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
 }
-
 
 // main render loop
 void onDraw(App* app)
