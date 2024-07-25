@@ -4,7 +4,7 @@ vertex RasterizerDataLit lit_vertex(
     device VertexData const* vertices [[buffer(bindings::vertexData)]],
     device CameraData const& camera [[buffer(bindings::cameraData)]],
     device InstanceData const* instances [[buffer(bindings::instanceData)]],
-    device LightData const& light [[buffer(3)]])
+    device LightData const& light [[buffer(bindings::lightData)]])
 {
     RasterizerDataLit out;
     device VertexData const& data = vertices[vertexID];
@@ -23,8 +23,8 @@ constant bool alphaCutout [[function_constant(0)]];
 
 fragment half4 lit_fragment(
     RasterizerDataLit in [[stage_in]],
-    texture2d<half, access::sample> texture [[texture(0)]],
-    depth2d<float, access::sample> shadowMap [[texture(1)]])
+    texture2d<half, access::sample> texture [[texture(bindings::texture)]],
+    depth2d<float, access::sample> shadowMap [[texture(bindings::shadowMap)]])
 {
     constexpr sampler s(address::repeat, filter::nearest);
 

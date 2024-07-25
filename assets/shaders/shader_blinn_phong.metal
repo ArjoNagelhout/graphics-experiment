@@ -14,7 +14,7 @@ struct RasterizerDataBlinnPhong
     float3 worldSpaceNormal;
 };
 
-struct BlinnPhongVertexData
+struct BlinnPhongGlobalVertexData
 {
     // as normals are direction vectors perpendicular to the surface, we can't
     // multiply the normal by the localToWorld matrix.
@@ -31,7 +31,7 @@ vertex RasterizerDataBlinnPhong blinn_phong_vertex(
     device VertexData const* vertices [[buffer(bindings::vertexData)]],
     device CameraData const& camera [[buffer(bindings::cameraData)]],
     device InstanceData const* instances [[buffer(bindings::instanceData)]],
-    device BlinnPhongVertexData const& blinnPhong [[buffer(3)]])
+    device BlinnPhongGlobalVertexData const& blinnPhong [[buffer(bindings::globalVertexData)]])
 {
     RasterizerDataBlinnPhong out;
     device VertexData const& data = vertices[vertexID];
@@ -63,7 +63,7 @@ float3 blinnPhongBRDF(
     return color;
 }
 
-struct BlinnPhongFragmentData
+struct BlinnPhongGlobalFragmentData
 {
     float3 cameraPosition;
     float3 lightDirection;
@@ -80,8 +80,8 @@ struct BlinnPhongFragmentData
 
 fragment half4 blinn_phong_fragment(
     RasterizerDataBlinnPhong in [[stage_in]],
-    texture2d< float, access::sample > tex [[texture(0)]],
-    device BlinnPhongFragmentData const& blinnPhong [[buffer(1)]])
+    texture2d< float, access::sample > tex [[texture(bindings::texture)]],
+    device BlinnPhongGlobalFragmentData const& blinnPhong [[buffer(bindings::globalFragmentData)]])
 {
     constexpr sampler s(address::repeat, filter::nearest);
     float3 diffuseColor = tex.sample(s, in.uv0).xyz;

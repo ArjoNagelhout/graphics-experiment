@@ -18,7 +18,7 @@ vertex RasterizerData unlit_vertex(
 
 fragment half4 unlit_fragment(
     RasterizerData in [[stage_in]],
-    texture2d< half, access::sample > tex [[texture(0)]])
+    texture2d< half, access::sample > tex [[texture(bindings::texture)]])
 {
     constexpr sampler s(address::repeat, filter::nearest);
     return tex.sample(s, in.uv0);

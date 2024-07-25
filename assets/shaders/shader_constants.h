@@ -13,14 +13,13 @@
 
 namespace bindings
 {
-    // vertex bindings
-
-    // shader bindings
     CONST_ID int cameraData = 0;
     CONST_ID int instanceData = 1;
+    CONST_ID int lightData = 2;
+    CONST_ID int globalVertexData = 3; // same for each vertex
 
     // interleaved data
-    CONST_ID int vertexData = 2;
+    CONST_ID int vertexData = 4;
 
     // non interleaved (partially non-interleaved is probably best)
     // that would mean keeping the position buffer separate
@@ -29,18 +28,18 @@ namespace bindings
     // keeping the position buffer separate is useful for for example rendering the
     // shadows
     // maybe the uv0 is also required when alpha testing is enabled for a shader.
-    CONST_ID int positions = 2;
-    CONST_ID int normals = 3;
-    CONST_ID int uv0s = 4;
-    CONST_ID int colors = 5;
-    CONST_ID int lightMapUvs = 6;
-    CONST_ID int tangents = 7;
+    CONST_ID int positions = 4;
+    CONST_ID int normals = 5;
+    CONST_ID int uv0s = 6;
+    CONST_ID int colors = 7;
+    CONST_ID int lightMapUvs = 8;
+    CONST_ID int tangents = 9;
 
     // fragment bindings
-    CONST_ID int textureNormal = 0;
-    CONST_ID int textureBaseColor = 1;
-    CONST_ID int textureMetallic = 2;
-    CONST_ID int textureRoughness = 3;
+    CONST_ID int globalFragmentData = 0; // same for each fragment
+
+    CONST_ID int texture = 1;
+    CONST_ID int shadowMap = 2;
 }
 
 #endif //BORED_C_SHADER_CONSTANTS_H

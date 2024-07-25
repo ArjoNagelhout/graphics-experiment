@@ -25,7 +25,7 @@ vertex SkyboxRasterizerData skybox_vertex(
 
 fragment half4 skybox_fragment(
     SkyboxRasterizerData in [[stage_in]],
-    texture2d<half, access::sample> tex [[texture(0)]])
+    texture2d<half, access::sample> tex [[texture(bindings::texture)]])
 {
     float theta = atan2(in.direction.z, in.direction.x); // longitude
     float phi = asin(in.direction.y); // latitude

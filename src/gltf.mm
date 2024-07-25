@@ -56,12 +56,14 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                 {
                     // data URI (string starts with data:content/type;base64,)
                     // todo
+                    assert(false && "unimplemented");
                 }
                 else
                 {
                     // load from disk
                     std::filesystem::path imagePath = image->uri;
                     // todo
+                    assert(false && "unimplemented");
                 }
             }
             else
@@ -132,7 +134,6 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                             exit(1);
                         }
                     }
-
                 }
                 else
                 {

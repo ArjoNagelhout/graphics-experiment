@@ -35,7 +35,7 @@ vertex GltfRasterizerData gltf_vertex(
 
 fragment half4 gltf_fragment(
     GltfRasterizerData in [[stage_in]],
-    texture2d< half, access::sample > tex [[texture(0)]])
+    texture2d< half, access::sample > tex [[texture(bindings::texture)]])
 {
     constexpr sampler s(address::repeat, filter::nearest);
     return tex.sample(s, in.uv0);

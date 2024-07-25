@@ -8,6 +8,7 @@
 // - [X] skybox (panoramic / 360 spherical)
 // - [X] compilation of shader variants
 // - [X] gltf import
+// - [ ] gltf import with stride of 16 bytes instead of 12 for vector3, this is better for alignment. packed_float3 is not ideal.
 
 // rendering:
 // - [ ] PBR shading (Epic Games and Disney PBR)
@@ -86,6 +87,39 @@
 // now: implement OpenPBR specification from: https://academysoftwarefoundation.github.io/OpenPBR
 
 // refer to this article for the difference between BRDF and BSDF: https://en.wikipedia.org/wiki/Bidirectional_scattering_distribution_function
+
+// https://support.fab.com/s/article/How-does-Sketchfab-determine-if-a-3D-model-uses-PBR-materials
+
+// https://viclw17.github.io/2018/08/05/raytracing-dielectric-materials
+// https://pbr-book.org/4ed/contents (pathtracing, but good content)
+// https://gfxcourses.stanford.edu/cs348b/spring22
+
+// in OpenPBR Surface, the microfacet BRDF is taken from:
+// https://www.graphics.cornell.edu/~bjw/microfacetbsdf.pdf
+// and https://www.pbr-book.org/3ed-2018/Reflection_Models/Microfacet_Models
+
+// f(wi, wo) ∝ F(wi, h) D(h) G(wi, wo)
+
+// where wi = vector of light ray coming in
+// and wo = vector of camera ray going out
+// h is half vector, which reflects wi into wo (aka the normal or micro normal)
+
+// proportionality (∝)
+// given an independent variable x and dependent variable y, y is directly proportional to x if
+// some k exists that can fulfill `y = kx`
+// this gives: `y ∝ x`
+
+// F(wi, h) is the Fresnel factor
+
+// D(h) is the Normal Distribution Function (NDF)
+// popular form of NDF = GGX distribution:
+
+// DGGX(m) ∝ (1 + (tan(θm)^2))
+
+// where m is the micronormal
+// and θm is the angle between m and the macro surface normal
+
+// G(wi, wo) is the Masking-shadowing function
 
 // the following should be defined before including any headers that use glm, otherwise things break
 #define GLM_ENABLE_EXPERIMENTAL
@@ -354,12 +388,12 @@ struct LightData
     glm::mat4 lightSpace;
 };
 
-struct BlinnPhongVertexData
+struct BlinnPhongGlobalVertexData
 {
     glm::mat4 localToWorldTransposedInverse;
 };
 
-struct BlinnPhongFragmentData
+struct BlinnPhongGlobalFragmentData
 {
     simd::float3 cameraPosition;
     simd::float3 lightDirection;
@@ -537,8 +571,8 @@ struct App
 
     // gltf model
     GltfModel gltfCathedral{};
-
     GltfModel gltfVrLoftLivingRoomBaked{};
+    GltfModel gltfUgv{}; // https://sketchfab.com/3d-models/the-d-21-multi-missions-ugv-ebe40dc504a145d0909310e124334420
 
     // shadow and lighting
     Transform sunTransform;
@@ -936,7 +970,7 @@ void onLaunch(App* app)
 
         app->shaderBlinnPhong = createShader(app, @"blinn_phong_vertex", @"blinn_phong_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
         app->shaderGltf = createShader(app, @"gltf_vertex", @"gltf_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
-        app->shaderOpenPBRSurface = createShader(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->shaderOpenPBRSurface = createShader(app, @"openpbr_surface_vertex", @"openpbr_surface_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
     }
 
     // create depth clear pipeline state and depth stencil state
@@ -1023,7 +1057,7 @@ void onLaunch(App* app)
 
     // set camera transform
     app->cameraTransform = {
-        .position = glm::vec3(-1.0f, 1.0f, 1.0f),
+        .position = glm::vec3(5.0f, 5.0f, -7.0f),
         .rotation = glm::quat(1, 0, 0, 0),
         .scale = glm::vec3(1, 1, 1)
     };
@@ -1081,6 +1115,9 @@ void onLaunch(App* app)
     if (0)
     {
         bool success;
+
+        success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "the_d-21_multi-missions_ugv.glb", &app->gltfUgv);
+        assert(success);
 
         success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfCathedral);
         assert(success);
@@ -1242,7 +1279,7 @@ enum DrawSceneFlags_
 
 [[nodiscard]] simd::float3 glmVec3ToSimdFloat3(glm::vec3 in)
 {
-    return simd::float3{in.x, in.y, in.z};
+    return simd::float3{in.x, in.y, in.z}; // could also simply reinterpret cast as the struct layout should be the same
 }
 
 [[nodiscard]] glm::vec3 quaternionToDirectionVector(glm::quat in)
@@ -1258,20 +1295,20 @@ void drawGltfPrimitive(id <MTLRenderCommandEncoder> encoder, GltfModel* model, G
     size_t offset = 0;
     for (auto& attribute: primitive->attributes)
     {
-        int i = 0;
+        int index = 0;
         switch (attribute.type)
         {
             case cgltf_attribute_type_invalid:assert(false);
                 break;
-            case cgltf_attribute_type_position:i = bindings::positions;
+            case cgltf_attribute_type_position:index = bindings::positions;
                 break;
-            case cgltf_attribute_type_normal:i = bindings::normals;
+            case cgltf_attribute_type_normal:index = bindings::normals;
                 break;
-            case cgltf_attribute_type_tangent:i = bindings::tangents;
+            case cgltf_attribute_type_tangent:index = bindings::tangents;
                 break;
-            case cgltf_attribute_type_texcoord:i = bindings::uv0s;
+            case cgltf_attribute_type_texcoord:index = bindings::uv0s;
                 break;
-            case cgltf_attribute_type_color:i = bindings::colors;
+            case cgltf_attribute_type_color:index = bindings::colors;
                 break;
             case cgltf_attribute_type_joints:assert(false);
                 break;
@@ -1282,7 +1319,7 @@ void drawGltfPrimitive(id <MTLRenderCommandEncoder> encoder, GltfModel* model, G
             case cgltf_attribute_type_max_enum:assert(false);
                 break;
         }
-        [encoder setVertexBuffer:primitive->vertexBuffer offset:offset atIndex:i];
+        [encoder setVertexBuffer:primitive->vertexBuffer offset:offset atIndex:index];
         offset += attribute.size;
     }
 
@@ -1331,7 +1368,7 @@ void drawGltf(App* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, 
 {
     [encoder setCullMode:MTLCullModeNone];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-    [encoder setRenderPipelineState:app->shaderGltf];
+    [encoder setRenderPipelineState:app->shaderGltf]; // shaderGltf];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
     // traverse scene
@@ -1366,12 +1403,26 @@ void drawGltf(App* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, 
     }
 }
 
+struct OpenPBRSurfaceVertexData
+{
+
+};
+
+struct OpenPBRSurfaceFragmentData
+{
+    simd_float4 color;
+    simd_float4 color2;
+
+    // parameters
+    float geometry_opacity;
+};
+
 void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ flags)
 {
     assert(encoder != nullptr);
 
     // draw terrain
-    if (1)
+    if (0)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1388,7 +1439,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw water
-    if (1)
+    if (0)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1402,7 +1453,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw rounded cube (blinn phong test)
-    if (1)
+    if (0)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1413,10 +1464,10 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         InstanceData instance{
             .localToWorld = glm::rotate(glm::translate(glm::vec3{0, 3, 0}), angle, glm::vec3(0, 1, 0))
         };
-        BlinnPhongVertexData vertexData{
+        BlinnPhongGlobalVertexData vertexData{
             .localToWorldTransposedInverse = glm::transpose(glm::inverse(instance.localToWorld))
         };
-        BlinnPhongFragmentData fragmentData{
+        BlinnPhongGlobalFragmentData fragmentData{
             .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
             .lightDirection = glmVec3ToSimdFloat3(quaternionToDirectionVector(app->sunTransform.rotation)),
 
@@ -1429,8 +1480,8 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
             .irradiancePerp = 1.0f,
             .shininess = 50.0f//.shininess = 50.0f + 50.0f * sin(app->time),
         };
-        [encoder setVertexBytes:&vertexData length:sizeof(BlinnPhongVertexData) atIndex:3];
-        [encoder setFragmentBytes:&fragmentData length:sizeof(BlinnPhongFragmentData) atIndex:1];
+        [encoder setVertexBytes:&vertexData length:sizeof(BlinnPhongGlobalVertexData) atIndex:3];
+        [encoder setFragmentBytes:&fragmentData length:sizeof(BlinnPhongGlobalFragmentData) atIndex:1];
         drawMesh(encoder, &app->roundedCube, &instance);
     }
 
@@ -1448,12 +1499,12 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     // draw shrubs
     if (0)
     {
-        //[encoder setCullMode:MTLCullModeNone];
-        //[encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        //[encoder setRenderPipelineState:app->shaderLitAlphaBlend];
-        //[encoder setDepthStencilState:app->depthStencilStateDefault];
-        //[encoder setFragmentTexture:app->shrubTexture atIndex:0];
-        //drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
+        [encoder setCullMode:MTLCullModeNone];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setRenderPipelineState:app->shaderLitAlphaBlend];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setFragmentTexture:app->shrubTexture atIndex:0];
+        drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
 
         std::vector<InstanceData>* instances = &app->shrubInstances;
         Mesh* mesh = &app->tree;
@@ -1461,20 +1512,52 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         [encoder setVertexBytes:instances->data() length:instances->size() * sizeof(InstanceData) atIndex:bindings::instanceData];
         [encoder setVertexBuffer:mesh->vertexBuffer offset:0 atIndex:bindings::vertexData];
 
-//        [encoder
-//            drawIndexedPrimitives:mesh->primitiveType
-//            indexCount:mesh->indexCount
-//            indexType:mesh->indexType
-//            indexBuffer:mesh->indexBuffer
-//            indexBufferOffset:0
-//            instanceCount:instances->size()
-//            baseVertex:0
-//            baseInstance:0];
+        [encoder
+            drawIndexedPrimitives:mesh->primitiveType
+            indexCount:mesh->indexCount
+            indexType:mesh->indexType
+            indexBuffer:mesh->indexBuffer
+            indexBufferOffset:0
+            instanceCount:instances->size()
+            baseVertex:0
+            baseInstance:0];
     }
 
     // draw gltf
-    //drawGltf(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
-    //drawGltf(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 10, 0)));
+//    drawGltf(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(2, 2, 2)));
+//    drawGltf(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
+//    drawGltf(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 10, 0)));
+
+    // draw pbr spheres (not textured yet)
+    if (1)
+    {
+        // for now, we store all material settings inside the fragment bytes, so that we don't have to create a separate buffer for all different material settings
+        for (int x = 0; x < 10; x++)
+        {
+            for (int y = 0; y < 10; y++)
+            {
+                // draw sphere
+                [encoder setCullMode:MTLCullModeBack];
+                [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+                [encoder setRenderPipelineState:app->shaderOpenPBRSurface];
+                [encoder setDepthStencilState:app->depthStencilStateDefault];
+
+                OpenPBRSurfaceVertexData vertexData{
+
+                };
+
+                OpenPBRSurfaceFragmentData fragmentData{
+                    .color = {1, 0.2, 0.2, 1},
+                    .color2 = {0.2, 1, 0.2, 1},
+                    .geometry_opacity = (float)x / 10.0f
+                };
+                [encoder setVertexBytes:&vertexData length:sizeof(OpenPBRSurfaceVertexData) atIndex:bindings::vertexData];
+                [encoder setFragmentBytes:&fragmentData length:sizeof(OpenPBRSurfaceFragmentData) atIndex:bindings::globalFragmentData];
+                InstanceData instance{.localToWorld = glm::scale(glm::translate(glm::vec3(x, y, 0)), glm::vec3(0.5, 0.5, 0.5))};
+                drawMesh(encoder, &app->sphere, &instance);
+            }
+        }
+    }
 }
 
 void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transform)
@@ -1492,7 +1575,7 @@ void drawTexture(App* app, id <MTLRenderCommandEncoder> encoder, id <MTLTexture>
     [encoder setCullMode:MTLCullModeBack];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setRenderPipelineState:app->shaderUI];
-    [encoder setFragmentTexture:texture atIndex:0];
+    [encoder setFragmentTexture:texture atIndex:bindings::texture];
 
     RectMinMaxf extents = pixelCoordsToNDC(app, pixelCoords);
     std::vector<VertexData> vertices;
@@ -1605,8 +1688,8 @@ void onDraw(App* app)
             view = glm::inverse(transformToMatrix(&app->cameraTransform));
             viewProjection = projection * view;
 
-            [encoder setFragmentTexture:app->shadowMap atIndex:1];
-            [encoder setVertexBytes:&lightData length:sizeof(LightData) atIndex:3];
+            [encoder setFragmentTexture:app->shadowMap atIndex:bindings::shadowMap];
+            [encoder setVertexBytes:&lightData length:sizeof(LightData) atIndex:bindings::lightData];
 
             setCameraData(encoder, viewProjection);
             drawScene(app, encoder, DrawSceneFlags_None);
@@ -1620,13 +1703,13 @@ void onDraw(App* app)
         setCameraData(encoder, projection * skyboxView);
 
         // draw skybox
-        if (0)
+        if (1)
         {
             [encoder setCullMode:MTLCullModeBack];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
             [encoder setRenderPipelineState:app->skyboxShader];
-            [encoder setFragmentTexture:app->activeSkybox atIndex:0];
+            [encoder setFragmentTexture:app->activeSkybox atIndex:bindings::texture];
             InstanceData instance{
                 .localToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(10))
             };
@@ -1645,7 +1728,7 @@ void onDraw(App* app)
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
             [encoder setRenderPipelineState:app->shaderUnlitAlphaBlend];
-            [encoder setFragmentTexture:app->iconSunTexture atIndex:0];
+            [encoder setFragmentTexture:app->iconSunTexture atIndex:bindings::texture];
             InstanceData instance{
                 .localToWorld = glm::scale(transformToMatrix(&app->sunTransform), glm::vec3(0.25f))
             };
@@ -1699,7 +1782,7 @@ void onDraw(App* app)
             [encoder setCullMode:MTLCullModeBack];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setRenderPipelineState:app->shaderUI];
-            [encoder setFragmentTexture:app->fontAtlas.texture atIndex:0];
+            [encoder setFragmentTexture:app->fontAtlas.texture atIndex:bindings::texture];
             std::vector<VertexData> vertices;
 
             glm::vec3* pos = &app->cameraTransform.position;
