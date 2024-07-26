@@ -1403,12 +1403,12 @@ void drawGltf(App* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, 
     }
 }
 
-struct OpenPBRSurfaceVertexData
+struct OpenPBRSurfaceGlobalVertexData
 {
 
 };
 
-struct OpenPBRSurfaceFragmentData
+struct OpenPBRSurfaceGlobalFragmentData
 {
     simd_float4 color;
     simd_float4 color2;
@@ -1542,17 +1542,17 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                 [encoder setRenderPipelineState:app->shaderOpenPBRSurface];
                 [encoder setDepthStencilState:app->depthStencilStateDefault];
 
-                OpenPBRSurfaceVertexData vertexData{
+                OpenPBRSurfaceGlobalVertexData globalVertexData{
 
                 };
 
-                OpenPBRSurfaceFragmentData fragmentData{
+                OpenPBRSurfaceGlobalFragmentData globalFragmentData{
                     .color = {1, 0.2, 0.2, 1},
                     .color2 = {0.2, 1, 0.2, 1},
                     .geometry_opacity = (float)x / 10.0f
                 };
-                [encoder setVertexBytes:&vertexData length:sizeof(OpenPBRSurfaceVertexData) atIndex:bindings::vertexData];
-                [encoder setFragmentBytes:&fragmentData length:sizeof(OpenPBRSurfaceFragmentData) atIndex:bindings::globalFragmentData];
+                [encoder setVertexBytes:&globalVertexData length:sizeof(OpenPBRSurfaceGlobalVertexData) atIndex:bindings::globalVertexData];
+                [encoder setFragmentBytes:&globalFragmentData length:sizeof(OpenPBRSurfaceGlobalFragmentData) atIndex:bindings::globalFragmentData];
                 InstanceData instance{.localToWorld = glm::scale(glm::translate(glm::vec3(x, y, 0)), glm::vec3(0.5, 0.5, 0.5))};
                 drawMesh(encoder, &app->sphere, &instance);
             }
@@ -1705,7 +1705,7 @@ void onDraw(App* app)
         // draw skybox
         if (1)
         {
-            [encoder setCullMode:MTLCullModeBack];
+            [encoder setCullMode:MTLCullModeNone];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
             [encoder setRenderPipelineState:app->skyboxShader];
@@ -1713,7 +1713,7 @@ void onDraw(App* app)
             InstanceData instance{
                 .localToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(10))
             };
-            drawMesh(encoder, &app->sphere, &instance);
+            drawMesh(encoder, &app->cube, &instance);
         }
 
         // clear depth buffer (sets vertex bytes at index 0)

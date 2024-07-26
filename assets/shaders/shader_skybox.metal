@@ -9,17 +9,14 @@ vertex SkyboxRasterizerData skybox_vertex(
     uint vertexID [[vertex_id]],
     uint instanceID [[instance_id]],
     device VertexData const* vertices [[buffer(bindings::vertexData)]],
-    device CameraData const& camera [[buffer(bindings::cameraData)]],
-    device InstanceData const* instances [[buffer(bindings::instanceData)]])
+    device CameraData const& camera [[buffer(bindings::cameraData)]])
 {
     SkyboxRasterizerData out;
     device VertexData const& data = vertices[vertexID];
-    device InstanceData const& instance = instances[instanceID];
 
-    out.position = camera.viewProjection * instance.localToWorld * data.position;
+    out.position = camera.viewProjection * data.position;
     out.position.z = out.position.w - 0.01f;
-    out.direction = normalize((instance.localToWorld * data.position).xyz);
-    out.uv = data.uv0;
+    out.direction = data.position.xyz;
     return out;
 }
 
@@ -27,6 +24,9 @@ fragment half4 skybox_fragment(
     SkyboxRasterizerData in [[stage_in]],
     texture2d<half, access::sample> tex [[texture(bindings::texture)]])
 {
+    // needs to be done in the fragment shader because otherwise the GPU's rasterizer will interpolate wrong
+    in.direction = normalize(in.direction);
+
     float theta = atan2(in.direction.z, in.direction.x); // longitude
     float phi = asin(in.direction.y); // latitude
 
@@ -36,5 +36,5 @@ fragment half4 skybox_fragment(
 
     float2 uv{u, 1.0f-v};
     constexpr sampler s(address::repeat, filter::linear);
-    return tex.sample(s, in.uv);
+    return tex.sample(s, uv);
 }
