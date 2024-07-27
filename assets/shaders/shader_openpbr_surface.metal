@@ -35,10 +35,10 @@ vertex OpenPBRSurfaceRasterizerData openpbr_surface_vertex(
 
     float4 position = instance.localToWorld * v.position;
     out.position = camera.viewProjection * position;
-    //out.worldSpacePosition = position.xyz / position.w;
+    out.worldSpacePosition = position.xyz / position.w;
 
     // calculate world-space normal
-    //out.worldSpaceNormal = (globalData.localToWorldTransposedInverse * float4(v.normal.xyz, 0.0f)).xyz;
+    out.worldSpaceNormal = (globalData.localToWorldTransposedInverse * float4(v.normal.xyz, 0.0f)).xyz;
 
     return out;
 }
@@ -68,10 +68,21 @@ fragment half4 openpbr_surface_fragment(
     // ambient-medium
 
     // get the direction vector for the reflection map
-    float3 direction = normalize(in.worldSpaceNormal);
+    float3 normal = normalize(in.worldSpaceNormal);
+    float3 cameraDirection = normalize(in.worldSpacePosition - globalData.cameraPosition);
+    float3 outDirection = reflect(cameraDirection, normal);
 
     // sample reflection map
+    float theta = atan2(outDirection.z, outDirection.x); // longitude
+    float phi = asin(outDirection.y); // latitude
 
+    // map spherical coordinates to texture coordinates
+    float u = (theta / (2.0 * 3.141592653589793)) + 0.5;
+    float v = (phi / 3.141592653589793) + 0.5;
 
-    return half4(1, 0, 1, 1);
+    float2 uv{u, 1.0f-v};
+    constexpr sampler s(address::repeat, filter::linear);
+    return reflectionMap.sample(s, uv);
+
+    //return half4(1, 0, 1, 1);
 }

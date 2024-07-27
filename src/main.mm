@@ -1538,7 +1538,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                 [encoder setRenderPipelineState:app->shaderOpenPBRSurface];
                 [encoder setDepthStencilState:app->depthStencilStateDefault];
 
-                InstanceData instance{.localToWorld = glm::scale(glm::translate(glm::vec3(x, y, 0)), glm::vec3(0.5, 0.5, 0.5))};
+                InstanceData instance{.localToWorld = glm::scale(glm::translate(glm::vec3(x*2, y*3, 0)), glm::vec3(0.5, 0.5, 0.5))};
                 OpenPBRSurfaceGlobalVertexData globalVertexData{
                     .localToWorldTransposedInverse = glm::transpose(glm::inverse(instance.localToWorld))
                 };
@@ -1549,7 +1549,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                 [encoder setVertexBytes:&globalVertexData length:sizeof(OpenPBRSurfaceGlobalVertexData) atIndex:bindings::globalVertexData];
                 [encoder setFragmentBytes:&globalFragmentData length:sizeof(OpenPBRSurfaceGlobalFragmentData) atIndex:bindings::globalFragmentData];
                 [encoder setFragmentTexture:app->activeSkybox atIndex:bindings::reflectionMap];
-                drawMesh(encoder, &app->sphere, &instance);
+                drawMesh(encoder, &app->roundedCube, &instance);
             }
         }
     }
