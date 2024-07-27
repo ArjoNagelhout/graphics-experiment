@@ -1538,7 +1538,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                 [encoder setRenderPipelineState:app->shaderOpenPBRSurface];
                 [encoder setDepthStencilState:app->depthStencilStateDefault];
 
-                InstanceData instance{.localToWorld = glm::scale(glm::translate(glm::vec3(x*2, y*3, 0)), glm::vec3(0.5, 0.5, 0.5))};
+                InstanceData instance{.localToWorld = glm::rotate(glm::scale(glm::translate(glm::vec3(x*6, y*3, 0)), glm::vec3(0.5, 0.5, 0.5)), app->time + (float)x/6.0f + (float)y/10.0f, glm::vec3(0, 1, 0))};
                 OpenPBRSurfaceGlobalVertexData globalVertexData{
                     .localToWorldTransposedInverse = glm::transpose(glm::inverse(instance.localToWorld))
                 };
