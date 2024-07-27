@@ -892,7 +892,7 @@ void onLaunch(App* app)
     {
         MTLDepthStencilDescriptor* descriptor = [[MTLDepthStencilDescriptor alloc] init];
         descriptor.depthWriteEnabled = YES;
-        descriptor.depthCompareFunction = MTLCompareFunctionLess;
+        descriptor.depthCompareFunction = MTLCompareFunctionLessEqual;
         app->depthStencilStateDefault = [app->device newDepthStencilStateWithDescriptor:descriptor];
     }
 
@@ -1405,16 +1405,12 @@ void drawGltf(App* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, 
 
 struct OpenPBRSurfaceGlobalVertexData
 {
-
+    glm::mat4 localToWorldTransposedInverse;
 };
 
 struct OpenPBRSurfaceGlobalFragmentData
 {
-    simd_float4 color;
-    simd_float4 color2;
-
-    // parameters
-    float geometry_opacity;
+    simd_float3 cameraPosition;
 };
 
 void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ flags)
@@ -1542,18 +1538,17 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                 [encoder setRenderPipelineState:app->shaderOpenPBRSurface];
                 [encoder setDepthStencilState:app->depthStencilStateDefault];
 
+                InstanceData instance{.localToWorld = glm::scale(glm::translate(glm::vec3(x, y, 0)), glm::vec3(0.5, 0.5, 0.5))};
                 OpenPBRSurfaceGlobalVertexData globalVertexData{
-
+                    .localToWorldTransposedInverse = glm::transpose(glm::inverse(instance.localToWorld))
                 };
 
                 OpenPBRSurfaceGlobalFragmentData globalFragmentData{
-                    .color = {1, 0.2, 0.2, 1},
-                    .color2 = {0.2, 1, 0.2, 1},
-                    .geometry_opacity = (float)x / 10.0f
+                    .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
                 };
                 [encoder setVertexBytes:&globalVertexData length:sizeof(OpenPBRSurfaceGlobalVertexData) atIndex:bindings::globalVertexData];
                 [encoder setFragmentBytes:&globalFragmentData length:sizeof(OpenPBRSurfaceGlobalFragmentData) atIndex:bindings::globalFragmentData];
-                InstanceData instance{.localToWorld = glm::scale(glm::translate(glm::vec3(x, y, 0)), glm::vec3(0.5, 0.5, 0.5))};
+                [encoder setFragmentTexture:app->activeSkybox atIndex:bindings::reflectionMap];
                 drawMesh(encoder, &app->sphere, &instance);
             }
         }

@@ -3,20 +3,21 @@
 // non-constant parameters used in the vertex function
 struct OpenPBRSurfaceGlobalVertexData
 {
-
+    float4x4 localToWorldTransposedInverse;
 };
 
 // non-constant parameters used in the fragment function
 struct OpenPBRSurfaceGlobalFragmentData
 {
-    float4 color;
-    float4 color2;
-    float metallicness;
+    float3 cameraPosition;
 };
 
 struct OpenPBRSurfaceRasterizerData
 {
     float4 position [[position]];
+
+    float3 worldSpacePosition;
+    float3 worldSpaceNormal;
 };
 
 vertex OpenPBRSurfaceRasterizerData openpbr_surface_vertex(
@@ -32,18 +33,23 @@ vertex OpenPBRSurfaceRasterizerData openpbr_surface_vertex(
     device InstanceData const& instance = instances[instanceId];
     device VertexData const& v = vertices[vertexId];
 
-    out.position = camera.viewProjection * instance.localToWorld * v.position;
+    float4 position = instance.localToWorld * v.position;
+    out.position = camera.viewProjection * position;
+    //out.worldSpacePosition = position.xyz / position.w;
+
+    // calculate world-space normal
+    //out.worldSpaceNormal = (globalData.localToWorldTransposedInverse * float4(v.normal.xyz, 0.0f)).xyz;
 
     return out;
 }
 
 fragment half4 openpbr_surface_fragment(
     OpenPBRSurfaceRasterizerData in [[stage_in]],
-    device OpenPBRSurfaceGlobalFragmentData const& globalData [[buffer(bindings::globalFragmentData)]]
+    device OpenPBRSurfaceGlobalFragmentData const& globalData [[buffer(bindings::globalFragmentData)]],
+    texture2d<half, access::sample> reflectionMap [[texture(bindings::reflectionMap)]]
 )
 {
     // diffuse
-
 
     // gloss
 
@@ -61,5 +67,11 @@ fragment half4 openpbr_surface_fragment(
 
     // ambient-medium
 
-    return half4(mix(globalData.color, globalData.color2, globalData.metallicness));
+    // get the direction vector for the reflection map
+    float3 direction = normalize(in.worldSpaceNormal);
+
+    // sample reflection map
+
+
+    return half4(1, 0, 1, 1);
 }

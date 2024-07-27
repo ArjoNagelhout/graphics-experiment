@@ -40,6 +40,7 @@ namespace bindings
 
     CONST_ID int texture = 1;
     CONST_ID int shadowMap = 2;
+    CONST_ID int reflectionMap = 3; // skybox or reflection probe
 }
 
 #endif //BORED_C_SHADER_CONSTANTS_H
