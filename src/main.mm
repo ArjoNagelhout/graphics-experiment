@@ -541,8 +541,11 @@ struct App
     id <MTLTexture> skybox3Texture;
     id <MTLTexture> skybox4Texture;
 
-    // active skybox:
+    // active skybox
     id <MTLTexture> activeSkybox;
+
+    // PBR
+    id <MTLTexture> prefilteredEnvironmentMap;
 
     // primitives
     Mesh cube;
@@ -767,6 +770,55 @@ int randomInt(int min, int max)
 float randomFloatMinMax(float min, float max)
 {
     return min + (float)rand() / ((float)RAND_MAX / (max - min));
+}
+
+// source and output is assumed to be equirectangular projection (not a cubemap)
+id <MTLTexture> createPrefilteredEnvironmentMap(id <MTLDevice> device,
+                                                id <MTLLibrary> library,
+                                                id <MTLCommandQueue> queue,
+                                                id <MTLTexture> source)
+{
+    id <MTLTexture> out;
+
+    // create compute pipeline
+    MTLFunctionDescriptor* functionDescriptor = [[MTLFunctionDescriptor alloc] init];
+    functionDescriptor.name = @"pbr_prefilter_environment_map";
+    NSError* error = nullptr;
+    id <MTLFunction> function = [library newFunctionWithDescriptor:functionDescriptor error:&error];
+    checkError(error);
+    id <MTLComputePipelineState> computePrefilterEnvironmentMap = [device newComputePipelineStateWithFunction:function error:&error];
+    checkError(error);
+
+    // create prefiltered environment map texture with all mip map levels (higher roughness is higher mip map levels / smaller mip map size)
+    {
+        MTLTextureDescriptor* d = [[MTLTextureDescriptor alloc] init];
+        d.width = source.width;
+        d.height = source.height;
+        d.textureType = source.textureType;
+        d.pixelFormat = source.pixelFormat;
+        d.arrayLength = 1;
+        d.mipmapLevelCount = 10;
+        out = [device newTextureWithDescriptor:d];
+    }
+
+    // execute pipeline
+    {
+        id <MTLCommandBuffer> commandBuffer = [queue commandBuffer];
+
+        // copy from source texture to target texture
+        id <MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
+        [blit copyFromTexture:source toTexture:out];
+        [blit endEncoding];
+
+        // execute compute kernel
+        id <MTLComputeCommandEncoder> compute = [commandBuffer computeCommandEncoder];
+        [compute setComputePipelineState:computePrefilterEnvironmentMap];
+        //encoder dispatchThreads:
+        [compute endEncoding];
+        [commandBuffer commit];
+    }
+
+    return out;
 }
 
 void onLaunch(App* app)
@@ -1088,27 +1140,7 @@ void onLaunch(App* app)
     // cubemap can be done later, first let's create the lookup textures
 
     // create prefiltered environment map for PBR rendering
-    {
-        MTLFunctionDescriptor* functionDescriptor = [[MTLFunctionDescriptor alloc] init];
-        functionDescriptor.name = @"pbrPrefilterEnvironmentMap";
-        NSError* error = nullptr;
-        id <MTLFunction> function = [app->library newFunctionWithDescriptor:functionDescriptor error:&error];
-        checkError(error);
-        id <MTLComputePipelineState> computePrefilterEnvironmentMap = [app->device newComputePipelineStateWithFunction:function error:&error];
-        checkError(error);
-
-        id <MTLCommandBuffer> commandBuffer = [app->commandQueue commandBuffer];
-
-
-        MTLComputePassDescriptor* pass = [[MTLComputePassDescriptor alloc] init];
-        id <MTLComputeCommandEncoder> encoder = [commandBuffer computeCommandEncoderWithDescriptor:pass];
-
-        [encoder setComputePipelineState:computePrefilterEnvironmentMap];
-        //encoder dispatchThreads:
-
-        [encoder endEncoding];
-        [commandBuffer commit];
-    }
+    app->prefilteredEnvironmentMap = createPrefilteredEnvironmentMap(app->device, app->library, app->commandQueue, app->skybox2Texture);
 
     // make window active
     [app->window makeKeyAndOrderFront:NSApp];
@@ -1512,7 +1544,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         drawGltf(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 10, 0)));
     }
 
-    // draw pbr spheres (not textured yet)
+    // draw pbr (not textured yet)
     if (1)
     {
         // for now, we store all material settings inside the fragment bytes, so that we don't have to create a separate buffer for all different material settings
@@ -1520,7 +1552,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         {
             for (int y = 0; y < 5; y++)
             {
-                // draw sphere
+                // draw pbr
                 [encoder setCullMode:MTLCullModeBack];
                 [encoder setTriangleFillMode:MTLTriangleFillModeFill];
                 [encoder setRenderPipelineState:app->shaderOpenPBRSurface];
@@ -1537,7 +1569,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                 };
                 [encoder setVertexBytes:&globalVertexData length:sizeof(OpenPBRSurfaceGlobalVertexData) atIndex:bindings::globalVertexData];
                 [encoder setFragmentBytes:&globalFragmentData length:sizeof(OpenPBRSurfaceGlobalFragmentData) atIndex:bindings::globalFragmentData];
-                [encoder setFragmentTexture:app->activeSkybox atIndex:bindings::reflectionMap];
+                [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:bindings::reflectionMap];
                 drawMesh(encoder, &app->roundedCube, &instance);
             }
         }
