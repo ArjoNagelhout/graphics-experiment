@@ -713,7 +713,6 @@ id <MTLRenderPipelineState> createShader(
 }
 
 
-
 id <MTLTexture> importTexture(id <MTLDevice> device, std::filesystem::path const& path)
 {
     assert(std::filesystem::exists(path));
@@ -772,22 +771,37 @@ float randomFloatMinMax(float min, float max)
     return min + (float)rand() / ((float)RAND_MAX / (max - min));
 }
 
+struct PBRPrefilterEnvironmentMapData
+{
+    float roughness;
+    unsigned int mipLevel;
+};
+
 // source and output is assumed to be equirectangular projection (not a cubemap)
+// adapted from https://bruop.github.io/ibl/
 id <MTLTexture> createPrefilteredEnvironmentMap(id <MTLDevice> device,
                                                 id <MTLLibrary> library,
                                                 id <MTLCommandQueue> queue,
                                                 id <MTLTexture> source)
 {
+    assert(source);
     id <MTLTexture> out;
-
     // create compute pipeline
     MTLFunctionDescriptor* functionDescriptor = [[MTLFunctionDescriptor alloc] init];
     functionDescriptor.name = @"pbr_prefilter_environment_map";
     NSError* error = nullptr;
     id <MTLFunction> function = [library newFunctionWithDescriptor:functionDescriptor error:&error];
     checkError(error);
-    id <MTLComputePipelineState> computePrefilterEnvironmentMap = [device newComputePipelineStateWithFunction:function error:&error];
+    id <MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:function error:&error];
     checkError(error);
+
+    // maxTotalThreadsPerThreadgroup: 1024, threadExecutionWidth: 32
+    std::cout << "maxTotalThreadsPerThreadgroup: " << pipeline.maxTotalThreadsPerThreadgroup
+              << ", threadExecutionWidth: " << pipeline.threadExecutionWidth
+              << std::endl;
+
+    // mip map levels
+    unsigned int maxMipLevel = (int)log2(std::min(source.width, source.height));
 
     // create prefiltered environment map texture with all mip map levels (higher roughness is higher mip map levels / smaller mip map size)
     {
@@ -797,7 +811,7 @@ id <MTLTexture> createPrefilteredEnvironmentMap(id <MTLDevice> device,
         d.textureType = source.textureType;
         d.pixelFormat = source.pixelFormat;
         d.arrayLength = 1;
-        d.mipmapLevelCount = 10;
+        d.mipmapLevelCount = maxMipLevel + 1; // mip level 0 is also included
         out = [device newTextureWithDescriptor:d];
     }
 
@@ -812,8 +826,34 @@ id <MTLTexture> createPrefilteredEnvironmentMap(id <MTLDevice> device,
 
         // execute compute kernel
         id <MTLComputeCommandEncoder> compute = [commandBuffer computeCommandEncoder];
-        [compute setComputePipelineState:computePrefilterEnvironmentMap];
-        //encoder dispatchThreads:
+        [compute setComputePipelineState:pipeline];
+        [compute setTexture:source atIndex:1];
+
+        for (unsigned int mipLevel = 0; mipLevel <= maxMipLevel; mipLevel++)
+        {
+            unsigned int width = out.width >> mipLevel;
+            unsigned int height = out.height >> mipLevel;
+            float roughness = (float)mipLevel / (float)maxMipLevel;
+            std::cout << "mipLevel: " << mipLevel << ", width: " << width << ", height: " << height << ", roughness: " << roughness << std::endl;
+
+            PBRPrefilterEnvironmentMapData data{
+                .roughness = roughness,
+                .mipLevel = mipLevel
+            };
+            [compute setBytes:&data length:sizeof(PBRPrefilterEnvironmentMapData) atIndex:0];
+
+            // create texture view for a specific mip level, so that we can write to that specific level
+            id <MTLTexture> outView = [out
+                newTextureViewWithPixelFormat:out.pixelFormat
+                textureType:out.textureType
+                levels:NSMakeRange(mipLevel, 1)
+                slices:NSMakeRange(0, 1)];
+            [compute setTexture:outView atIndex:2];
+
+            MTLSize threads = MTLSizeMake(width, height, 1);
+            //[compute dispatchThreads:threads threadsPerThreadgroup:<#(MTLSize)threadsPerThreadgroup#>];
+        }
+
         [compute endEncoding];
         [commandBuffer commit];
     }
@@ -1558,7 +1598,10 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                 [encoder setRenderPipelineState:app->shaderOpenPBRSurface];
                 [encoder setDepthStencilState:app->depthStencilStateDefault];
 
-                InstanceData instance{.localToWorld = glm::rotate(glm::scale(glm::translate(glm::vec3(x*6, y*3, 0)), glm::vec3(0.5, 0.5, 0.5)), app->time + (float)x/6.0f + (float)y/10.0f, glm::vec3(0, 1, 0))};
+                InstanceData instance{
+                    .localToWorld = glm::rotate(glm::scale(glm::translate(glm::vec3(x * 6, y * 3, 0)), glm::vec3(0.5, 0.5, 0.5)),
+                                                app->time + (float)x / 6.0f + (float)y / 10.0f, glm::vec3(0, 1, 0))
+                };
                 OpenPBRSurfaceGlobalVertexData globalVertexData{
                     .localToWorldTransposedInverse = glm::transpose(glm::inverse(instance.localToWorld))
                 };
