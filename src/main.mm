@@ -378,6 +378,7 @@ struct CameraData
     glm::mat4 viewProjection;
 };
 
+// data per instance
 struct InstanceData
 {
     glm::mat4 localToWorld;
@@ -708,54 +709,6 @@ id <MTLRenderPipelineState> createShader(
     return renderPipelineState;
 }
 
-[[nodiscard]] Mesh createAxes(App* app)
-{
-    std::vector<VertexData> vertices;
-    std::vector<uint32_t> indices;
-    std::vector<uint32_t> indicesTemplate{
-        0, 1, 2, 1, 3, 2
-    };
-
-    float w = 0.01f; // width
-    float l = 0.75f; // length
-
-    simd_float4 red = {1, 0, 0, 1};
-    simd_float4 green = {0, 1, 0, 1};
-    simd_float4 blue = {0, 0, 1, 1};
-
-    // positions
-    vertices = {
-        // x
-        {.position = {l, -w, 0, 1}, .color = red},
-        {.position = {l, +w, 0, 1}, .color = red},
-        {.position = {0, -w, 0, 1}, .color = red},
-        {.position = {0, +w, 0, 1}, .color = red},
-
-        // y
-        {.position = {-w, l, 0, 1}, .color = green},
-        {.position = {+w, l, 0, 1}, .color = green},
-        {.position = {-w, 0, 0, 1}, .color = green},
-        {.position = {+w, 0, 0, 1}, .color = green},
-
-        // z
-        {.position = {0, -w, l, 1}, .color = blue},
-        {.position = {0, +w, l, 1}, .color = blue},
-        {.position = {0, -w, 0, 1}, .color = blue},
-        {.position = {0, +w, 0, 1}, .color = blue},
-    };
-
-    for (int i = 0; i <= 2; i++)
-    {
-        // indices
-        for (auto& index: indicesTemplate)
-        {
-            indices.emplace_back(index + 4 * i);
-        }
-    }
-
-    return createMeshIndexed(app->device, &vertices, &indices, MTLPrimitiveTypeTriangle);
-}
-
 id <MTLTexture> importTexture(id <MTLDevice> device, std::filesystem::path const& path)
 {
     assert(std::filesystem::exists(path));
@@ -1004,9 +957,17 @@ void onLaunch(App* app)
         }
     }
 
+    // cubemap is more performant than equirectangular projection
+
+    // write three shaders:
+    // - equirectangular to cubemap projection -> store to disk? (this can be sampled more efficiently)
+    // - cubemap based skybox shader
+    // - cubemap based reflection shader (image based lighting) in OpenPBR Surface
+    // - compute shaders that create GGX lookup textures (mipmaps in Metal are not prepopulated, should be filled in manually)
+
     // import skybox
     {
-        // for now the skybox texture is a regular texture
+        // for now the skybox texture is a regular texture (using equirectangular projection)
         app->skyboxTexture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox.png");
         app->skybox2Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_2.png");
         app->skybox3Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_3.png");
@@ -1045,32 +1006,35 @@ void onLaunch(App* app)
         createFontMap(&app->font, app->config->fontCharacterMap);
     }
 
-    // create primitives
-    app->cubeWithoutUV = createCubeWithoutUV(app->device);
-    app->cube = createCube(app->device);
-    app->roundedCube = createRoundedCube(app->device, simd_float3{2.0f, 4.0f, 10.0f}, 0.5f, 3);
-    app->sphere = createSphere(app->device, 60, 60);
-    app->plane = createPlane(app->device, RectMinMaxf{-30, -30, 30, 30});
-
-    // create axes
-    app->axes = createAxes(app);
+    // create primitive shapes
+    {
+        app->cubeWithoutUV = createCubeWithoutUV(app->device);
+        app->cube = createCube(app->device);
+        app->roundedCube = createRoundedCube(app->device, simd_float3{2.0f, 4.0f, 10.0f}, 0.5f, 3);
+        app->sphere = createUVSphere(app->device, 60, 60);
+        app->plane = createPlane(app->device, RectMinMaxf{-30, -30, 30, 30});
+        app->axes = createAxes(app->device);
+    }
 
     // set camera transform
-    app->cameraTransform = {
-        .position = glm::vec3(5.0f, 5.0f, -7.0f),
-        .rotation = glm::quat(1, 0, 0, 0),
-        .scale = glm::vec3(1, 1, 1)
-    };
+    {
+        app->cameraTransform = {
+            .position = glm::vec3(5.0f, 5.0f, -7.0f),
+            .rotation = glm::quat(1, 0, 0, 0),
+            .scale = glm::vec3(1, 1, 1)
+        };
+    }
 
     // import textures
     {
         app->iconSunTexture = importTexture(app->device, app->config->assetsPath / "textures" / "sun.png");
-        app->terrainGreenTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain_green.png");
-        app->terrainYellowTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain.png");
-        app->waterTexture = importTexture(app->device, app->config->assetsPath / "textures" / "water.png");
+//        app->terrainGreenTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain_green.png");
+//        app->terrainYellowTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain.png");
+//        app->waterTexture = importTexture(app->device, app->config->assetsPath / "textures" / "water.png");
     }
 
     // create terrain and trees on terrain
+    if (0)
     {
         std::vector<VertexData> vertices{};
         std::vector<uint32_t> indices{};
@@ -1082,7 +1046,7 @@ void onLaunch(App* app)
 
         int maxIndex = (int)vertices.size();
         // create tree instances at random positions from vertex data of the terrain
-        int treeCount = 500;
+        int treeCount = 10;
         app->treeInstances.resize(treeCount);
         for (int i = 0; i < treeCount; i++)
         {
@@ -1095,7 +1059,7 @@ void onLaunch(App* app)
         }
 
         // create shrub instances
-        int shrubCount = 500;
+        int shrubCount = 10;
         app->shrubInstances.resize(shrubCount);
         for (int i = 0; i < shrubCount; i++)
         {
@@ -1411,6 +1375,7 @@ struct OpenPBRSurfaceGlobalVertexData
 struct OpenPBRSurfaceGlobalFragmentData
 {
     simd_float3 cameraPosition;
+    float roughness;
 };
 
 void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ flags)
@@ -1519,18 +1484,21 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
             baseInstance:0];
     }
 
-    // draw gltf
-//    drawGltf(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(2, 2, 2)));
-//    drawGltf(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
-//    drawGltf(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 10, 0)));
+    // draw gltfs
+    if (0)
+    {
+        drawGltf(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(2, 2, 2)));
+        drawGltf(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
+        drawGltf(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 10, 0)));
+    }
 
     // draw pbr spheres (not textured yet)
     if (1)
     {
         // for now, we store all material settings inside the fragment bytes, so that we don't have to create a separate buffer for all different material settings
-        for (int x = 0; x < 10; x++)
+        for (int x = 0; x < 5; x++)
         {
-            for (int y = 0; y < 10; y++)
+            for (int y = 0; y < 5; y++)
             {
                 // draw sphere
                 [encoder setCullMode:MTLCullModeBack];
@@ -1545,6 +1513,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
 
                 OpenPBRSurfaceGlobalFragmentData globalFragmentData{
                     .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
+                    .roughness = (float)x / 5.0f
                 };
                 [encoder setVertexBytes:&globalVertexData length:sizeof(OpenPBRSurfaceGlobalVertexData) atIndex:bindings::globalVertexData];
                 [encoder setFragmentBytes:&globalFragmentData length:sizeof(OpenPBRSurfaceGlobalFragmentData) atIndex:bindings::globalFragmentData];

@@ -202,7 +202,7 @@ int roundedCubeCreateBottomFace(RoundedCubeData* data, int t, int ring)
     return t;
 }
 
-[[nodiscard]] Mesh createRoundedCube(id <MTLDevice> device, simd_float3 size, float cornerRadius, int cornerDivisions)
+Mesh createRoundedCube(id <MTLDevice> device, simd_float3 size, float cornerRadius, int cornerDivisions)
 {
     float smallestSize = std::numeric_limits<float>::max();
     for (int i = 0; i < 3; i++)
@@ -282,7 +282,7 @@ int roundedCubeCreateBottomFace(RoundedCubeData* data, int t, int ring)
 // sphere
 //-------------------------------
 
-Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDivisions)
+Mesh createUVSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDivisions)
 {
     constexpr float angleCorrectionForCenterAlign = -0.5f * pi_;
 
@@ -333,7 +333,7 @@ Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDi
 // cube without uv
 //-------------------------------
 
-[[nodiscard]] Mesh createCubeWithoutUV(id <MTLDevice> device)
+Mesh createCubeWithoutUV(id <MTLDevice> device)
 {
     float s = 1.0f;
     std::vector<VertexData> vertices{
@@ -360,7 +360,7 @@ Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDi
 // cube
 //-------------------------------
 
-[[nodiscard]] Mesh createCube(id <MTLDevice> device)
+Mesh createCube(id <MTLDevice> device)
 {
     float uvmin = 0.0f;
     float uvmax = 1.0f;
@@ -416,7 +416,7 @@ Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDi
 // plane
 //-------------------------------
 
-[[nodiscard]] Mesh createPlane(id <MTLDevice> device, RectMinMaxf extents)
+Mesh createPlane(id <MTLDevice> device, RectMinMaxf extents)
 {
     std::vector<VertexData> vertices{
         {.position{extents.minX, 0, extents.minY, 1}, .uv0{0, 1}},
@@ -431,7 +431,7 @@ Mesh createSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDi
 // tree
 //-------------------------------
 
-[[nodiscard]] Mesh createTree(id <MTLDevice> device, float width, float height)
+Mesh createTree(id <MTLDevice> device, float width, float height)
 {
     std::vector<VertexData> vertices{
         {.position{-width / 2, 0, 0, 1}, .uv0{0, 1}},
@@ -494,4 +494,56 @@ void createTerrain(RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdiv
     }
 
     *outPrimitiveType = MTLPrimitiveTypeTriangleStrip;
+}
+
+//-------------------------------
+// axes
+//-------------------------------
+
+Mesh createAxes(id <MTLDevice> device)
+{
+    std::vector<VertexData> vertices;
+    std::vector<uint32_t> indices;
+    std::vector<uint32_t> indicesTemplate{
+        0, 1, 2, 1, 3, 2
+    };
+
+    float w = 0.01f; // width
+    float l = 0.75f; // length
+
+    simd_float4 red = {1, 0, 0, 1};
+    simd_float4 green = {0, 1, 0, 1};
+    simd_float4 blue = {0, 0, 1, 1};
+
+    // positions
+    vertices = {
+        // x
+        {.position = {l, -w, 0, 1}, .color = red},
+        {.position = {l, +w, 0, 1}, .color = red},
+        {.position = {0, -w, 0, 1}, .color = red},
+        {.position = {0, +w, 0, 1}, .color = red},
+
+        // y
+        {.position = {-w, l, 0, 1}, .color = green},
+        {.position = {+w, l, 0, 1}, .color = green},
+        {.position = {-w, 0, 0, 1}, .color = green},
+        {.position = {+w, 0, 0, 1}, .color = green},
+
+        // z
+        {.position = {0, -w, l, 1}, .color = blue},
+        {.position = {0, +w, l, 1}, .color = blue},
+        {.position = {0, -w, 0, 1}, .color = blue},
+        {.position = {0, +w, 0, 1}, .color = blue},
+    };
+
+    for (int i = 0; i <= 2; i++)
+    {
+        // indices
+        for (auto& index: indicesTemplate)
+        {
+            indices.emplace_back(index + 4 * i);
+        }
+    }
+
+    return createMeshIndexed(device, &vertices, &indices, MTLPrimitiveTypeTriangle);
 }

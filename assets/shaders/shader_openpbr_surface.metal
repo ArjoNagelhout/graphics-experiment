@@ -10,6 +10,7 @@ struct OpenPBRSurfaceGlobalVertexData
 struct OpenPBRSurfaceGlobalFragmentData
 {
     float3 cameraPosition;
+    float roughness;
 };
 
 struct OpenPBRSurfaceRasterizerData
@@ -68,6 +69,26 @@ fragment half4 openpbr_surface_fragment(
     // ambient-medium
 
     // get the direction vector for the reflection map
+
+
+    // GGX consists of:
+
+    // - fresnel term F
+    // - microfacet distribution function D
+    // - shadowing-masking function G (depends on D)
+    // - microsurface BSDF (reflection, BSRF and refraction, BSTF) (depends on F, D, G)
+
+    // GGX requires multi sampling
+    // https://developer.nvidia.com/gpugems/gpugems3/part-iii-rendering/chapter-20-gpu-based-importance-sampling
+
+    // https://bruop.github.io/ibl/
+    // involved: requires precomputing many terms and storing them into cubemaps and textures
+    // e.g.
+    // https://learnopengl.com/PBR/IBL/Specular-IBL
+    // split sum approximation (LUT = lookup texture) -> https://wiki.jmonkeyengine.org/docs/3.4/tutorials/how-to/articles/pbr/pbr_part3.html
+    // pre-filtered environment map
+
+
     float3 normal = normalize(in.worldSpaceNormal);
     float3 cameraDirection = normalize(in.worldSpacePosition - globalData.cameraPosition);
     float3 outDirection = reflect(cameraDirection, normal);
