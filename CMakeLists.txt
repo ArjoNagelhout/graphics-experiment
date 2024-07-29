@@ -4,7 +4,6 @@ project(bored_c)
 set(CMAKE_CXX_STANDARD 20)
 
 add_subdirectory(external)
-add_subdirectory(lib)
 add_subdirectory(tests)
 
 set(SOURCES
@@ -20,7 +19,7 @@ set(SOURCES
 )
 
 add_library(bored_c_lib ${SOURCES})
-target_link_libraries(bored_c_lib PUBLIC lodepng glm fmt radiance cgltf libjpeg-turbo)#${CMAKE_CURRENT_SOURCE_DIR}/external/libjpeg-turbo/libjpeg.a)
+target_link_libraries(bored_c_lib PUBLIC lodepng glm fmt cgltf libjpeg-turbo)#${CMAKE_CURRENT_SOURCE_DIR}/external/libjpeg-turbo/libjpeg.a)
 target_include_directories(bored_c_lib PUBLIC src)
 target_include_directories(bored_c_lib PUBLIC assets/shaders)
 
@@ -38,13 +37,3 @@ target_link_libraries(bored_c_lib PUBLIC
 add_executable(bored_c src/main.mm)
 
 target_link_libraries(bored_c bored_c_lib)
-
-# experiments
-
-set(IMPORT_HDR_SOURCES
-        src/import_hdr.cpp
-)
-
-add_executable(import_hdr ${IMPORT_HDR_SOURCES})
-
-target_link_libraries(import_hdr radiance)

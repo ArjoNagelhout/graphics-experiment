@@ -709,6 +709,8 @@ id <MTLRenderPipelineState> createShader(
     return renderPipelineState;
 }
 
+
+
 id <MTLTexture> importTexture(id <MTLDevice> device, std::filesystem::path const& path)
 {
     assert(std::filesystem::exists(path));
@@ -773,66 +775,60 @@ void onLaunch(App* app)
     app->device = MTLCreateSystemDefaultDevice();
 
     // create window
-    NSWindow* window = [[NSWindow alloc]
-        initWithContentRect:app->config->windowRect
-        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
-        backing:NSBackingStoreBuffered
-        defer:NO];
-    [window setMinSize:app->config->windowMinSize];
-    [window setTitle:@"bored_c"];
-    [window setBackgroundColor:[NSColor blueColor]];
-    [window center];
-    app->window = window;
+    {
+        NSWindow* window = [[NSWindow alloc]
+            initWithContentRect:app->config->windowRect
+            styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
+            backing:NSBackingStoreBuffered
+            defer:NO];
+        [window setMinSize:app->config->windowMinSize];
+        [window setTitle:@"bored_c"];
+        [window setBackgroundColor:[NSColor blueColor]];
+        [window center];
+        app->window = window;
+    }
 
     // create split view
-    NSSplitView* splitView = [[NSSplitView alloc] initWithFrame:window.contentView.frame];
-    [window setContentView:splitView];
-    [splitView setVertical:YES];
-    [splitView setDividerStyle:NSSplitViewDividerStylePaneSplitter];
-    [splitView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-    app->splitView = splitView;
-
-    // create metal kit view delegate
     {
-        MetalViewDelegate* viewDelegate = [[MetalViewDelegate alloc] init];
-        viewDelegate.app = app;
-        app->viewDelegate = viewDelegate;
-        [viewDelegate retain];
+        NSSplitView* splitView = [[NSSplitView alloc] initWithFrame:app->window.contentView.frame];
+        [app->window setContentView:splitView];
+        [splitView setVertical:YES];
+        [splitView setDividerStyle:NSSplitViewDividerStylePaneSplitter];
+        [splitView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+        app->splitView = splitView;
     }
 
     // create metal kit view and add to window
     {
-        MetalView* view = [[MetalView alloc] initWithFrame:splitView.frame device:app->device];
+        MetalViewDelegate* viewDelegate = [[MetalViewDelegate alloc] init];
+        viewDelegate.app = app;
+        app->viewDelegate = viewDelegate;
+
+        MetalView* view = [[MetalView alloc] initWithFrame:app->splitView.frame device:app->device];
         view.app = app;
         view.delegate = app->viewDelegate;
         view.clearColor = app->config->clearColor;
         view.depthStencilPixelFormat = MTLPixelFormatDepth16Unorm;
-        [splitView addSubview:view];
-        [window makeFirstResponder:view];
+        [app->splitView addSubview:view];
+        [app->window makeFirstResponder:view];
         app->view = view;
-        [view retain];
     }
 
-    // create text field delegate
+    // create UI / text view sidepanel
     {
         TextViewDelegate* textViewDelegate = [[TextViewDelegate alloc] init];
         app->textViewDelegate = textViewDelegate;
         textViewDelegate.app = app;
-        [textViewDelegate retain];
-    }
 
-    // create UI sidepanel
-    {
-        NSTextView* textView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, app->config->sidepanelWidth, splitView.frame.size.height)];
+        NSTextView* textView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, app->config->sidepanelWidth, app->splitView.frame.size.height)];
         [textView setDelegate:app->textViewDelegate];
         [textView setAutomaticTextCompletionEnabled:NO];
         [textView setString:[[NSString alloc] initWithCString:app->currentText.c_str() encoding:NSUTF8StringEncoding]];
-        [splitView addSubview:textView];
+        [app->splitView addSubview:textView];
         app->sidepanel = textView;
-        [textView retain];
     }
 
-    [splitView adjustSubviews];
+    [app->splitView adjustSubviews];
 
     // create command queue
     {
@@ -873,7 +869,10 @@ void onLaunch(App* app)
             shadersPath / "shader_unlit.metal",
             shadersPath / "shader_blinn_phong.metal",
             shadersPath / "shader_gltf.metal",
-            shadersPath / "shader_openpbr_surface.metal"
+            shadersPath / "shader_openpbr_surface.metal",
+
+            // compute shaders
+            shadersPath / "shader_pbr_prefilter_environment_map.metal"
         };
         std::stringstream buffer;
         for (std::filesystem::path& path: paths)
@@ -957,25 +956,23 @@ void onLaunch(App* app)
         }
     }
 
-    // cubemap is more performant than equirectangular projection
-
-    // write three shaders:
-    // - equirectangular to cubemap projection -> store to disk? (this can be sampled more efficiently)
-    // - cubemap based skybox shader
-    // - cubemap based reflection shader (image based lighting) in OpenPBR Surface
-    // - compute shaders that create GGX lookup textures (mipmaps in Metal are not prepopulated, should be filled in manually)
-
-    // import skybox
+    // import textures
     {
-        // for now the skybox texture is a regular texture (using equirectangular projection)
+        // for now the skybox texture is a regular texture (using equirectangular projection) instead of a cubemap texture
+        // this is less performant, change later.
         app->skyboxTexture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox.png");
         app->skybox2Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_2.png");
         app->skybox3Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_3.png");
         app->skybox4Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_4.png");
         app->activeSkybox = app->skyboxTexture;
+
+        app->iconSunTexture = importTexture(app->device, app->config->assetsPath / "textures" / "sun.png");
+//        app->terrainGreenTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain_green.png");
+//        app->terrainYellowTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain.png");
+//        app->waterTexture = importTexture(app->device, app->config->assetsPath / "textures" / "water.png");
     }
 
-    // import texture atlas
+    // import font
     {
         std::filesystem::path path = app->config->assetsPath / "textures" / "texturemap.png";
         app->fontAtlas.texture = importTexture(app->device, path);
@@ -985,6 +982,10 @@ void onLaunch(App* app)
         uint32_t width = app->fontAtlas.texture.width;
         uint32_t height = app->fontAtlas.texture.height;
         createSprites(&app->fontAtlas, spriteSize, spriteSize, width / spriteSize, height / spriteSize);
+
+        // create font map (which letter corresponds to which sprite index)
+        app->font.atlas = &app->fontAtlas;
+        createFontMap(&app->font, app->config->fontCharacterMap);
     }
 
     // create shadow map
@@ -998,12 +999,6 @@ void onLaunch(App* app)
         descriptor.arrayLength = 1;
         descriptor.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
         app->shadowMap = [app->device newTextureWithDescriptor:descriptor];
-    }
-
-    // create font
-    {
-        app->font.atlas = &app->fontAtlas;
-        createFontMap(&app->font, app->config->fontCharacterMap);
     }
 
     // create primitive shapes
@@ -1023,14 +1018,6 @@ void onLaunch(App* app)
             .rotation = glm::quat(1, 0, 0, 0),
             .scale = glm::vec3(1, 1, 1)
         };
-    }
-
-    // import textures
-    {
-        app->iconSunTexture = importTexture(app->device, app->config->assetsPath / "textures" / "sun.png");
-//        app->terrainGreenTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain_green.png");
-//        app->terrainYellowTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain.png");
-//        app->waterTexture = importTexture(app->device, app->config->assetsPath / "textures" / "water.png");
     }
 
     // create terrain and trees on terrain
@@ -1090,8 +1077,41 @@ void onLaunch(App* app)
         assert(success);
     }
 
+    // cubemap is more performant than equirectangular projection
+
+    // write three shaders:
+    // - equirectangular to cubemap projection -> store to disk? (this can be sampled more efficiently)
+    // - cubemap based skybox shader
+    // - cubemap based reflection shader (image based lighting) in OpenPBR Surface
+    // - compute shaders that create GGX lookup textures (mipmaps in Metal are not prepopulated, should be filled in manually)
+
+    // cubemap can be done later, first let's create the lookup textures
+
+    // create prefiltered environment map for PBR rendering
+    {
+        MTLFunctionDescriptor* functionDescriptor = [[MTLFunctionDescriptor alloc] init];
+        functionDescriptor.name = @"pbrPrefilterEnvironmentMap";
+        NSError* error = nullptr;
+        id <MTLFunction> function = [app->library newFunctionWithDescriptor:functionDescriptor error:&error];
+        checkError(error);
+        id <MTLComputePipelineState> computePrefilterEnvironmentMap = [app->device newComputePipelineStateWithFunction:function error:&error];
+        checkError(error);
+
+        id <MTLCommandBuffer> commandBuffer = [app->commandQueue commandBuffer];
+
+
+        MTLComputePassDescriptor* pass = [[MTLComputePassDescriptor alloc] init];
+        id <MTLComputeCommandEncoder> encoder = [commandBuffer computeCommandEncoderWithDescriptor:pass];
+
+        [encoder setComputePipelineState:computePrefilterEnvironmentMap];
+        //encoder dispatchThreads:
+
+        [encoder endEncoding];
+        [commandBuffer commit];
+    }
+
     // make window active
-    [window makeKeyAndOrderFront:NSApp];
+    [app->window makeKeyAndOrderFront:NSApp];
 }
 
 void onTerminate(App* app)
