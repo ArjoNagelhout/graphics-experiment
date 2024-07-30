@@ -18,7 +18,7 @@ fragment half4 shadow_fragment(
     RasterizerData in [[stage_in]],
     texture2d<half, access::sample> texture [[texture(bindings::texture)]])
 {
-    constexpr sampler s(address::repeat, filter::nearest);
-    half4 color = texture.sample(s, in.uv0);
+    //constexpr sampler s(address::repeat, filter::nearest);
+    //half4 color = texture.sample(s, in.uv0);
     return half4(0, 0, 0, 0.0f);
 }

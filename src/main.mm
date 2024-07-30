@@ -778,7 +778,9 @@ struct PBRPrefilterEnvironmentMapData
 };
 
 // source and output is assumed to be equirectangular projection (not a cubemap)
-// adapted from https://bruop.github.io/ibl/
+// adapted from:
+// - https://bruop.github.io/ibl/
+// -
 id <MTLTexture> createPrefilteredEnvironmentMap(id <MTLDevice> device,
                                                 id <MTLLibrary> library,
                                                 id <MTLCommandQueue> queue,
@@ -850,8 +852,9 @@ id <MTLTexture> createPrefilteredEnvironmentMap(id <MTLDevice> device,
                 slices:NSMakeRange(0, 1)];
             [compute setTexture:outView atIndex:2];
 
-            MTLSize threads = MTLSizeMake(width, height, 1);
-            //[compute dispatchThreads:threads threadsPerThreadgroup:<#(MTLSize)threadsPerThreadgroup#>];
+            MTLSize totalThreads = MTLSizeMake(width, height, 1);
+            MTLSize threadGroupSize = MTLSizeMake(pipeline.threadExecutionWidth, pipeline.threadExecutionWidth, 1);
+            [compute dispatchThreads:totalThreads threadsPerThreadgroup:threadGroupSize];
         }
 
         [compute endEncoding];
