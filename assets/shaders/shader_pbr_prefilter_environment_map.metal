@@ -38,8 +38,21 @@ float4 sampleEquirectangular(float3 direction, texture2d<float, access::sample> 
 float3 importanceSampleGGX(float2 Xi, float roughness, float3 N)
 {
     float a = roughness * roughness;
-    float phi = 2 * M_PI_F;
-    return N;
+    float phi = 2 * M_PI_F * Xi.x;
+    float cosTheta = sqrt((1 - Xi.y) / (1 + (a * a - 1) * Xi.y));
+    float sinTheta = sqrt(1 - cosTheta * cosTheta);
+
+    float3 H = float3(
+        sinTheta * cos(phi),
+        sinTheta * sin(phi),
+        cosTheta);
+
+    float3 upVector = abs(N.z) < 0.999 ? float3(0, 0, 1) : float3(1, 0, 0);
+    float3 tangentX = normalize(cross(upVector, N));
+    float3 tangentY = cross(N, tangentX);
+
+    // convert tangent to world space
+    return tangentX * H.x + tangentY * H.y + N * H.z;
 }
 
 // equirectangular projection (for now)
@@ -92,5 +105,5 @@ kernel void pbr_prefilter_environment_map(
     color /= totalWeight;
 
     // write to pixel
-
+    outView.write(float4(color, 1.0f), id);
 }
