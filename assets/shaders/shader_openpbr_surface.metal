@@ -98,8 +98,8 @@ fragment half4 openpbr_surface_fragment(
     float phi = asin(outDirection.y); // latitude
 
     // map spherical coordinates to texture coordinates
-    float u = (theta / (2.0 * 3.141592653589793)) + 0.5;
-    float v = (phi / 3.141592653589793) + 0.5;
+    float u = (theta / (2.0f * M_PI_F)) + 0.5f;
+    float v = (phi / M_PI_F) + 0.5f;
 
     float2 uv{u, 1.0f-v};
     constexpr sampler s(address::repeat, filter::linear);

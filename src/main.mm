@@ -146,9 +146,8 @@
 #include "procedural_mesh.h"
 #include "gltf.h"
 
-#define SHADER_CONSTANTS_MAIN
-
-#include "shader_constants.h"
+#define SHADER_BINDINGS_MAIN
+#include "shader_bindings.h"
 
 #include "glm/glm.hpp"
 #include "glm/detail/type_quat.hpp"
@@ -945,7 +944,7 @@ void onLaunch(App* app)
         // read shader source from metal source file (Metal Shading Language, MSL)
         std::filesystem::path shadersPath = app->config->assetsPath / "shaders";
         std::vector<std::filesystem::path> paths{
-            shadersPath / "shader_constants.h",
+            shadersPath / "shader_bindings.h",
             shadersPath / "shader_common.h",
 
             // utility

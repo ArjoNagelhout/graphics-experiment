@@ -27,8 +27,8 @@ float4 sampleEquirectangular(float3 direction, texture2d<float, access::sample> 
     float phi = asin(direction.y); // latitude
 
     // map spherical coordinates to texture coordinates
-    float u = (theta / (2.0 * 3.141592653589793)) + 0.5;
-    float v = (phi / 3.141592653589793) + 0.5;
+    float u = (theta / (2.0 * M_PI_F)) + 0.5f;
+    float v = (phi / M_PI_F) + 0.5f;
 
     float2 uv{u, 1.0f-v};
     constexpr sampler s(address::repeat, filter::linear);
@@ -37,6 +37,8 @@ float4 sampleEquirectangular(float3 direction, texture2d<float, access::sample> 
 
 float3 importanceSampleGGX(float2 Xi, float roughness, float3 N)
 {
+    float a = roughness * roughness;
+    float phi = 2 * M_PI_F;
     return N;
 }
 
