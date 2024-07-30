@@ -14,7 +14,7 @@ fragment half4 ui_fragment(
     RasterizerData in [[stage_in]],
     texture2d< half, access::sample > tex [[texture(bindings::texture)]])
 {
-    constexpr sampler s(address::repeat, filter::nearest);
+    constexpr sampler s(address::repeat, filter::linear);
 
     return tex.sample(s, in.uv0);
 }

@@ -35,6 +35,29 @@ float4 sampleEquirectangular(float3 direction, texture2d<float, access::sample> 
     return source.sample(s, uv);
 }
 
+// get direction vector from 2D (between 0 and 1) UV coordinates
+float3 uvToDirectionEquirectangular(float2 uv)
+{
+    // u = (theta / 2pi) + 0.5
+    // u - 0.5 = theta / 2pi
+    // theta = (u - 0.5) * (2pi)
+
+    // v = (phi / pi) + 0.5
+    // v - 0.5 = phi / pi
+    // phi = (v - 0.5) * pi
+
+    float u = uv.x;
+    float v = 1.0f - uv.y;
+    float theta = (u - 0.5f) * 2.0f * M_PI_F;
+    float phi = (v - 0.5f) * M_PI_F;
+
+    float x = cos(phi) * cos(theta);
+    float y = sin(phi);
+    float z = cos(phi) * sin(theta);
+
+    return float3(x, y, z);
+}
+
 float3 importanceSampleGGX(float2 Xi, float roughness, float3 N)
 {
     float a = roughness * roughness;
@@ -55,9 +78,8 @@ float3 importanceSampleGGX(float2 Xi, float roughness, float3 N)
     return tangentX * H.x + tangentY * H.y + N * H.z;
 }
 
-// equirectangular projection (for now)
+// uses equirectangular projection
 // https://cdn2.unrealengine.com/Resources/files/2013SiggraphPresentationsNotes-26915738.pdf
-//
 kernel void pbr_prefilter_environment_map(
     device PBRPrefilterEnvironmentMapData const& data [[buffer(0)]],
     texture2d<float, access::sample> source [[texture(1)]],
@@ -65,26 +87,16 @@ kernel void pbr_prefilter_environment_map(
     uint2 id [[thread_position_in_grid]]
 )
 {
-    if (id.x >= data.width || id.y >= data.height)
-    {
-        return;
-    }
-
-    if (data.roughness == 0.0f)
-    {
-        return;
-    }
-
     // determine direction vector based on grid id
-
-    float3 R = float3(0, 0, 0); // direction vector
+    float2 uv = float2(float(id.x) / (float)data.width, float(id.y) / (float)data.height);
+    float3 R = uvToDirectionEquirectangular(uv); // direction vector
     float3 N = R;
     float3 V = R;
 
     float3 color = float3(0, 0, 0);
     float totalWeight = 0;
 
-    uint const samples = 32;
+    uint const samples = 512;
     for (uint i = 0; i < samples; i++)
     {
         float2 Xi = hammersley(i, samples);

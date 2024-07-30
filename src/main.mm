@@ -147,6 +147,7 @@
 #include "gltf.h"
 
 #define SHADER_BINDINGS_MAIN
+
 #include "shader_bindings.h"
 
 #include "glm/glm.hpp"
@@ -545,6 +546,9 @@ struct App
 
     // PBR
     id <MTLTexture> prefilteredEnvironmentMap;
+    std::vector<id <MTLTexture>> textureViews;
+    unsigned int mipLevels = 0; // for previewing the prefiltered environment map at a given mip level
+    unsigned int currentMipLevel = 0; // for previewing the prefiltered environment map at a given mip level
 
     // primitives
     Mesh cube;
@@ -626,8 +630,10 @@ void onKeyPressed(App* app, CocoaKeyCode keyCode);
     return app->keys[static_cast<unsigned short>(keyCode)];
 }
 
+// key down (only executed once)
 void onKeyPressed(App* app, CocoaKeyCode keyCode)
 {
+    // switch skybox, set skybox, change skybox
     if (keyCode == CocoaKeyCode::kVK_ANSI_1)
     {
         app->activeSkybox = app->skyboxTexture;
@@ -643,6 +649,16 @@ void onKeyPressed(App* app, CocoaKeyCode keyCode)
     else if (keyCode == CocoaKeyCode::kVK_ANSI_4)
     {
         app->activeSkybox = app->skybox4Texture;
+    }
+
+    // set mip level
+    if (keyCode == CocoaKeyCode::kVK_ANSI_U && app->currentMipLevel > 0)
+    {
+        app->currentMipLevel--;
+    }
+    else if (keyCode == CocoaKeyCode::kVK_ANSI_I && app->currentMipLevel < app->mipLevels - 1)
+    {
+        app->currentMipLevel++;
     }
 }
 
@@ -774,18 +790,25 @@ struct PBRPrefilterEnvironmentMapData
 {
     float roughness;
     unsigned int mipLevel;
+    unsigned int width;
+    unsigned int height;
 };
 
 // source and output is assumed to be equirectangular projection (not a cubemap)
 // adapted from:
 // - https://bruop.github.io/ibl/
 // -
-id <MTLTexture> createPrefilteredEnvironmentMap(id <MTLDevice> device,
-                                                id <MTLLibrary> library,
-                                                id <MTLCommandQueue> queue,
-                                                id <MTLTexture> source)
+id <MTLTexture> createPrefilteredEnvironmentMap(
+    id <MTLDevice> device,
+    id <MTLLibrary> library,
+    id <MTLCommandQueue> queue,
+    id <MTLTexture> source,
+    unsigned int* outMipLevels,
+    std::vector<id <MTLTexture>>* outTextureViews)
 {
     assert(source);
+    assert(outTextureViews);
+
     id <MTLTexture> out;
     // create compute pipeline
     MTLFunctionDescriptor* functionDescriptor = [[MTLFunctionDescriptor alloc] init];
@@ -803,6 +826,7 @@ id <MTLTexture> createPrefilteredEnvironmentMap(id <MTLDevice> device,
 
     // mip map levels
     unsigned int maxMipLevel = (int)log2(std::min(source.width, source.height));
+    *outMipLevels = maxMipLevel + 1;
 
     // create prefiltered environment map texture with all mip map levels (higher roughness is higher mip map levels / smaller mip map size)
     {
@@ -813,6 +837,7 @@ id <MTLTexture> createPrefilteredEnvironmentMap(id <MTLDevice> device,
         d.pixelFormat = source.pixelFormat;
         d.arrayLength = 1;
         d.mipmapLevelCount = maxMipLevel + 1; // mip level 0 is also included
+        d.usage = MTLTextureUsageShaderWrite | MTLTextureUsageShaderRead;
         out = [device newTextureWithDescriptor:d];
     }
 
@@ -820,15 +845,17 @@ id <MTLTexture> createPrefilteredEnvironmentMap(id <MTLDevice> device,
     {
         id <MTLCommandBuffer> commandBuffer = [queue commandBuffer];
 
-        // copy from source texture to target texture
-        id <MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
-        [blit copyFromTexture:source toTexture:out];
-        [blit endEncoding];
+        // copy from source texture to target texture (at mip level 0)
+//        id <MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
+//        [blit copyFromTexture:source toTexture:out];
+//        [blit endEncoding];
 
         // execute compute kernel
         id <MTLComputeCommandEncoder> compute = [commandBuffer computeCommandEncoder];
         [compute setComputePipelineState:pipeline];
         [compute setTexture:source atIndex:1];
+
+        outTextureViews->resize(maxMipLevel + 1);
 
         for (unsigned int mipLevel = 0; mipLevel <= maxMipLevel; mipLevel++)
         {
@@ -839,7 +866,9 @@ id <MTLTexture> createPrefilteredEnvironmentMap(id <MTLDevice> device,
 
             PBRPrefilterEnvironmentMapData data{
                 .roughness = roughness,
-                .mipLevel = mipLevel
+                .mipLevel = mipLevel,
+                .width = width,
+                .height = height
             };
             [compute setBytes:&data length:sizeof(PBRPrefilterEnvironmentMapData) atIndex:0];
 
@@ -850,6 +879,8 @@ id <MTLTexture> createPrefilteredEnvironmentMap(id <MTLDevice> device,
                 levels:NSMakeRange(mipLevel, 1)
                 slices:NSMakeRange(0, 1)];
             [compute setTexture:outView atIndex:2];
+
+            (*outTextureViews)[mipLevel] = outView;
 
             MTLSize totalThreads = MTLSizeMake(width, height, 1);
             MTLSize threadGroupSize = MTLSizeMake(pipeline.threadExecutionWidth, pipeline.threadExecutionWidth, 1);
@@ -1182,7 +1213,8 @@ void onLaunch(App* app)
     // cubemap can be done later, first let's create the lookup textures
 
     // create prefiltered environment map for PBR rendering
-    app->prefilteredEnvironmentMap = createPrefilteredEnvironmentMap(app->device, app->library, app->commandQueue, app->skybox2Texture);
+    app->prefilteredEnvironmentMap = createPrefilteredEnvironmentMap(app->device, app->library, app->commandQueue, app->skybox2Texture, &app->mipLevels,
+                                                                     &app->textureViews);
 
     // make window active
     [app->window makeKeyAndOrderFront:NSApp];
@@ -1587,7 +1619,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw pbr (not textured yet)
-    if (1)
+    if (0)
     {
         // for now, we store all material settings inside the fragment bytes, so that we don't have to create a separate buffer for all different material settings
         for (int x = 0; x < 5; x++)
@@ -1808,6 +1840,9 @@ void onDraw(App* app)
         // draw skybox (2D, on-screen)
         drawTexture(app, encoder, app->activeSkybox, RectMinMaxi{200, 28, 600, 200});
 
+        // draw prefiltered environment map (2D, on-screen)
+        drawTexture(app, encoder, app->textureViews[app->currentMipLevel], RectMinMaxi{0, 220, 400, 400});
+
         // draw gltf textures (2D, on-screen)
         for (size_t i = 0; i < app->gltfCathedral.textures.size(); i++)
         {
@@ -1854,8 +1889,13 @@ void onDraw(App* app)
             std::string b = fmt::format("sun ({0:+.3f}, {1:+.3f}, {2:+.3f})", pos->x, pos->y, pos->z);
             addText(app, b, &vertices, 0, 14, 14);
 
-            // draw text
-            [encoder setVertexBytes:vertices.data() length:vertices.size() * sizeof(VertexData) atIndex:bindings::vertexData];
+            std::string c = fmt::format("mip level: {} (U: previous, I: next)", app->currentMipLevel);
+            addText(app, c, &vertices, 0, 200, 20);
+
+            MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
+            id <MTLBuffer> buffer = [app->device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
+
+            [encoder setVertexBuffer:buffer offset:0 atIndex:bindings::vertexData];
             [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
         }
 
