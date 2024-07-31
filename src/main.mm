@@ -549,6 +549,7 @@ struct App
     std::vector<id <MTLTexture>> textureViews;
     unsigned int mipLevels = 0; // for previewing the prefiltered environment map at a given mip level
     unsigned int currentMipLevel = 0; // for previewing the prefiltered environment map at a given mip level
+    id <MTLTexture> brdfLookupTexture; // R16G16, maps roughness and cos theta v to a scale and F0 bias.
 
     // primitives
     Mesh cube;
@@ -792,6 +793,7 @@ struct PBRPrefilterEnvironmentMapData
     unsigned int mipLevel;
     unsigned int width;
     unsigned int height;
+    unsigned int sampleCount;
 };
 
 // source and output is assumed to be equirectangular projection (not a cubemap)
@@ -846,9 +848,9 @@ id <MTLTexture> createPrefilteredEnvironmentMap(
         id <MTLCommandBuffer> commandBuffer = [queue commandBuffer];
 
         // copy from source texture to target texture (at mip level 0)
-//        id <MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
-//        [blit copyFromTexture:source toTexture:out];
-//        [blit endEncoding];
+        id <MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
+        [blit copyFromTexture:source toTexture:out];
+        [blit endEncoding];
 
         // execute compute kernel
         id <MTLComputeCommandEncoder> compute = [commandBuffer computeCommandEncoder];
@@ -868,7 +870,8 @@ id <MTLTexture> createPrefilteredEnvironmentMap(
                 .roughness = roughness,
                 .mipLevel = mipLevel,
                 .width = width,
-                .height = height
+                .height = height,
+                .sampleCount = 512
             };
             [compute setBytes:&data length:sizeof(PBRPrefilterEnvironmentMapData) atIndex:0];
 
@@ -882,6 +885,11 @@ id <MTLTexture> createPrefilteredEnvironmentMap(
 
             (*outTextureViews)[mipLevel] = outView;
 
+            if (mipLevel == 0)
+            {
+                continue;
+            }
+
             MTLSize totalThreads = MTLSizeMake(width, height, 1);
             MTLSize threadGroupSize = MTLSizeMake(pipeline.threadExecutionWidth, pipeline.threadExecutionWidth, 1);
             [compute dispatchThreads:totalThreads threadsPerThreadgroup:threadGroupSize];
@@ -893,6 +901,13 @@ id <MTLTexture> createPrefilteredEnvironmentMap(
 
     return out;
 }
+
+struct PBRIntegrateBRDFData
+{
+    unsigned int width;
+    unsigned int height;
+    unsigned int sampleCount;
+};
 
 void onLaunch(App* app)
 {
@@ -970,7 +985,7 @@ void onLaunch(App* app)
         app->depthStencilStateDefault = [app->device newDepthStencilStateWithDescriptor:descriptor];
     }
 
-    // create shader library
+    // create shader library / import shaders
     {
         // read shader source from metal source file (Metal Shading Language, MSL)
         std::filesystem::path shadersPath = app->config->assetsPath / "shaders";
@@ -997,7 +1012,7 @@ void onLaunch(App* app)
             shadersPath / "shader_openpbr_surface.metal",
 
             // compute shaders
-            shadersPath / "shader_pbr_prefilter_environment_map.metal"
+            shadersPath / "shader_pbr_lookup_textures.metal"
         };
         std::stringstream buffer;
         for (std::filesystem::path& path: paths)
@@ -1202,19 +1217,57 @@ void onLaunch(App* app)
         assert(success);
     }
 
-    // cubemap is more performant than equirectangular projection
-
-    // write three shaders:
-    // - equirectangular to cubemap projection -> store to disk? (this can be sampled more efficiently)
-    // - cubemap based skybox shader
     // - cubemap based reflection shader (image based lighting) in OpenPBR Surface
     // - compute shaders that create GGX lookup textures (mipmaps in Metal are not prepopulated, should be filled in manually)
-
-    // cubemap can be done later, first let's create the lookup textures
 
     // create prefiltered environment map for PBR rendering
     app->prefilteredEnvironmentMap = createPrefilteredEnvironmentMap(app->device, app->library, app->commandQueue, app->skybox2Texture, &app->mipLevels,
                                                                      &app->textureViews);
+
+    // create brdf lookup texture
+    {
+        unsigned int width = 1024;
+        unsigned int height = 1024;
+
+        // create texture
+        {
+            MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
+            descriptor.width = width;
+            descriptor.height = height;
+            descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+            descriptor.pixelFormat = MTLPixelFormatRG16Float;
+            descriptor.textureType = MTLTextureType2D;
+            app->brdfLookupTexture = [app->device newTextureWithDescriptor:descriptor];
+        }
+
+        // compute shader
+        {
+            NSError* error = nullptr;
+            id <MTLFunction> function = [app->library newFunctionWithName:@"pbr_integrate_brdf"];
+            id <MTLComputePipelineState> pipeline = [app->device newComputePipelineStateWithFunction:function error:&error];
+            checkError(error);
+
+            id <MTLCommandBuffer> commandBuffer = [app->commandQueue commandBuffer];
+            id <MTLComputeCommandEncoder> compute = [commandBuffer computeCommandEncoder];
+            [compute setComputePipelineState:pipeline];
+            PBRIntegrateBRDFData data{
+                .width = width,
+                .height = height,
+                .sampleCount = 512
+            };
+            [compute setBytes:&data length:sizeof(PBRIntegrateBRDFData) atIndex:0];
+            [compute setTexture:app->brdfLookupTexture atIndex:1];
+
+            MTLSize threads = MTLSizeMake(width, height, 1);
+            MTLSize threadsPerGroup = MTLSizeMake(pipeline.threadExecutionWidth, pipeline.threadExecutionWidth, 1);
+
+            [compute dispatchThreads:threads threadsPerThreadgroup:threadsPerGroup];
+
+            [compute endEncoding];
+            [commandBuffer commit];
+        }
+
+    }
 
     // make window active
     [app->window makeKeyAndOrderFront:NSApp];
@@ -1502,6 +1555,8 @@ struct OpenPBRSurfaceGlobalFragmentData
 {
     simd_float3 cameraPosition;
     float roughness;
+    simd_float3 specularColor;
+    unsigned int mipLevels;
 };
 
 void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ flags)
@@ -1619,10 +1674,10 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw pbr (not textured yet)
-    if (0)
+    if (1)
     {
         // for now, we store all material settings inside the fragment bytes, so that we don't have to create a separate buffer for all different material settings
-        for (int x = 0; x < 5; x++)
+        for (int x = 0; x < 10; x++)
         {
             for (int y = 0; y < 5; y++)
             {
@@ -1642,11 +1697,15 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
 
                 OpenPBRSurfaceGlobalFragmentData globalFragmentData{
                     .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
-                    .roughness = (float)x / 5.0f
+                    .roughness = (float)x / 10.0f,
+                    .specularColor = simd_float3{1, 0, 1},
+                    .mipLevels = app->mipLevels
                 };
                 [encoder setVertexBytes:&globalVertexData length:sizeof(OpenPBRSurfaceGlobalVertexData) atIndex:bindings::globalVertexData];
                 [encoder setFragmentBytes:&globalFragmentData length:sizeof(OpenPBRSurfaceGlobalFragmentData) atIndex:bindings::globalFragmentData];
-                [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:bindings::reflectionMap];
+
+                [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:bindings::prefilteredEnvironmentMap];
+                [encoder setFragmentTexture:app->brdfLookupTexture atIndex:bindings::brdfLookupTexture];
                 drawMesh(encoder, &app->roundedCube, &instance);
             }
         }
@@ -1842,6 +1901,9 @@ void onDraw(App* app)
 
         // draw prefiltered environment map (2D, on-screen)
         drawTexture(app, encoder, app->textureViews[app->currentMipLevel], RectMinMaxi{0, 220, 400, 400});
+
+        // draw brdf lookup texture (2D, on-screen)
+        drawTexture(app, encoder, app->brdfLookupTexture, RectMinMaxi{400, 220, 600, 420});
 
         // draw gltf textures (2D, on-screen)
         for (size_t i = 0; i < app->gltfCathedral.textures.size(); i++)

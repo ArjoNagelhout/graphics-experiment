@@ -17,6 +17,7 @@ struct PBRPrefilterEnvironmentMapData
     uint mipLevel;
     uint width;
     uint height;
+    uint sampleCount;
 };
 
 float4 sampleEquirectangular(float3 direction, texture2d<float, access::sample> source)
@@ -38,19 +39,14 @@ float4 sampleEquirectangular(float3 direction, texture2d<float, access::sample> 
 // get direction vector from 2D (between 0 and 1) UV coordinates
 float3 uvToDirectionEquirectangular(float2 uv)
 {
-    // u = (theta / 2pi) + 0.5
-    // u - 0.5 = theta / 2pi
-    // theta = (u - 0.5) * (2pi)
-
-    // v = (phi / pi) + 0.5
-    // v - 0.5 = phi / pi
-    // phi = (v - 0.5) * pi
-
     float u = uv.x;
     float v = 1.0f - uv.y;
+
+    // uv coordinates to spherical coordinates
     float theta = (u - 0.5f) * 2.0f * M_PI_F;
     float phi = (v - 0.5f) * M_PI_F;
 
+    // spherical coordinates to cartesian coordinates
     float x = cos(phi) * cos(theta);
     float y = sin(phi);
     float z = cos(phi) * sin(theta);
@@ -96,10 +92,9 @@ kernel void pbr_prefilter_environment_map(
     float3 color = float3(0, 0, 0);
     float totalWeight = 0;
 
-    uint const samples = 512;
-    for (uint i = 0; i < samples; i++)
+    for (uint i = 0; i < data.sampleCount; i++)
     {
-        float2 Xi = hammersley(i, samples);
+        float2 Xi = hammersley(i, data.sampleCount);
         float3 H = importanceSampleGGX(Xi, data.roughness, N);
         float3 L = 2 * dot(V, H) * H - V;
 
@@ -118,4 +113,63 @@ kernel void pbr_prefilter_environment_map(
 
     // write to pixel
     outView.write(float4(color, 1.0f), id);
+}
+
+struct PBRIntegrateBRDFData
+{
+    uint width;
+    uint height;
+    uint sampleCount;
+};
+
+// https://bruop.github.io/ibl/
+// https://google.github.io/filament/Filament.html#toc4.4.2
+float gSmithApproximation(float roughness, float nDotV, float nDotL)
+{
+    float a2 = pow(roughness, 4);
+    float ggxV = nDotL * sqrt(nDotV * nDotV * (1.0f - a2) + a2);
+    float ggxL = nDotV * sqrt(nDotL * nDotL * (1.0f - a2) + a2);
+    return 0.5f / (ggxV + ggxL);
+}
+
+kernel void pbr_integrate_brdf(
+    device PBRIntegrateBRDFData const& data [[buffer(0)]],
+    texture2d<float, access::write> lookupTexture [[texture(1)]],
+    uint2 id [[thread_position_in_grid]]
+)
+{
+
+    float nDotV = (float)id.x / (float)data.width;;
+    float roughness = ((float)data.height - (float)id.y) / (float)data.height;
+
+    float3 V = float3(
+        sqrt(1.0f - nDotV * nDotV), // sin
+        0,
+        nDotV); // cos
+    float3 N = float3(0, 0, 1);
+
+    float2 value = float2(0, 0);
+
+    for (uint i = 0; i < data.sampleCount; i++)
+    {
+        float2 Xi = hammersley(i, data.sampleCount);
+        float3 H = importanceSampleGGX(Xi, roughness, N); // where does N come from??
+
+        float3 lightDirection = 2 * dot(V, H) * H - V;
+
+        float nDotL = saturate(dot(N, lightDirection));
+        float nDotH = saturate(dot(N, H));
+        float vDotH = saturate(dot(V, H));
+
+        if (nDotL > 0)
+        {
+            float g = gSmithApproximation(roughness, nDotV, nDotL);
+            float gVisible = g * vDotH * nDotL / nDotH;
+            float Fc = pow(1.0f - vDotH, 5);
+            value.x += (1.0f - Fc) * gVisible;
+            value.y += Fc * gVisible;
+        }
+    }
+
+    lookupTexture.write(4.0f * float4(value / data.sampleCount, 0, 0), id);
 }

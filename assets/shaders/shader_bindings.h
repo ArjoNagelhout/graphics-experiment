@@ -41,6 +41,8 @@ namespace bindings
     BINDING int texture = 1;
     BINDING int shadowMap = 2;
     BINDING int reflectionMap = 3; // skybox or reflection probe
+    BINDING int prefilteredEnvironmentMap = 4;
+    BINDING int brdfLookupTexture = 5;
 }
 
 #endif //BORED_C_SHADER_BINDINGS_H

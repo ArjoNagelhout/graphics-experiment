@@ -16,5 +16,5 @@ fragment half4 ui_fragment(
 {
     constexpr sampler s(address::repeat, filter::linear);
 
-    return tex.sample(s, in.uv0);
+    return half4(tex.sample(s, in.uv0).rgb, 1.0f);
 }

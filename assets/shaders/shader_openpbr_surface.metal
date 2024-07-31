@@ -11,6 +11,8 @@ struct OpenPBRSurfaceGlobalFragmentData
 {
     float3 cameraPosition;
     float roughness;
+    float3 specularColor;
+    uint mipLevels;
 };
 
 struct OpenPBRSurfaceRasterizerData
@@ -27,7 +29,7 @@ vertex OpenPBRSurfaceRasterizerData openpbr_surface_vertex(
     device CameraData const& camera [[buffer(bindings::cameraData)]],
     device InstanceData const* instances [[buffer(bindings::instanceData)]],
     device VertexData const* vertices [[buffer(bindings::vertexData)]],
-    device OpenPBRSurfaceGlobalVertexData const& globalData [[buffer(bindings::globalVertexData)]]
+    device OpenPBRSurfaceGlobalVertexData const& data [[buffer(bindings::globalVertexData)]]
 )
 {
     OpenPBRSurfaceRasterizerData out;
@@ -39,15 +41,17 @@ vertex OpenPBRSurfaceRasterizerData openpbr_surface_vertex(
     out.worldSpacePosition = position.xyz / position.w;
 
     // calculate world-space normal
-    out.worldSpaceNormal = (globalData.localToWorldTransposedInverse * float4(v.normal.xyz, 0.0f)).xyz;
+    out.worldSpaceNormal = (data.localToWorldTransposedInverse * float4(v.normal.xyz, 0.0f)).xyz;
 
     return out;
 }
 
 fragment half4 openpbr_surface_fragment(
     OpenPBRSurfaceRasterizerData in [[stage_in]],
-    device OpenPBRSurfaceGlobalFragmentData const& globalData [[buffer(bindings::globalFragmentData)]],
-    texture2d<half, access::sample> reflectionMap [[texture(bindings::reflectionMap)]]
+    device OpenPBRSurfaceGlobalFragmentData const& data [[buffer(bindings::globalFragmentData)]],
+    texture2d<half, access::sample> reflectionMap [[texture(bindings::reflectionMap)]],
+    texture2d<float, access::sample> prefilteredEnvironmentMap [[texture(bindings::prefilteredEnvironmentMap)]],
+    texture2d<float, access::sample> brdfLookupTexture [[texture(bindings::brdfLookupTexture)]]
 )
 {
     // diffuse
@@ -88,10 +92,12 @@ fragment half4 openpbr_surface_fragment(
     // split sum approximation (LUT = lookup texture) -> https://wiki.jmonkeyengine.org/docs/3.4/tutorials/how-to/articles/pbr/pbr_part3.html
     // pre-filtered environment map
 
-
     float3 normal = normalize(in.worldSpaceNormal);
-    float3 cameraDirection = normalize(in.worldSpacePosition - globalData.cameraPosition);
+    float3 cameraDirection = normalize(in.worldSpacePosition - data.cameraPosition);
     float3 outDirection = reflect(cameraDirection, normal);
+
+    float nDotV = saturate(dot(normal, cameraDirection));
+    float3 R = 2 * dot(cameraDirection, normal) * normal - cameraDirection;
 
     // sample reflection map
     float theta = atan2(outDirection.z, outDirection.x); // longitude
@@ -102,8 +108,10 @@ fragment half4 openpbr_surface_fragment(
     float v = (phi / M_PI_F) + 0.5f;
 
     float2 uv{u, 1.0f-v};
-    constexpr sampler s(address::repeat, filter::linear);
-    return reflectionMap.sample(s, uv);
+    constexpr sampler s(address::repeat, filter::linear, mip_filter::linear);
+
+    float mipLevel = data.roughness * data.mipLevels;
+    return half4(prefilteredEnvironmentMap.sample(s, uv, level(mipLevel)));
 
     //return half4(1, 0, 1, 1);
 }
