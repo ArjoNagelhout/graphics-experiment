@@ -1,3 +1,11 @@
+// irradiance map
+kernel void pbr_create_irradiance_map(
+
+)
+{
+
+}
+
 // http://holger.dammertz.org/stuff/notes_HammersleyOnHemisphere.html
 float2 hammersley(uint i, uint N)
 {
@@ -76,7 +84,7 @@ float3 importanceSampleGGX(float2 Xi, float roughness, float3 N)
 
 // uses equirectangular projection
 // https://cdn2.unrealengine.com/Resources/files/2013SiggraphPresentationsNotes-26915738.pdf
-kernel void pbr_prefilter_environment_map(
+kernel void pbr_create_prefiltered_environment_map(
     device PBRPrefilterEnvironmentMapData const& data [[buffer(0)]],
     texture2d<float, access::sample> source [[texture(1)]],
     texture2d<float, access::write> outView [[texture(2)]], // specific mip map level
@@ -132,15 +140,14 @@ float gSmithApproximation(float roughness, float nDotV, float nDotL)
     return 0.5f / (ggxV + ggxL);
 }
 
-kernel void pbr_integrate_brdf(
+kernel void pbr_create_brdf_lookup_texture(
     device PBRIntegrateBRDFData const& data [[buffer(0)]],
     texture2d<float, access::write> lookupTexture [[texture(1)]],
     uint2 id [[thread_position_in_grid]]
 )
 {
-
-    float nDotV = (float)id.x / (float)data.width;;
-    float roughness = ((float)data.height - (float)id.y) / (float)data.height;
+    float nDotV = (float)id.x / (float)data.width;
+    float roughness = (float)id.y / (float)data.height;
 
     float3 V = float3(
         sqrt(1.0f - nDotV * nDotV), // sin

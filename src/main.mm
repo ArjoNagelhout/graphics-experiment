@@ -546,6 +546,7 @@ struct App
 
     // PBR
     id <MTLTexture> prefilteredEnvironmentMap;
+    id <MTLTexture> irradianceMap; // also precalculated per skybox
     std::vector<id <MTLTexture>> textureViews;
     unsigned int mipLevels = 0; // for previewing the prefiltered environment map at a given mip level
     unsigned int currentMipLevel = 0; // for previewing the prefiltered environment map at a given mip level
@@ -796,10 +797,38 @@ struct PBRPrefilterEnvironmentMapData
     unsigned int sampleCount;
 };
 
+// create compute pipeline
+id <MTLComputePipelineState> createComputeShader(id <MTLDevice> device, id <MTLLibrary> library, NSString* name)
+{
+    MTLFunctionDescriptor* functionDescriptor = [[MTLFunctionDescriptor alloc] init];
+    functionDescriptor.name = name;
+    NSError* error = nullptr;
+    id <MTLFunction> function = [library newFunctionWithDescriptor:functionDescriptor error:&error];
+    checkError(error);
+    id <MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:function error:&error];
+    checkError(error);
+    return pipeline;
+}
+
+// adapted from https://bruop.github.io/ibl/
+id <MTLTexture> createIrradianceMap(
+    id <MTLDevice> device,
+    id <MTLLibrary> library,
+    id <MTLCommandQueue> queue,
+    id <MTLTexture> source,
+    unsigned int width,
+    unsigned int height)
+{
+    assert(source);
+
+    id <MTLComputePipelineState> pipeline = createComputeShader(device, library, @"pbr_create_irradiance_map");
+
+
+    return nullptr;
+}
+
 // source and output is assumed to be equirectangular projection (not a cubemap)
-// adapted from:
-// - https://bruop.github.io/ibl/
-// -
+// adapted from https://bruop.github.io/ibl/
 id <MTLTexture> createPrefilteredEnvironmentMap(
     id <MTLDevice> device,
     id <MTLLibrary> library,
@@ -811,45 +840,32 @@ id <MTLTexture> createPrefilteredEnvironmentMap(
     assert(source);
     assert(outTextureViews);
 
-    id <MTLTexture> out;
-    // create compute pipeline
-    MTLFunctionDescriptor* functionDescriptor = [[MTLFunctionDescriptor alloc] init];
-    functionDescriptor.name = @"pbr_prefilter_environment_map";
-    NSError* error = nullptr;
-    id <MTLFunction> function = [library newFunctionWithDescriptor:functionDescriptor error:&error];
-    checkError(error);
-    id <MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:function error:&error];
-    checkError(error);
-
-    // maxTotalThreadsPerThreadgroup: 1024, threadExecutionWidth: 32
-    std::cout << "maxTotalThreadsPerThreadgroup: " << pipeline.maxTotalThreadsPerThreadgroup
-              << ", threadExecutionWidth: " << pipeline.threadExecutionWidth
-              << std::endl;
-
     // mip map levels
     unsigned int maxMipLevel = (int)log2(std::min(source.width, source.height));
     *outMipLevels = maxMipLevel + 1;
 
     // create prefiltered environment map texture with all mip map levels (higher roughness is higher mip map levels / smaller mip map size)
+    id <MTLTexture> outTexture;
     {
-        MTLTextureDescriptor* d = [[MTLTextureDescriptor alloc] init];
-        d.width = source.width;
-        d.height = source.height;
-        d.textureType = source.textureType;
-        d.pixelFormat = source.pixelFormat;
-        d.arrayLength = 1;
-        d.mipmapLevelCount = maxMipLevel + 1; // mip level 0 is also included
-        d.usage = MTLTextureUsageShaderWrite | MTLTextureUsageShaderRead;
-        out = [device newTextureWithDescriptor:d];
+        MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
+        descriptor.width = source.width;
+        descriptor.height = source.height;
+        descriptor.textureType = source.textureType;
+        descriptor.pixelFormat = source.pixelFormat;
+        descriptor.arrayLength = 1;
+        descriptor.mipmapLevelCount = maxMipLevel + 1; // mip level 0 is also included
+        descriptor.usage = MTLTextureUsageShaderWrite | MTLTextureUsageShaderRead;
+        outTexture = [device newTextureWithDescriptor:descriptor];
     }
 
-    // execute pipeline
+    // execute compute shader
     {
+        id <MTLComputePipelineState> pipeline = createComputeShader(device, library, @"pbr_create_prefiltered_environment_map");
         id <MTLCommandBuffer> commandBuffer = [queue commandBuffer];
 
         // copy from source texture to target texture (at mip level 0)
         id <MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
-        [blit copyFromTexture:source toTexture:out];
+        [blit copyFromTexture:source toTexture:outTexture];
         [blit endEncoding];
 
         // execute compute kernel
@@ -861,10 +877,10 @@ id <MTLTexture> createPrefilteredEnvironmentMap(
 
         for (unsigned int mipLevel = 0; mipLevel <= maxMipLevel; mipLevel++)
         {
-            unsigned int width = out.width >> mipLevel;
-            unsigned int height = out.height >> mipLevel;
+            unsigned int width = outTexture.width >> mipLevel;
+            unsigned int height = outTexture.height >> mipLevel;
             float roughness = (float)mipLevel / (float)maxMipLevel;
-            std::cout << "mipLevel: " << mipLevel << ", width: " << width << ", height: " << height << ", roughness: " << roughness << std::endl;
+//            std::cout << "mipLevel: " << mipLevel << ", width: " << width << ", height: " << height << ", roughness: " << roughness << std::endl;
 
             PBRPrefilterEnvironmentMapData data{
                 .roughness = roughness,
@@ -876,9 +892,9 @@ id <MTLTexture> createPrefilteredEnvironmentMap(
             [compute setBytes:&data length:sizeof(PBRPrefilterEnvironmentMapData) atIndex:0];
 
             // create texture view for a specific mip level, so that we can write to that specific level
-            id <MTLTexture> outView = [out
-                newTextureViewWithPixelFormat:out.pixelFormat
-                textureType:out.textureType
+            id <MTLTexture> outView = [outTexture
+                newTextureViewWithPixelFormat:outTexture.pixelFormat
+                textureType:outTexture.textureType
                 levels:NSMakeRange(mipLevel, 1)
                 slices:NSMakeRange(0, 1)];
             [compute setTexture:outView atIndex:2];
@@ -899,7 +915,7 @@ id <MTLTexture> createPrefilteredEnvironmentMap(
         [commandBuffer commit];
     }
 
-    return out;
+    return outTexture;
 }
 
 struct PBRIntegrateBRDFData
@@ -1217,12 +1233,15 @@ void onLaunch(App* app)
         assert(success);
     }
 
-    // - cubemap based reflection shader (image based lighting) in OpenPBR Surface
-    // - compute shaders that create GGX lookup textures (mipmaps in Metal are not prepopulated, should be filled in manually)
+    //------------------------------------
+    // PBR
+    //------------------------------------
 
     // create prefiltered environment map for PBR rendering
-    app->prefilteredEnvironmentMap = createPrefilteredEnvironmentMap(app->device, app->library, app->commandQueue, app->skybox2Texture, &app->mipLevels,
-                                                                     &app->textureViews);
+    app->prefilteredEnvironmentMap = createPrefilteredEnvironmentMap(
+        app->device, app->library, app->commandQueue, app->skybox2Texture, &app->mipLevels, &app->textureViews);
+    app->irradianceMap = createIrradianceMap(
+        app->device, app->library, app->commandQueue, app->skybox2Texture, app->skybox2Texture.width, app->skybox2Texture.height);
 
     // create brdf lookup texture
     {
@@ -1240,13 +1259,9 @@ void onLaunch(App* app)
             app->brdfLookupTexture = [app->device newTextureWithDescriptor:descriptor];
         }
 
-        // compute shader
+        // execute compute shader
         {
-            NSError* error = nullptr;
-            id <MTLFunction> function = [app->library newFunctionWithName:@"pbr_integrate_brdf"];
-            id <MTLComputePipelineState> pipeline = [app->device newComputePipelineStateWithFunction:function error:&error];
-            checkError(error);
-
+            id <MTLComputePipelineState> pipeline = createComputeShader(app->device, app->library, @"pbr_create_brdf_lookup_texture");
             id <MTLCommandBuffer> commandBuffer = [app->commandQueue commandBuffer];
             id <MTLComputeCommandEncoder> compute = [commandBuffer computeCommandEncoder];
             [compute setComputePipelineState:pipeline];
@@ -1695,10 +1710,12 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                     .localToWorldTransposedInverse = glm::transpose(glm::inverse(instance.localToWorld))
                 };
 
+                //float roughness = 0.5f * sin(app->time) + 0.5f;
+                //std::cout << roughness << std::endl;
                 OpenPBRSurfaceGlobalFragmentData globalFragmentData{
                     .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
                     .roughness = (float)x / 10.0f,
-                    .specularColor = simd_float3{1, 0, 1},
+                    .specularColor = simd_float3{1.0f - (float)y / 10.0f, 0.5f, 1},
                     .mipLevels = app->mipLevels
                 };
                 [encoder setVertexBytes:&globalVertexData length:sizeof(OpenPBRSurfaceGlobalVertexData) atIndex:bindings::globalVertexData];
@@ -1900,10 +1917,10 @@ void onDraw(App* app)
         drawTexture(app, encoder, app->activeSkybox, RectMinMaxi{200, 28, 600, 200});
 
         // draw prefiltered environment map (2D, on-screen)
-        drawTexture(app, encoder, app->textureViews[app->currentMipLevel], RectMinMaxi{0, 220, 400, 400});
+        //drawTexture(app, encoder, app->textureViews[app->currentMipLevel], RectMinMaxi{0, 220, 400, 400});
 
         // draw brdf lookup texture (2D, on-screen)
-        drawTexture(app, encoder, app->brdfLookupTexture, RectMinMaxi{400, 220, 600, 420});
+        //drawTexture(app, encoder, app->brdfLookupTexture, RectMinMaxi{400, 220, 600, 420});
 
         // draw gltf textures (2D, on-screen)
         for (size_t i = 0; i < app->gltfCathedral.textures.size(); i++)

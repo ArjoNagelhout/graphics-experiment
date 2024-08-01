@@ -96,8 +96,7 @@ fragment half4 openpbr_surface_fragment(
     float3 cameraDirection = normalize(in.worldSpacePosition - data.cameraPosition);
     float3 outDirection = reflect(cameraDirection, normal);
 
-    float nDotV = saturate(dot(normal, cameraDirection));
-    float3 R = 2 * dot(cameraDirection, normal) * normal - cameraDirection;
+    float nDotV = saturate(dot(normal, -cameraDirection));
 
     // sample reflection map
     float theta = atan2(outDirection.z, outDirection.x); // longitude
@@ -109,9 +108,12 @@ fragment half4 openpbr_surface_fragment(
 
     float2 uv{u, 1.0f-v};
     constexpr sampler s(address::repeat, filter::linear, mip_filter::linear);
-
     float mipLevel = data.roughness * data.mipLevels;
-    return half4(prefilteredEnvironmentMap.sample(s, uv, level(mipLevel)));
+    float3 prefilteredEnvironment = prefilteredEnvironmentMap.sample(s, uv, level(mipLevel)).rgb;
 
-    //return half4(1, 0, 1, 1);
+    constexpr sampler s2(address::repeat, filter::linear);
+    float2 brdf = brdfLookupTexture.sample(s2, float2(nDotV, data.roughness)).rg;
+
+    return half4(float4(prefilteredEnvironment * (data.specularColor * brdf.r + brdf.g), 1.0f));
+
 }
