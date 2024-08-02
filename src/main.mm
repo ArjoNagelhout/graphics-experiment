@@ -844,7 +844,7 @@ id <MTLTexture> createIrradianceMap(
         PBRIrradianceMapData data{
             .width = width,
             .height = height,
-            .sampleCountPerRevolution = 90
+            .sampleCountPerRevolution = 20
         };
         [encoder setBytes:&data length:sizeof(PBRIrradianceMapData) atIndex:0];
         [encoder setTexture:source atIndex:1];
@@ -1766,6 +1766,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
 
                 [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:bindings::prefilteredEnvironmentMap];
                 [encoder setFragmentTexture:app->brdfLookupTexture atIndex:bindings::brdfLookupTexture];
+                [encoder setFragmentTexture:app->irradianceMap atIndex:bindings::irradianceMap];
                 drawMesh(encoder, &app->roundedCube, &instance);
             }
         }

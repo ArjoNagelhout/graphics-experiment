@@ -65,3 +65,43 @@ float calculateIsInLight(float4 positionLightSpace, depth2d<float, access::sampl
     float shadow = texture.sample_compare(s, textureCoordinates.xy, depthOfThisFragment);
     return shadow;
 }
+
+// get direction vector from 2D (between 0 and 1) UV coordinates
+float3 uvToDirectionEquirectangular(float2 uv)
+{
+    float u = uv.x;
+    float v = 1.0f - uv.y;
+
+    // uv coordinates to spherical coordinates
+    float theta = (u - 0.5f) * 2.0f * M_PI_F;
+    float phi = (v - 0.5f) * M_PI_F;
+
+    // spherical coordinates to cartesian coordinates
+    float x = cos(phi) * cos(theta);
+    float y = sin(phi);
+    float z = cos(phi) * sin(theta);
+
+    return float3(x, y, z);
+}
+
+float2 directionToUvEquirectangular(float3 direction)
+{
+    direction = normalize(direction);
+
+    float theta = atan2(direction.z, direction.x); // longitude
+    float phi = asin(direction.y); // latitude
+
+    // map spherical coordinates to texture coordinates
+    float u = (theta / (2.0 * M_PI_F)) + 0.5f;
+    float v = (phi / M_PI_F) + 0.5f;
+
+    float2 uv{u, 1.0f-v};
+    return uv;
+}
+
+float4 sampleEquirectangular(float3 direction, texture2d<float, access::sample> source)
+{
+    float2 uv = directionToUvEquirectangular(direction);
+    constexpr sampler s(address::repeat, filter::linear);
+    return source.sample(s, uv);
+}

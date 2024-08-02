@@ -51,7 +51,8 @@ fragment half4 openpbr_surface_fragment(
     device OpenPBRSurfaceGlobalFragmentData const& data [[buffer(bindings::globalFragmentData)]],
     texture2d<half, access::sample> reflectionMap [[texture(bindings::reflectionMap)]],
     texture2d<float, access::sample> prefilteredEnvironmentMap [[texture(bindings::prefilteredEnvironmentMap)]],
-    texture2d<float, access::sample> brdfLookupTexture [[texture(bindings::brdfLookupTexture)]]
+    texture2d<float, access::sample> brdfLookupTexture [[texture(bindings::brdfLookupTexture)]],
+    texture2d<float, access::sample> irradianceMap [[texture(bindings::irradianceMap)]]
 )
 {
     // diffuse
@@ -99,20 +100,20 @@ fragment half4 openpbr_surface_fragment(
     float nDotV = saturate(dot(normal, -cameraDirection));
 
     // sample reflection map
-    float theta = atan2(outDirection.z, outDirection.x); // longitude
-    float phi = asin(outDirection.y); // latitude
+    float2 outDirectionUv = directionToUvEquirectangular(outDirection);
 
-    // map spherical coordinates to texture coordinates
-    float u = (theta / (2.0f * M_PI_F)) + 0.5f;
-    float v = (phi / M_PI_F) + 0.5f;
-
-    float2 uv{u, 1.0f-v};
     constexpr sampler s(address::repeat, filter::linear, mip_filter::linear);
     float mipLevel = data.roughness * data.mipLevels;
-    float3 prefilteredEnvironment = prefilteredEnvironmentMap.sample(s, uv, level(mipLevel)).rgb;
+    float3 prefilteredEnvironment = prefilteredEnvironmentMap.sample(s, outDirectionUv, level(mipLevel)).rgb;
 
+    float2 normalUv = directionToUvEquirectangular(normal);
     constexpr sampler s2(address::repeat, filter::linear);
-    float2 brdf = brdfLookupTexture.sample(s2, float2(nDotV, data.roughness)).rg;
+    float3 irradiance = irradianceMap.sample(s2, normalUv).rgb;
+
+    return half4(float4(irradiance, 1.0f));
+
+    constexpr sampler s3(address::repeat, filter::linear);
+    float2 brdf = brdfLookupTexture.sample(s3, float2(nDotV, data.roughness)).rg;
 
     return half4(float4(prefilteredEnvironment * (data.specularColor * brdf.r + brdf.g), 1.0f));
 
