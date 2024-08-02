@@ -844,7 +844,7 @@ id <MTLTexture> createIrradianceMap(
         PBRIrradianceMapData data{
             .width = width,
             .height = height,
-            .sampleCountPerRevolution = 20
+            .sampleCountPerRevolution = 90
         };
         [encoder setBytes:&data length:sizeof(PBRIrradianceMapData) atIndex:0];
         [encoder setTexture:source atIndex:1];

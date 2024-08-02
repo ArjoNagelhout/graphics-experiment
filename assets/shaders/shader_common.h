@@ -93,9 +93,9 @@ float2 directionToUvEquirectangular(float3 direction)
 
     // map spherical coordinates to texture coordinates
     float u = (theta / (2.0 * M_PI_F)) + 0.5f;
-    float v = (phi / M_PI_F) + 0.5f;
+    float v = (phi / M_PI_F) + 0.5f; //up: 1, down: 0.000002
 
-    float2 uv{u, 1.0f-v};
+    float2 uv{u, 1.0f-clamp(v, 0.01f, 0.99f)};
     return uv;
 }
 
