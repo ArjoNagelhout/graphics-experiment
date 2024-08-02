@@ -1,9 +1,77 @@
+// get direction vector from 2D (between 0 and 1) UV coordinates
+float3 uvToDirectionEquirectangular(float2 uv)
+{
+    float u = uv.x;
+    float v = 1.0f - uv.y;
+
+    // uv coordinates to spherical coordinates
+    float theta = (u - 0.5f) * 2.0f * M_PI_F;
+    float phi = (v - 0.5f) * M_PI_F;
+
+    // spherical coordinates to cartesian coordinates
+    float x = cos(phi) * cos(theta);
+    float y = sin(phi);
+    float z = cos(phi) * sin(theta);
+
+    return float3(x, y, z);
+}
+
+float4 sampleEquirectangular(float3 direction, texture2d<float, access::sample> source)
+{
+    direction = normalize(direction);
+
+    float theta = atan2(direction.z, direction.x); // longitude
+    float phi = asin(direction.y); // latitude
+
+    // map spherical coordinates to texture coordinates
+    float u = (theta / (2.0 * M_PI_F)) + 0.5f;
+    float v = (phi / M_PI_F) + 0.5f;
+
+    float2 uv{u, 1.0f-v};
+    constexpr sampler s(address::repeat, filter::linear);
+    return source.sample(s, uv);
+}
+
+struct PBRIrradianceMapData
+{
+    uint width;
+    uint height;
+    uint sampleCountPerRevolution;
+};
+
 // irradiance map
 kernel void pbr_create_irradiance_map(
-
+    device PBRIrradianceMapData const& data [[buffer(0)]],
+    texture2d<float, access::sample> source [[texture(1)]],
+    texture2d<float, access::write> outTexture [[texture(2)]],
+    uint2 id [[thread_position_in_grid]]
 )
 {
+    // determine direction vector based on grid id
+    float2 uv = float2(float(id.x) / (float)data.width, float(id.y) / (float)data.height);
+    float3 direction = uvToDirectionEquirectangular(uv); // direction vector
 
+    float3 worldUp = abs(direction.z) < 0.999f ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
+    float3 right = normalize(cross(worldUp, direction));
+    float3 up = normalize(cross(direction, right));
+
+    float3 color = float3(0, 0, 0);
+    uint sampleCount = 0;
+
+    float const delta = (M_PI_F * 2) / data.sampleCountPerRevolution;
+    for (float phi = 0.0f; phi <= (M_PI_F * 2); phi += delta)
+    {
+        for (float theta = 0.0f; theta <= (M_PI_2_F); theta += delta)
+        {
+            // spherical to world space
+            float3 v = cos(phi) * right + sin(phi) * up;
+            v = cos(theta) * direction + sin(theta) * v;
+            color += sampleEquirectangular(v, source).rgb * cos(theta) * sin(theta);
+            sampleCount++;
+        }
+    }
+
+    outTexture.write(float4(M_PI_F * color / sampleCount, 1.0f), id);
 }
 
 // http://holger.dammertz.org/stuff/notes_HammersleyOnHemisphere.html
@@ -27,40 +95,6 @@ struct PBRPrefilterEnvironmentMapData
     uint height;
     uint sampleCount;
 };
-
-float4 sampleEquirectangular(float3 direction, texture2d<float, access::sample> source)
-{
-    direction = normalize(direction);
-
-    float theta = atan2(direction.z, direction.x); // longitude
-    float phi = asin(direction.y); // latitude
-
-    // map spherical coordinates to texture coordinates
-    float u = (theta / (2.0 * M_PI_F)) + 0.5f;
-    float v = (phi / M_PI_F) + 0.5f;
-
-    float2 uv{u, 1.0f-v};
-    constexpr sampler s(address::repeat, filter::linear);
-    return source.sample(s, uv);
-}
-
-// get direction vector from 2D (between 0 and 1) UV coordinates
-float3 uvToDirectionEquirectangular(float2 uv)
-{
-    float u = uv.x;
-    float v = 1.0f - uv.y;
-
-    // uv coordinates to spherical coordinates
-    float theta = (u - 0.5f) * 2.0f * M_PI_F;
-    float phi = (v - 0.5f) * M_PI_F;
-
-    // spherical coordinates to cartesian coordinates
-    float x = cos(phi) * cos(theta);
-    float y = sin(phi);
-    float z = cos(phi) * sin(theta);
-
-    return float3(x, y, z);
-}
 
 float3 importanceSampleGGX(float2 Xi, float roughness, float3 N)
 {

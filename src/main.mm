@@ -788,14 +788,7 @@ float randomFloatMinMax(float min, float max)
     return min + (float)rand() / ((float)RAND_MAX / (max - min));
 }
 
-struct PBRPrefilterEnvironmentMapData
-{
-    float roughness;
-    unsigned int mipLevel;
-    unsigned int width;
-    unsigned int height;
-    unsigned int sampleCount;
-};
+
 
 // create compute pipeline
 id <MTLComputePipelineState> createComputeShader(id <MTLDevice> device, id <MTLLibrary> library, NSString* name)
@@ -810,7 +803,15 @@ id <MTLComputePipelineState> createComputeShader(id <MTLDevice> device, id <MTLL
     return pipeline;
 }
 
+struct PBRIrradianceMapData
+{
+    unsigned int width;
+    unsigned int height;
+    unsigned int sampleCountPerRevolution;
+};
+
 // adapted from https://bruop.github.io/ibl/
+// equirectangular projection (not cubemap)
 id <MTLTexture> createIrradianceMap(
     id <MTLDevice> device,
     id <MTLLibrary> library,
@@ -820,12 +821,55 @@ id <MTLTexture> createIrradianceMap(
     unsigned int height)
 {
     assert(source);
-
+    id <MTLTexture> outTexture;
     id <MTLComputePipelineState> pipeline = createComputeShader(device, library, @"pbr_create_irradiance_map");
 
+    // create texture
+    {
+        MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
+        descriptor.width = width;
+        descriptor.height = height;
+        descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+        descriptor.textureType = MTLTextureType2D;
+        outTexture = [device newTextureWithDescriptor:descriptor];
+    }
 
-    return nullptr;
+    // execute compute shader
+    {
+        id <MTLCommandBuffer> commandBuffer = [queue commandBuffer];
+        id <MTLComputeCommandEncoder> encoder = [commandBuffer computeCommandEncoder];
+        [encoder setComputePipelineState:pipeline];
+
+        // set data
+        PBRIrradianceMapData data{
+            .width = width,
+            .height = height,
+            .sampleCountPerRevolution = 90
+        };
+        [encoder setBytes:&data length:sizeof(PBRIrradianceMapData) atIndex:0];
+        [encoder setTexture:source atIndex:1];
+        [encoder setTexture:outTexture atIndex:2];
+
+        // dispatch threads
+        MTLSize totalThreads = MTLSizeMake(width, height, 1);
+        MTLSize threadGroupSize = MTLSizeMake(pipeline.threadExecutionWidth, pipeline.threadExecutionWidth, 1);
+        [encoder dispatchThreads:totalThreads threadsPerThreadgroup:threadGroupSize];
+
+        [encoder endEncoding];
+        [commandBuffer commit];
+    }
+
+    return outTexture;
 }
+
+struct PBRPrefilterEnvironmentMapData
+{
+    float roughness;
+    unsigned int mipLevel;
+    unsigned int width;
+    unsigned int height;
+    unsigned int sampleCount;
+};
 
 // source and output is assumed to be equirectangular projection (not a cubemap)
 // adapted from https://bruop.github.io/ibl/
@@ -835,7 +879,7 @@ id <MTLTexture> createPrefilteredEnvironmentMap(
     id <MTLCommandQueue> queue,
     id <MTLTexture> source,
     unsigned int* outMipLevels,
-    std::vector<id <MTLTexture>>* outTextureViews)
+    std::vector<id <MTLTexture>>* outTextureViews) // for debug purposes
 {
     assert(source);
     assert(outTextureViews);
@@ -1241,9 +1285,9 @@ void onLaunch(App* app)
     app->prefilteredEnvironmentMap = createPrefilteredEnvironmentMap(
         app->device, app->library, app->commandQueue, app->skybox2Texture, &app->mipLevels, &app->textureViews);
     app->irradianceMap = createIrradianceMap(
-        app->device, app->library, app->commandQueue, app->skybox2Texture, app->skybox2Texture.width, app->skybox2Texture.height);
+        app->device, app->library, app->commandQueue, app->skybox2Texture, app->skybox2Texture.width / 4, app->skybox2Texture.height / 4);
 
-    // create brdf lookup texture
+    // create brdf lookup texture (same for all skyboxes)
     {
         unsigned int width = 1024;
         unsigned int height = 1024;
@@ -1277,7 +1321,6 @@ void onLaunch(App* app)
             MTLSize threadsPerGroup = MTLSizeMake(pipeline.threadExecutionWidth, pipeline.threadExecutionWidth, 1);
 
             [compute dispatchThreads:threads threadsPerThreadgroup:threadsPerGroup];
-
             [compute endEncoding];
             [commandBuffer commit];
         }
@@ -1918,6 +1961,8 @@ void onDraw(App* app)
 
         // draw prefiltered environment map (2D, on-screen)
         //drawTexture(app, encoder, app->textureViews[app->currentMipLevel], RectMinMaxi{0, 220, 400, 400});
+
+        drawTexture(app, encoder, app->irradianceMap, RectMinMaxi{0, 220, 400, 400});
 
         // draw brdf lookup texture (2D, on-screen)
         //drawTexture(app, encoder, app->brdfLookupTexture, RectMinMaxi{400, 220, 600, 420});
