@@ -542,7 +542,7 @@ struct App
     id <MTLTexture> skybox4Texture;
 
     // active skybox
-    id <MTLTexture> activeSkybox;
+    id <MTLTexture> currentSkybox;
 
     // PBR
     id <MTLTexture> prefilteredEnvironmentMap;
@@ -632,25 +632,31 @@ void onKeyPressed(App* app, CocoaKeyCode keyCode);
     return app->keys[static_cast<unsigned short>(keyCode)];
 }
 
+void onSkyboxChanged(App* app);
+
 // key down (only executed once)
 void onKeyPressed(App* app, CocoaKeyCode keyCode)
 {
     // switch skybox, set skybox, change skybox
     if (keyCode == CocoaKeyCode::kVK_ANSI_1)
     {
-        app->activeSkybox = app->skyboxTexture;
+        app->currentSkybox = app->skyboxTexture;
+        onSkyboxChanged(app);
     }
     else if (keyCode == CocoaKeyCode::kVK_ANSI_2)
     {
-        app->activeSkybox = app->skybox2Texture;
+        app->currentSkybox = app->skybox2Texture;
+        onSkyboxChanged(app);
     }
     else if (keyCode == CocoaKeyCode::kVK_ANSI_3)
     {
-        app->activeSkybox = app->skybox3Texture;
+        app->currentSkybox = app->skybox3Texture;
+        onSkyboxChanged(app);
     }
     else if (keyCode == CocoaKeyCode::kVK_ANSI_4)
     {
-        app->activeSkybox = app->skybox4Texture;
+        app->currentSkybox = app->skybox4Texture;
+        onSkyboxChanged(app);
     }
 
     // set mip level
@@ -969,6 +975,16 @@ struct PBRIntegrateBRDFData
     unsigned int sampleCount;
 };
 
+void onSkyboxChanged(App* app)
+{
+    // create prefiltered environment map for PBR rendering
+    id <MTLTexture> skybox = app->currentSkybox;
+    app->prefilteredEnvironmentMap = createPrefilteredEnvironmentMap(
+        app->device, app->library, app->commandQueue, app->currentSkybox, &app->mipLevels, &app->textureViews);
+    app->irradianceMap = createIrradianceMap(
+        app->device, app->library, app->commandQueue, app->currentSkybox, app->currentSkybox.width / 4, app->currentSkybox.height / 4);
+}
+
 void onLaunch(App* app)
 {
     // create MTLDevice
@@ -1164,7 +1180,6 @@ void onLaunch(App* app)
         app->skybox2Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_2.png");
         app->skybox3Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_3.png");
         app->skybox4Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_4.png");
-        app->activeSkybox = app->skyboxTexture;
 
         app->iconSunTexture = importTexture(app->device, app->config->assetsPath / "textures" / "sun.png");
 //        app->terrainGreenTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain_green.png");
@@ -1277,16 +1292,6 @@ void onLaunch(App* app)
         assert(success);
     }
 
-    //------------------------------------
-    // PBR
-    //------------------------------------
-
-    // create prefiltered environment map for PBR rendering
-    app->prefilteredEnvironmentMap = createPrefilteredEnvironmentMap(
-        app->device, app->library, app->commandQueue, app->skybox2Texture, &app->mipLevels, &app->textureViews);
-    app->irradianceMap = createIrradianceMap(
-        app->device, app->library, app->commandQueue, app->skybox2Texture, app->skybox2Texture.width / 4, app->skybox2Texture.height / 4);
-
     // create brdf lookup texture (same for all skyboxes)
     {
         unsigned int width = 1024;
@@ -1326,6 +1331,9 @@ void onLaunch(App* app)
         }
 
     }
+
+    app->currentSkybox = app->skyboxTexture;
+    onSkyboxChanged(app); // creates prefiltered environment map and irradiance map for the currently active skybox (should be cached, but not important for now)
 
     // make window active
     [app->window makeKeyAndOrderFront:NSApp];
@@ -1922,7 +1930,7 @@ void onDraw(App* app)
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
             [encoder setRenderPipelineState:app->skyboxShader];
-            [encoder setFragmentTexture:app->activeSkybox atIndex:bindings::texture];
+            [encoder setFragmentTexture:app->currentSkybox atIndex:bindings::texture];
             InstanceData instance{
                 .localToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(10))
             };
@@ -1958,15 +1966,12 @@ void onDraw(App* app)
         drawTexture(app, encoder, app->shadowMap, RectMinMaxi{0, 28, 200, 200});
 
         // draw skybox (2D, on-screen)
-//        drawTexture(app, encoder, app->activeSkybox, RectMinMaxi{200, 28, 600, 200});
+        drawTexture(app, encoder, app->currentSkybox, RectMinMaxi{200, 28, 600, 200});
 
-        // draw prefiltered environment map (2D, on-screen)
-        drawTexture(app, encoder, app->textureViews[app->currentMipLevel], RectMinMaxi{0, 220, 400, 400});
-
-//        drawTexture(app, encoder, app->irradianceMap, RectMinMaxi{0, 220, 400, 400});
-
-        // draw brdf lookup texture (2D, on-screen)
-        drawTexture(app, encoder, app->brdfLookupTexture, RectMinMaxi{400, 220, 600, 420});
+        // draw pbr textures (2D, on-screen)
+        drawTexture(app, encoder, app->textureViews[app->currentMipLevel], RectMinMaxi{0, 220, 200, 320});
+        drawTexture(app, encoder, app->irradianceMap, RectMinMaxi{0, 320, 200, 420});
+        drawTexture(app, encoder, app->brdfLookupTexture, RectMinMaxi{200, 220, 300, 320});
 
         // draw gltf textures (2D, on-screen)
         for (size_t i = 0; i < app->gltfCathedral.textures.size(); i++)
