@@ -1,4 +1,5 @@
 // implementation of https://academysoftwarefoundation.github.io/OpenPBR
+// https://jcgt.org/published/0008/01/03/paper.pdf
 
 // non-constant parameters used in the vertex function
 struct OpenPBRSurfaceGlobalVertexData
@@ -55,66 +56,40 @@ fragment half4 openpbr_surface_fragment(
     texture2d<float, access::sample> irradianceMap [[texture(bindings::irradianceMap)]]
 )
 {
-    // diffuse
-
-    // gloss
-
-    // layer(diffuse, gloss)
-
-    // subsurface
-
-    // translucent-base
-
-    // metal
-
-    // coat
-
-    // fuzz
-
-    // ambient-medium
-
-    // get the direction vector for the reflection map
-
-
-    // GGX consists of:
-
-    // - fresnel term F
-    // - microfacet distribution function D
-    // - shadowing-masking function G (depends on D)
-    // - microsurface BSDF (reflection, BSRF and refraction, BSTF) (depends on F, D, G)
-
-    // GGX requires multi sampling
-    // https://developer.nvidia.com/gpugems/gpugems3/part-iii-rendering/chapter-20-gpu-based-importance-sampling
-
-    // https://bruop.github.io/ibl/
-    // involved: requires precomputing many terms and storing them into cubemaps and textures
-    // e.g.
-    // https://learnopengl.com/PBR/IBL/Specular-IBL
-    // split sum approximation (LUT = lookup texture) -> https://wiki.jmonkeyengine.org/docs/3.4/tutorials/how-to/articles/pbr/pbr_part3.html
-    // pre-filtered environment map
+    constexpr sampler mipSampler(address::repeat, filter::linear, mip_filter::linear);
+    constexpr sampler sampler(address::repeat, filter::linear);
 
     float3 normal = normalize(in.worldSpaceNormal);
     float3 cameraDirection = normalize(in.worldSpacePosition - data.cameraPosition);
     float3 outDirection = reflect(cameraDirection, normal);
 
-    float nDotV = saturate(dot(normal, -cameraDirection));
+    // when the normal faces the camera, the dot product becomes 1.0f, which creates a white spot, so we add a slight offset
+    float nDotV = clamp(dot(normal, -cameraDirection), 0.0f, 0.999f);
 
-    // sample reflection map
+    // uvs
     float2 outDirectionUv = directionToUvEquirectangular(outDirection);
-
-    constexpr sampler s(address::repeat, filter::linear, mip_filter::linear);
-    float mipLevel = data.roughness * data.mipLevels;
-    float3 prefilteredEnvironment = prefilteredEnvironmentMap.sample(s, outDirectionUv, level(mipLevel)).rgb;
-
     float2 normalUv = directionToUvEquirectangular(normal);
-    constexpr sampler s2(address::repeat, filter::linear);
-    float3 irradiance = irradianceMap.sample(s2, normalUv).rgb;
 
-    return half4(float4(irradiance, 1.0f));
+    // F0 is the color when the normal faces the camera
+    float3 F0 = float3(0.9f, 1.0f, 1.0f);
+    float3 Fr = max(float3(1.0f - data.roughness), F0) - F0;
 
-    constexpr sampler s3(address::repeat, filter::linear);
-    float2 brdf = brdfLookupTexture.sample(s3, float2(nDotV, data.roughness)).rg;
+    float3 kS = F0 + Fr * pow(1.0f - nDotV, 5.0f);
 
-    return half4(float4(prefilteredEnvironment * (data.specularColor * brdf.r + brdf.g), 1.0f));
+    float2 f_ab = brdfLookupTexture.sample(sampler, float2(nDotV, data.roughness)).rg;
+    float3 FssEss = kS * f_ab.x + f_ab.y;
 
+    float mipLevel = data.roughness * data.mipLevels;
+    float3 radiance = prefilteredEnvironmentMap.sample(mipSampler, outDirectionUv, level(mipLevel)).rgb;
+
+    float3 irradiance = irradianceMap.sample(sampler, normalUv).rgb;
+
+    // multiple scattering
+    float Ess = f_ab.x + f_ab.y;
+    float Ems = 1.0f - Ess;
+    float3 Favg = F0 + (1.0f - F0) / 21;
+    float3 Fms = FssEss * Favg / (1 - (1 - Ess) * Favg);
+
+    // conductor
+    return half4(float4(FssEss * radiance + Fms * Ems * irradiance, 1.0f));
 }

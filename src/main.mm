@@ -1958,15 +1958,15 @@ void onDraw(App* app)
         drawTexture(app, encoder, app->shadowMap, RectMinMaxi{0, 28, 200, 200});
 
         // draw skybox (2D, on-screen)
-        drawTexture(app, encoder, app->activeSkybox, RectMinMaxi{200, 28, 600, 200});
+//        drawTexture(app, encoder, app->activeSkybox, RectMinMaxi{200, 28, 600, 200});
 
         // draw prefiltered environment map (2D, on-screen)
-        //drawTexture(app, encoder, app->textureViews[app->currentMipLevel], RectMinMaxi{0, 220, 400, 400});
+        drawTexture(app, encoder, app->textureViews[app->currentMipLevel], RectMinMaxi{0, 220, 400, 400});
 
-        drawTexture(app, encoder, app->irradianceMap, RectMinMaxi{0, 220, 400, 400});
+//        drawTexture(app, encoder, app->irradianceMap, RectMinMaxi{0, 220, 400, 400});
 
         // draw brdf lookup texture (2D, on-screen)
-        //drawTexture(app, encoder, app->brdfLookupTexture, RectMinMaxi{400, 220, 600, 420});
+        drawTexture(app, encoder, app->brdfLookupTexture, RectMinMaxi{400, 220, 600, 420});
 
         // draw gltf textures (2D, on-screen)
         for (size_t i = 0; i < app->gltfCathedral.textures.size(); i++)
