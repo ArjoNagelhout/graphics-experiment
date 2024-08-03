@@ -169,6 +169,8 @@ void onDraw(App*);
 
 void onSizeChanged(App*, CGSize size);
 
+void onSliderValueChanged(App*, int index, float value);
+
 // implements NSApplicationDelegate protocol
 // @interface means defining a subclass
 @interface AppDelegate : NSObject <NSApplicationDelegate>
@@ -213,6 +215,11 @@ void onSizeChanged(App*, CGSize size);
 
 @interface TextViewDelegate : NSObject <NSTextViewDelegate>
 @property(unsafe_unretained, nonatomic) App* app;
+@end
+
+@interface SliderDelegate : NSObject
+@property(unsafe_unretained, nonatomic) App* app;
+- (void)sliderValueChanged:(NSSlider *)sender;
 @end
 
 /*
@@ -501,6 +508,7 @@ struct App
     MetalViewDelegate* viewDelegate;
     NSView* sidepanel;
     TextViewDelegate* textViewDelegate;
+    SliderDelegate* sliderDelegate;
 
     // metal objects
     id <MTLDevice> device;
@@ -551,6 +559,7 @@ struct App
     unsigned int mipLevels = 0; // for previewing the prefiltered environment map at a given mip level
     unsigned int currentMipLevel = 0; // for previewing the prefiltered environment map at a given mip level
     id <MTLTexture> brdfLookupTexture; // R16G16, maps roughness and cos theta v to a scale and F0 bias.
+    simd_float3 currentColor = simd_float3{1.0f, 1.0f, 1.0f};
 
     // primitives
     Mesh cube;
@@ -598,6 +607,25 @@ struct App
     // input
     std::bitset<static_cast<size_t>(CocoaKeyCode::Last)> keys;
 };
+
+@implementation SliderDelegate
+- (void)sliderValueChanged:(NSSlider *)sender {
+    float value = sender.floatValue;
+    int index = sender.tag;
+    if (index == 0)
+    {
+        _app->currentColor.x = value;
+    }
+    else if (index == 1)
+    {
+        _app->currentColor.y = value;
+    }
+    else if (index == 2)
+    {
+        _app->currentColor.z = value;
+    }
+}
+@end
 
 @implementation TextViewDelegate
 - (void)textDidChange:(NSNotification*)obj {
@@ -1036,12 +1064,44 @@ void onLaunch(App* app)
         app->textViewDelegate = textViewDelegate;
         textViewDelegate.app = app;
 
-        NSTextView* textView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, app->config->sidepanelWidth, app->splitView.frame.size.height)];
-        [textView setDelegate:app->textViewDelegate];
-        [textView setAutomaticTextCompletionEnabled:NO];
-        [textView setString:[[NSString alloc] initWithCString:app->currentText.c_str() encoding:NSUTF8StringEncoding]];
-        [app->splitView addSubview:textView];
-        app->sidepanel = textView;
+//        NSTextView* textView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, app->config->sidepanelWidth, app->splitView.frame.size.height)];
+//        [textView setDelegate:app->textViewDelegate];
+//        [textView setAutomaticTextCompletionEnabled:NO];
+//        [textView setString:[[NSString alloc] initWithCString:app->currentText.c_str() encoding:NSUTF8StringEncoding]];
+//        [app->splitView addSubview:textView];
+//        app->sidepanel = textView;
+
+        app->sliderDelegate = [[SliderDelegate alloc] init];
+        app->sliderDelegate.app = app;
+
+        NSView *containerView = [[NSView alloc] initWithFrame:NSMakeRect(50, 50, 300, 200)];
+        [app->splitView addSubview:containerView];
+
+        NSSlider *slider1 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 120, 100, 20)];
+        slider1.minValue = 0.0f;
+        slider1.maxValue = 1.0f;
+        slider1.tag = 0;
+        slider1.title = @"SOW";
+        [slider1 setTarget:app->sliderDelegate];
+        [slider1 setAction:@selector(sliderValueChanged:)];
+
+        NSSlider *slider2 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 80, 100, 20)];
+        slider2.minValue = 0.0f;
+        slider2.maxValue = 1.0f;
+        slider2.tag = 1;
+        [slider2 setTarget:app->sliderDelegate];
+        [slider2 setAction:@selector(sliderValueChanged:)];
+
+        NSSlider *slider3 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 40, 100, 20)];
+        slider3.minValue = 0.0f;
+        slider3.maxValue = 1.0f;
+        slider3.tag = 2;
+        [slider3 setTarget:app->sliderDelegate];
+        [slider3 setAction:@selector(sliderValueChanged:)];
+
+        [containerView addSubview:slider1];
+        [containerView addSubview:slider2];
+        [containerView addSubview:slider3];
     }
 
     [app->splitView adjustSubviews];
@@ -1621,7 +1681,7 @@ struct OpenPBRSurfaceGlobalFragmentData
 {
     simd_float3 cameraPosition;
     float roughness;
-    simd_float3 specularColor;
+    simd_float3 color;
     unsigned int mipLevels;
 };
 
@@ -1766,7 +1826,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                 OpenPBRSurfaceGlobalFragmentData globalFragmentData{
                     .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
                     .roughness = (float)x / 10.0f,
-                    .specularColor = simd_float3{1.0f - (float)y / 10.0f, 0.5f, 1},
+                    .color = app->currentColor, // simd_float3{1.0f - (float)y / 10.0f, 1.0f, 1},
                     .mipLevels = app->mipLevels
                 };
                 [encoder setVertexBytes:&globalVertexData length:sizeof(OpenPBRSurfaceGlobalVertexData) atIndex:bindings::globalVertexData];

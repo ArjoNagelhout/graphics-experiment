@@ -12,7 +12,7 @@ struct OpenPBRSurfaceGlobalFragmentData
 {
     float3 cameraPosition;
     float roughness;
-    float3 specularColor;
+    float3 color;
     uint mipLevels;
 };
 
@@ -71,7 +71,7 @@ fragment half4 openpbr_surface_fragment(
     float2 normalUv = directionToUvEquirectangular(normal);
 
     // F0 is the color when the normal faces the camera
-    float3 F0 = float3(0.9f, 1.0f, 1.0f);
+    float3 F0 = data.color;
     float3 Fr = max(float3(1.0f - data.roughness), F0) - F0;
 
     float3 kS = F0 + Fr * pow(1.0f - nDotV, 5.0f);
