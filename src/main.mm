@@ -12,6 +12,10 @@
 
 // rendering:
 // - [ ] PBR shading (Epic Games and Disney PBR)
+//      - [X] conductor
+//      - [ ] dielectric
+//      - [ ] subsurface
+//      - [ ]
 // - [ ] deferred rendering
 // - [ ] animation / rigging of a mesh, skinning
 // - [ ] multiple light sources (point light, directional light, colored lights) probably best with deferred rendering
@@ -35,91 +39,6 @@
 // data:
 // CAD or BIM data
 // 3D city data (Open Street Maps), Cesium (https://cesium.com/why-cesium/3d-tiles/)
-
-// PBR:
-// Blender Principled BSDF https://docs.blender.org/manual/en/latest/render/shader_nodes/shader/principled.html
-// OpenPBR https://github.com/AcademySoftwareFoundation/OpenPBR (is the result of collaboration between Autodesk and Adobe, taking inspiration from
-// Autodesk Standard Surface and Adobe Standard Material).
-// MaterialX https://materialx.org
-// Autodesk Standard Surface https://autodesk.github.io/standard-surface/
-// Adobe Standard Material https://helpx.adobe.com/content/dam/help/en/substance-3d/documentation/s3d/files/225969597/225969613/1/1647027222890/adobe-standard-material-specification.pdf
-// Disney's Principled Shader
-// Pixar's PxrSurface
-
-// these shaders are über-shaders, which capture a wide range of materials, rather than requiring
-// specialized shaders for each type of material. Unfortunately not all materials can be captured in a single
-// model, so for high quality skin or cloth, a custom shader needs to be created.
-// but for the large majority of materials, this singular über shader would suffice. e.g. for wood, metal, glass etc.
-
-// https://github.com/AcademySoftwareFoundation/MaterialX/tree/main/libraries/bxdf
-// so MaterialX is a common format that is a graph of nodes that represents a material
-// this format is in XML, and gets compiled into MSL (Metal Shading Language), GLSL etc.
-// this does immediately look quite complex. the git repository is also large.
-//
-// adopting it would have the advantage of being able to reuse materials from other programs
-// https://zoewave.medium.com/explore-materialx-b8979808d512
-// pros:
-// - don't have to invent our own shader language, can use MaterialX to define all shaders -> might not cover all shader use cases
-// - used by Houdini, Apple Reality Composer / RealityKit,
-// cons:
-// - dependency on a standard that might get abandoned / superseded
-// - time to implement is larger than writing a singular PBR shader ourselves -> dubious
-
-// approach:
-// for now write custom PBR über-shader for learning purposes, and later adopt MaterialX for "production ready" code
-
-// alternative approach:
-// https://www.khronos.org/spir/
-// write a custom shader language that compiles to SPIR-V and MSL (apparently SPIR-V can be cross-compiled to MSL using SPIRV-Cross)
-// or: simply write in an existing shading language and cross-compile to all others.
-// Vulkan and Metal are the only graphics APIs I intend to support, so this latter approach
-// might be best.
-// rewriting shaders from MSL to GLSL also won't be too hard, as the concepts and supported feature-sets of the languages / hardware are roughly the same.
-// simplicity is key, so just writing the shader directly might be the easiest.
-// we can always import MaterialX, just not use it internally.
-
-// brdf = bidirectional reflectance distribution function
-
-// compile shader variants:
-// shader variants can strip out features that are not used to improve performance
-// e.g. no alpha cutout, alpha blending or texture sampling when these are not enabled.
-
-// now: implement OpenPBR specification from: https://academysoftwarefoundation.github.io/OpenPBR
-
-// refer to this article for the difference between BRDF and BSDF: https://en.wikipedia.org/wiki/Bidirectional_scattering_distribution_function
-
-// https://support.fab.com/s/article/How-does-Sketchfab-determine-if-a-3D-model-uses-PBR-materials
-
-// https://viclw17.github.io/2018/08/05/raytracing-dielectric-materials
-// https://pbr-book.org/4ed/contents (pathtracing, but good content)
-// https://gfxcourses.stanford.edu/cs348b/spring22
-
-// in OpenPBR Surface, the microfacet BRDF is taken from:
-// https://www.graphics.cornell.edu/~bjw/microfacetbsdf.pdf
-// and https://www.pbr-book.org/3ed-2018/Reflection_Models/Microfacet_Models
-
-// f(wi, wo) ∝ F(wi, h) D(h) G(wi, wo)
-
-// where wi = vector of light ray coming in
-// and wo = vector of camera ray going out
-// h is half vector, which reflects wi into wo (aka the normal or micro normal)
-
-// proportionality (∝)
-// given an independent variable x and dependent variable y, y is directly proportional to x if
-// some k exists that can fulfill `y = kx`
-// this gives: `y ∝ x`
-
-// F(wi, h) is the Fresnel factor
-
-// D(h) is the Normal Distribution Function (NDF)
-// popular form of NDF = GGX distribution:
-
-// DGGX(m) ∝ (1 + (tan(θm)^2))
-
-// where m is the micronormal
-// and θm is the angle between m and the macro surface normal
-
-// G(wi, wo) is the Masking-shadowing function
 
 // the following should be defined before including any headers that use glm, otherwise things break
 #define GLM_ENABLE_EXPERIMENTAL
@@ -560,6 +479,7 @@ struct App
     unsigned int currentMipLevel = 0; // for previewing the prefiltered environment map at a given mip level
     id <MTLTexture> brdfLookupTexture; // R16G16, maps roughness and cos theta v to a scale and F0 bias.
     simd_float3 currentColor = simd_float3{1.0f, 1.0f, 1.0f};
+    float currentRoughness = 0.0f;
 
     // primitives
     Mesh cube;
@@ -623,6 +543,10 @@ struct App
     else if (index == 2)
     {
         _app->currentColor.z = value;
+    }
+    else if (index == 3)
+    {
+        _app->currentRoughness = value;
     }
 }
 @end
@@ -821,8 +745,6 @@ float randomFloatMinMax(float min, float max)
 {
     return min + (float)rand() / ((float)RAND_MAX / (max - min));
 }
-
-
 
 // create compute pipeline
 id <MTLComputePipelineState> createComputeShader(id <MTLDevice> device, id <MTLLibrary> library, NSString* name)
@@ -1071,6 +993,8 @@ void onLaunch(App* app)
 //        [app->splitView addSubview:textView];
 //        app->sidepanel = textView;
 
+        // create sliders
+
         app->sliderDelegate = [[SliderDelegate alloc] init];
         app->sliderDelegate.app = app;
 
@@ -1081,7 +1005,7 @@ void onLaunch(App* app)
         slider1.minValue = 0.0f;
         slider1.maxValue = 1.0f;
         slider1.tag = 0;
-        slider1.title = @"SOW";
+        slider1.floatValue = app->currentColor.x;
         [slider1 setTarget:app->sliderDelegate];
         [slider1 setAction:@selector(sliderValueChanged:)];
 
@@ -1089,6 +1013,7 @@ void onLaunch(App* app)
         slider2.minValue = 0.0f;
         slider2.maxValue = 1.0f;
         slider2.tag = 1;
+        slider2.floatValue = app->currentColor.y;
         [slider2 setTarget:app->sliderDelegate];
         [slider2 setAction:@selector(sliderValueChanged:)];
 
@@ -1096,12 +1021,22 @@ void onLaunch(App* app)
         slider3.minValue = 0.0f;
         slider3.maxValue = 1.0f;
         slider3.tag = 2;
+        slider3.floatValue = app->currentColor.z;
         [slider3 setTarget:app->sliderDelegate];
         [slider3 setAction:@selector(sliderValueChanged:)];
+
+        NSSlider *slider4 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 200, 100, 20)];
+        slider4.minValue = 0.0f;
+        slider4.maxValue = 1.0f;
+        slider4.tag = 3;
+        slider4.floatValue = app->currentRoughness;
+        [slider4 setTarget:app->sliderDelegate];
+        [slider4 setAction:@selector(sliderValueChanged:)];
 
         [containerView addSubview:slider1];
         [containerView addSubview:slider2];
         [containerView addSubview:slider3];
+        [containerView addSubview:slider4];
     }
 
     [app->splitView adjustSubviews];
@@ -1815,7 +1750,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
 
                 InstanceData instance{
                     .localToWorld = glm::rotate(glm::scale(glm::translate(glm::vec3(x * 6, y * 3, 0)), glm::vec3(0.5, 0.5, 0.5)),
-                                                app->time + (float)x / 6.0f + (float)y / 10.0f, glm::vec3(0, 1, 0))
+                                                app->time + (float)x / 6.0f + (float)y / 3.0f, glm::vec3(0, 1, 0))
                 };
                 OpenPBRSurfaceGlobalVertexData globalVertexData{
                     .localToWorldTransposedInverse = glm::transpose(glm::inverse(instance.localToWorld))
@@ -1825,7 +1760,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                 //std::cout << roughness << std::endl;
                 OpenPBRSurfaceGlobalFragmentData globalFragmentData{
                     .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
-                    .roughness = (float)x / 10.0f,
+                    .roughness = app->currentRoughness,//(float)x / 10.0f,
                     .color = app->currentColor, // simd_float3{1.0f - (float)y / 10.0f, 1.0f, 1},
                     .mipLevels = app->mipLevels
                 };

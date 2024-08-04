@@ -64,7 +64,7 @@ fragment half4 openpbr_surface_fragment(
     float3 outDirection = reflect(cameraDirection, normal);
 
     // when the normal faces the camera, the dot product becomes 1.0f, which creates a white spot, so we add a slight offset
-    float nDotV = clamp(dot(normal, -cameraDirection), 0.0f, 0.999f);
+    float nDotV = clamp(dot(normal, -cameraDirection), 0.001f, 0.999f);
 
     // uvs
     float2 outDirectionUv = directionToUvEquirectangular(outDirection);
@@ -76,7 +76,7 @@ fragment half4 openpbr_surface_fragment(
 
     float3 kS = F0 + Fr * pow(1.0f - nDotV, 5.0f);
 
-    float2 f_ab = brdfLookupTexture.sample(sampler, float2(nDotV, data.roughness)).rg;
+    float2 f_ab = brdfLookupTexture.sample(sampler, float2(nDotV, clamp(data.roughness, 0.001f, 0.999f))).rg;
     float3 FssEss = kS * f_ab.x + f_ab.y;
 
     float mipLevel = data.roughness * data.mipLevels;
@@ -88,7 +88,7 @@ fragment half4 openpbr_surface_fragment(
     float Ess = f_ab.x + f_ab.y;
     float Ems = 1.0f - Ess;
     float3 Favg = F0 + (1.0f - F0) / 21;
-    float3 Fms = FssEss * Favg / (1 - (1 - Ess) * Favg);
+    float3 Fms = FssEss * Favg / (1.0f - (1.0f - Ess) * Favg);
 
     // conductor
     return half4(float4(FssEss * radiance + Fms * Ems * irradiance, 1.0f));
