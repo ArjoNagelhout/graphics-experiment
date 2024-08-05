@@ -76,6 +76,10 @@
 // e.g. https://www.adriancourreges.com/blog/2015/11/02/gta-v-graphics-study/
 // and https://www.adriancourreges.com/blog/2016/09/09/doom-2016-graphics-study/
 
+// asset resources:
+// https://polyhaven.com
+// https://sketchfab.com
+
 // the following should be defined before including any headers that use glm, otherwise things break
 #define GLM_ENABLE_EXPERIMENTAL
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
