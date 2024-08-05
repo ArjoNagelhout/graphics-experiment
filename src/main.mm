@@ -1,44 +1,80 @@
-// architecture can be done later, first focus on features
-// (in a way that it can be easily refactored into a better structure)
-//
-// some things I could implement:
-//
+// this open-ended experiment is intended to experiment with real-time graphics techniques and AEC data
+
+// it is desktop first, but with the intention to support VR.
+
+// direction 1:
+// a renderer that should be able to render an architectural scene in real-time
+// this architectural scene should be automatically created from BIM or CAD data
+// assets should be able to be added to the scene using a simple editor
+
+// applications:
+// - design review
+// - presentation / architectural visualisation
+
+// user interaction:
+// - [ ] walk through the environment -> requires collision
+
+// direction 2:
+// a conceptual design tool for creating architectural concepts and rendering them in real time
+// in VR. simple procedural geometry tools, simple parametric tools.
+// this conceptual design should be exportable to an external program
+
+// graphics API and supported platforms
+// right now the application is written for Cocoa (macOS) and the Metal API,
+// but for VR should be ported to Vulkan. Metal is a cleaner API, so we might want to write a Vulkan backend for the Metal API
+// (or a subset of the Metal API we use)
+// but porting is easier than implementing the features in the first place, so that is where the focus is initially.
+
+// features to experiment with / implement:
+
+// data:
+// - [ ] CAD or BIM data (e.g. Revit, IFC using ifcOpenShell)
+// - [ ] 3D city data (Open Street Maps), Cesium (https://cesium.com/why-cesium/3d-tiles/)
+// - [X] gltf import
+// - [ ] gltf import with stride of 16 bytes instead of 12 for vector3, this is better for alignment. packed_float3 is not ideal.
+// - [ ] scene file format -> utilize GLTF instead of inventing own scene model
+// - [ ] collision (terrain collider, box collider)
+
+// rendering techniques:
 // - [X] blinn phong shading
 // - [X] fog
 // - [X] skybox (panoramic / 360 spherical)
 // - [X] compilation of shader variants
-// - [X] gltf import
-// - [ ] gltf import with stride of 16 bytes instead of 12 for vector3, this is better for alignment. packed_float3 is not ideal.
-
-// rendering:
-// - [ ] PBR shading (Epic Games and Disney PBR)
+// - [ ] PBR shading (OpenPBR Surface)
 //      - [X] conductor
 //      - [ ] dielectric
 //      - [ ] subsurface
-//      - [ ]
-// - [ ] deferred rendering
+// - [ ] deferred rendering (gbuffer etc., support many non-image based lights)
+// - [ ] point lights, area lights, spot lights
 // - [ ] animation / rigging of a mesh, skinning
 // - [ ] multiple light sources (point light, directional light, colored lights) probably best with deferred rendering
-// - [ ] mip-mapping of textures
-// - [ ] lens flare / post-processing
-// - [ ] specular reflection probes (cubemaps)
-// - [ ] skybox using cubemap
+// - [ ] automatic mip-mapping of textures for better interpolation at grazing angles
+// - [ ] lens flare / post-processing effects
+// - [ ] raytracing reflections, denoising
+// - [ ] ambient occlusion baking using path tracing
+// - [ ] screen-space ambient occlusion
+// - [ ] screen space reflections
+// - [ ] use cubemaps instead of equirectangular projection
+// - [ ] HDR support from image based lighting
+// - [ ] specular reflection probes / environment probes
 // - [ ] terrain system
 //      - [ ] terrain normals (calculate derivatives for perlin noise terrain)
 //      - [ ] grass / foliage / tree shader (animated with wind etc.)
 //      - [ ] terrain chunks
+//      - [ ]
+// - [ ] particle system
 // - [ ] water shader
+// - [ ] hair shader
+// - [ ] skin shader
 // - [ ] frustum culling -> meshes should have bounds
+// - [ ] occlusion culling
 // - [ ] LOD system
-// - [ ] collisions (terrain collider, box collider)
-// - [ ] scene file format -> utilize GLTF instead of inventing own scene model?
-// - [ ] level editor
 // - [ ] 3d text rendering
 // - [ ] stereoscopic rendering
 
-// data:
-// CAD or BIM data
-// 3D city data (Open Street Maps), Cesium (https://cesium.com/why-cesium/3d-tiles/)
+// look at frame decompositions of games,
+// e.g. https://www.adriancourreges.com/blog/2015/11/02/gta-v-graphics-study/
+// and https://www.adriancourreges.com/blog/2016/09/09/doom-2016-graphics-study/
 
 // the following should be defined before including any headers that use glm, otherwise things break
 #define GLM_ENABLE_EXPERIMENTAL
@@ -315,26 +351,6 @@ struct LightData
     glm::mat4 lightSpace;
 };
 
-struct BlinnPhongGlobalVertexData
-{
-    glm::mat4 localToWorldTransposedInverse;
-};
-
-struct BlinnPhongGlobalFragmentData
-{
-    simd::float3 cameraPosition;
-    simd::float3 lightDirection;
-
-    // colors
-    simd::float3 ambientColor;
-    simd::float3 specularColor;
-    simd::float3 lightColor;
-
-    // parameters
-    float irradiancePerp;
-    float shininess;
-};
-
 // sprite sheet
 struct Sprite
 {
@@ -444,7 +460,6 @@ struct App
     id <MTLRenderPipelineState> shaderUnlit; // textured
     id <MTLRenderPipelineState> shaderUnlitAlphaBlend;
     id <MTLRenderPipelineState> shaderUnlitColored; // simplest shader possible, only uses the color
-    id <MTLRenderPipelineState> shaderBlinnPhong;
     id <MTLRenderPipelineState> shaderGltf;
     id <MTLRenderPipelineState> shaderOpenPBRSurface; // OpenPBR Surface implementation from https://academysoftwarefoundation.github.io/OpenPBR/
 
@@ -1078,7 +1093,6 @@ void onLaunch(App* app)
             // 3D
             shadersPath / "shader_lit.metal",
             shadersPath / "shader_unlit.metal",
-            shadersPath / "shader_blinn_phong.metal",
             shadersPath / "shader_gltf.metal",
             shadersPath / "shader_openpbr_surface.metal",
 
@@ -1131,7 +1145,6 @@ void onLaunch(App* app)
         app->shaderUnlitAlphaBlend = createShader(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
         app->shaderUnlitColored = createShader(app, @"unlit_vertex", @"unlit_colored_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
-        app->shaderBlinnPhong = createShader(app, @"blinn_phong_vertex", @"blinn_phong_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
         app->shaderGltf = createShader(app, @"gltf_vertex", @"gltf_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
         app->shaderOpenPBRSurface = createShader(app, @"openpbr_surface_vertex", @"openpbr_surface_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
     }
@@ -1653,39 +1666,6 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
             .localToWorld = glm::mat4(1)
         };
         drawMesh(encoder, &app->plane, &instance);
-    }
-
-    // draw rounded cube (blinn phong test)
-    if (0)
-    {
-        [encoder setCullMode:MTLCullModeBack];
-        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shaderShadow : app->shaderBlinnPhong];
-        [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->terrainYellowTexture atIndex:0];
-        float angle = app->time;
-        InstanceData instance{
-            .localToWorld = glm::rotate(glm::translate(glm::vec3{0, 3, 0}), angle, glm::vec3(0, 1, 0))
-        };
-        BlinnPhongGlobalVertexData vertexData{
-            .localToWorldTransposedInverse = glm::transpose(glm::inverse(instance.localToWorld))
-        };
-        BlinnPhongGlobalFragmentData fragmentData{
-            .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
-            .lightDirection = glmVec3ToSimdFloat3(quaternionToDirectionVector(app->sunTransform.rotation)),
-
-            // colors
-            .ambientColor = {0, 0.1, 0.1},
-            .specularColor = {0, 1, 0},
-            .lightColor = {1, 1, 0.5},
-
-            // parameters
-            .irradiancePerp = 1.0f,
-            .shininess = 50.0f//.shininess = 50.0f + 50.0f * sin(app->time),
-        };
-        [encoder setVertexBytes:&vertexData length:sizeof(BlinnPhongGlobalVertexData) atIndex:3];
-        [encoder setFragmentBytes:&fragmentData length:sizeof(BlinnPhongGlobalFragmentData) atIndex:1];
-        drawMesh(encoder, &app->roundedCube, &instance);
     }
 
     // draw trees
