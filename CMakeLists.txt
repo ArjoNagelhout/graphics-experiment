@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(bored_c)
+project(metal_experiment)
 
 set(CMAKE_CXX_STANDARD 20)
 
@@ -18,15 +18,15 @@ set(SOURCES
         src/gltf.mm
 )
 
-add_library(bored_c_lib ${SOURCES})
-target_link_libraries(bored_c_lib PUBLIC lodepng glm fmt cgltf libjpeg-turbo)#${CMAKE_CURRENT_SOURCE_DIR}/external/libjpeg-turbo/libjpeg.a)
-target_include_directories(bored_c_lib PUBLIC src)
-target_include_directories(bored_c_lib PUBLIC assets/shaders)
+add_library(metal_experiment_lib ${SOURCES})
+target_link_libraries(metal_experiment_lib PUBLIC lodepng glm fmt cgltf libjpeg-turbo)#${CMAKE_CURRENT_SOURCE_DIR}/external/libjpeg-turbo/libjpeg.a)
+target_include_directories(metal_experiment_lib PUBLIC src)
+target_include_directories(metal_experiment_lib PUBLIC assets/shaders)
 
 set_source_files_properties(src/main.mm PROPERTIES
         COMPILE_FLAGS "-x objective-c++")
 
-target_link_libraries(bored_c_lib PUBLIC
+target_link_libraries(metal_experiment_lib PUBLIC
         "-framework Cocoa"
         "-framework Foundation"
         "-framework AppKit"
@@ -34,6 +34,6 @@ target_link_libraries(bored_c_lib PUBLIC
         "-framework MetalKit"
 )
 
-add_executable(bored_c src/main.mm)
+add_executable(metal_experiment src/main.mm)
 
-target_link_libraries(bored_c bored_c_lib)
+target_link_libraries(metal_experiment metal_experiment_lib)

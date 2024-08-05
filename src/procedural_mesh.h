@@ -2,8 +2,8 @@
 // Created by Arjo Nagelhout on 07/07/2024.
 //
 
-#ifndef BORED_C_PROCEDURAL_MESH_H
-#define BORED_C_PROCEDURAL_MESH_H
+#ifndef METAL_EXPERIMENT_PROCEDURAL_MESH_H
+#define METAL_EXPERIMENT_PROCEDURAL_MESH_H
 
 #include "mesh.h"
 
@@ -32,4 +32,4 @@ void createTerrain(RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdiv
 
 [[nodiscard]] Mesh createAxes(id <MTLDevice> device);
 
-#endif //BORED_C_PROCEDURAL_MESH_H
+#endif //METAL_EXPERIMENT_PROCEDURAL_MESH_H

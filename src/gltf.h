@@ -1,5 +1,5 @@
-#ifndef BORED_C_GLTF_H
-#define BORED_C_GLTF_H
+#ifndef METAL_EXPERIMENT_GLTF_H
+#define METAL_EXPERIMENT_GLTF_H
 
 #include <filesystem>
 
@@ -79,4 +79,4 @@ struct GltfModel
 // returns true when successful
 bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfModel* outModel);
 
-#endif //BORED_C_GLTF_H
+#endif //METAL_EXPERIMENT_GLTF_H

@@ -1,5 +1,5 @@
-#ifndef BORED_C_SHADER_BINDINGS_H
-#define BORED_C_SHADER_BINDINGS_H
+#ifndef METAL_EXPERIMENT_SHADER_BINDINGS_H
+#define METAL_EXPERIMENT_SHADER_BINDINGS_H
 
 // used by both shader code and the main codebase
 
@@ -46,4 +46,4 @@ namespace bindings
     BINDING int irradianceMap = 6;
 }
 
-#endif //BORED_C_SHADER_BINDINGS_H
+#endif //METAL_EXPERIMENT_SHADER_BINDINGS_H

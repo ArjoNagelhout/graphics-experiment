@@ -967,7 +967,7 @@ void onLaunch(App* app)
             backing:NSBackingStoreBuffered
             defer:NO];
         [window setMinSize:app->config->windowMinSize];
-        [window setTitle:@"bored_c"];
+        [window setTitle:@"metal_experiment"];
         [window setBackgroundColor:[NSColor blueColor]];
         [window center];
         app->window = window;

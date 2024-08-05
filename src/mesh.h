@@ -2,8 +2,8 @@
 // Created by Arjo Nagelhout on 07/07/2024.
 //
 
-#ifndef BORED_C_MESH_H
-#define BORED_C_MESH_H
+#ifndef METAL_EXPERIMENT_MESH_H
+#define METAL_EXPERIMENT_MESH_H
 
 #include "simd/simd.h"
 
@@ -32,4 +32,4 @@ struct Mesh
 
 [[nodiscard]] Mesh createMeshIndexed(id <MTLDevice> device, std::vector<VertexData>* vertices, std::vector<uint32_t>* indices, MTLPrimitiveType primitiveType);
 
-#endif //BORED_C_MESH_H
+#endif //METAL_EXPERIMENT_MESH_H

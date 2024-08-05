@@ -2,8 +2,8 @@
 // Created by Arjo Nagelhout on 07/07/2024.
 //
 
-#ifndef BORED_C_RECT_H
-#define BORED_C_RECT_H
+#ifndef METAL_EXPERIMENT_RECT_H
+#define METAL_EXPERIMENT_RECT_H
 
 #include <cstdint>
 
@@ -24,4 +24,4 @@ struct RectMinMaxi
     uint32_t maxY;
 };
 
-#endif //BORED_C_RECT_H
+#endif //METAL_EXPERIMENT_RECT_H
