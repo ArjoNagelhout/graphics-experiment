@@ -81,6 +81,6 @@ Look at frame decompositions of games:
 - e.g. https://www.adriancourreges.com/blog/2015/11/02/gta-v-graphics-study/
 - and https://www.adriancourreges.com/blog/2016/09/09/doom-2016-graphics-study/
 
-Asset resources:
+### Asset resources
 - https://polyhaven.com
 - https://sketchfab.com
