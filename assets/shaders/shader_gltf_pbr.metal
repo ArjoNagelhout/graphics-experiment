@@ -10,6 +10,8 @@ struct GltfPbrRasterizerData
 
     // pbr
     float3 worldSpacePosition;
+    float3 worldSpaceTangent; // for constructing the TBN (tangent, bitangent, normal) matrix
+    float3 worldSpaceBitangent;
     float3 worldSpaceNormal;
 };
 
@@ -35,16 +37,19 @@ vertex GltfPbrRasterizerData gltf_pbr_vertex(
     device GltfPbrInstanceData const& instance = instances[instanceId];
 
     // vertex data non-interleaved
-    device packed_float3 const& p = positions[vertexId];
+    device packed_float3 const& position = positions[vertexId];
     device packed_float3 const& normal = normals[vertexId];
+    device packed_float3 const& tangent = tangents[vertexId];
     device packed_float2 const& uv0 = uv0s[vertexId];
 
-    float4 position = instance.localToWorld * float4(p, 1.0f);
-    out.position = camera.viewProjection * position;
-    out.worldSpacePosition = position.xyz / position.w;
+    float4 worldSpacePosition = instance.localToWorld * float4(position, 1.0f);
+    out.position = camera.viewProjection * worldSpacePosition;
+    out.worldSpacePosition = worldSpacePosition.xyz / worldSpacePosition.w; // apply perspective projection
 
     // calculate world-space normal
     out.worldSpaceNormal = (instance.localToWorldTransposedInverse * float4(normal, 0.0f)).xyz;
+    out.worldSpaceTangent = (instance.localToWorldTransposedInverse * float4(tangent, 0.0f)).xyz;
+    out.worldSpaceBitangent = cross(out.worldSpaceNormal, out.worldSpaceTangent);
 
     out.uv0 = uv0;
     out.normal = float4(normal, 1.0f);
@@ -63,7 +68,9 @@ struct GltfPbrFragmentData
 fragment half4 gltf_pbr_fragment(
     GltfPbrRasterizerData in [[stage_in]],
     device GltfPbrFragmentData const& data [[buffer(bindings::globalFragmentData)]],
-    texture2d<half, access::sample> reflectionMap [[texture(bindings::reflectionMap)]],
+    texture2d<float, access::sample> baseColorMap [[texture(bindings::baseColorMap)]],
+    texture2d<float, access::sample> normalMap [[texture(bindings::normalMap)]],
+    texture2d<float, access::sample> metallicRoughnessMap [[texture(bindings::metallicRoughnessMap)]],
     texture2d<float, access::sample> prefilteredEnvironmentMap [[texture(bindings::prefilteredEnvironmentMap)]],
     texture2d<float, access::sample> brdfLookupTexture [[texture(bindings::brdfLookupTexture)]],
     texture2d<float, access::sample> irradianceMap [[texture(bindings::irradianceMap)]]
@@ -72,7 +79,17 @@ fragment half4 gltf_pbr_fragment(
     constexpr sampler mipSampler(address::repeat, filter::linear, mip_filter::linear);
     constexpr sampler sampler(address::repeat, filter::linear);
 
-    float3 normal = normalize(in.worldSpaceNormal);
+    // normal mapping
+    float3x3 normalToWorld = float3x3(
+        normalize(in.worldSpaceTangent),
+        normalize(in.worldSpaceBitangent),
+        normalize(in.worldSpaceNormal)
+    );
+
+    float3 localNormal = normalMap.sample(sampler, in.uv0).rgb;
+    localNormal = localNormal * 2.0f - 1.0f;
+
+    float3 normal = normalize(normalToWorld * localNormal);
     float3 cameraDirection = normalize(in.worldSpacePosition - data.cameraPosition);
     float3 outDirection = reflect(cameraDirection, normal);
 
@@ -84,7 +101,7 @@ fragment half4 gltf_pbr_fragment(
     float2 normalUv = directionToUvEquirectangular(normal);
 
     // F0 is the color when the normal faces the camera
-    float3 F0 = data.color;
+    float3 F0 = baseColorMap.sample(sampler, in.uv0).rgb;
     float3 Fr = max(float3(1.0f - data.roughness), F0) - F0;
 
     float3 kS = F0 + Fr * pow(1.0f - nDotV, 5.0f);

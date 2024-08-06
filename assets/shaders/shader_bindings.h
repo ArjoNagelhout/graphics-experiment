@@ -44,6 +44,9 @@ namespace bindings
     BINDING int prefilteredEnvironmentMap = 4;
     BINDING int brdfLookupTexture = 5;
     BINDING int irradianceMap = 6;
+    BINDING int normalMap = 7;
+    BINDING int baseColorMap = 8;
+    BINDING int metallicRoughnessMap = 9;
 }
 
 #endif //METAL_EXPERIMENT_SHADER_BINDINGS_H

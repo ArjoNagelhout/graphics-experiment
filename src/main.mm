@@ -1595,7 +1595,12 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
         if (mat->baseColor != invalidIndex && model->textures.size() > mat->baseColor)
         {
             id <MTLTexture> texture = model->textures[mat->baseColor];
-            [encoder setFragmentTexture:texture atIndex:0];
+            [encoder setFragmentTexture:texture atIndex:bindings::baseColorMap];
+        }
+        if (mat->normalMap != invalidIndex && model->textures.size() > mat->normalMap)
+        {
+            id <MTLTexture> texture = model->textures[mat->normalMap];
+            [encoder setFragmentTexture:texture atIndex:bindings::normalMap];
         }
     }
 
@@ -1636,7 +1641,7 @@ void drawGltfMeshPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfM
 
 void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 transform)
 {
-    [encoder setCullMode:MTLCullModeNone];
+    [encoder setCullMode:MTLCullModeBack];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setRenderPipelineState:app->shaderGltfPbr];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
@@ -1763,7 +1768,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     if (1)
     {
         //drawGltf(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(2, 2, 2)));
-        drawGltfPbr(app, encoder, &app->gltfUgv, glm::mat4(1));
+        drawGltfPbr(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(10, 10, 10)));
         //drawGltf(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
         //drawGltf(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 10, 0)));
     }
@@ -2003,10 +2008,10 @@ void onDraw(App* app)
         drawTexture(app, encoder, app->brdfLookupTexture, RectMinMaxi{200, 220, 300, 320});
 
         // draw gltf textures (2D, on-screen)
-        for (size_t i = 0; i < app->gltfCathedral.textures.size(); i++)
+        for (size_t i = 0; i < app->gltfUgv.textures.size(); i++)
         {
-            id <MTLTexture> texture = app->gltfCathedral.textures[i];
-            uint32_t size = 75;
+            id <MTLTexture> texture = app->gltfUgv.textures[i];
+            uint32_t size = 100;
             uint32_t y = 220;
             drawTexture(app, encoder, texture, RectMinMaxi{size * (uint32_t)i, y, size * (uint32_t)i + size, y + size});
         }

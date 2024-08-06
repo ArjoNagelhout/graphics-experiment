@@ -19,6 +19,7 @@ struct GltfMaterial
     // texture indices
     size_t baseColor = invalidIndex;
     size_t metallicRoughness = invalidIndex;
+    size_t normalMap = invalidIndex;
 };
 
 struct GltfVertexAttribute

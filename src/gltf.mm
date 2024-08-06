@@ -44,7 +44,7 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
     }
 
     // images
-    if (0)
+    if (1)
     {
         for (int i = 0; i < cgltfData->images_count; i++)
         {
@@ -305,6 +305,8 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
             assert(material->has_pbr_metallic_roughness);
             cgltf_pbr_metallic_roughness mat = material->pbr_metallic_roughness;
 
+            outMaterial->normalMap = cgltf_image_index(cgltfData, material->normal_texture.texture->image);
+
             cgltf_texture* baseColor = mat.base_color_texture.texture;
             if (baseColor != nullptr)
             {
@@ -320,7 +322,7 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
             cgltf_texture* emissive = material->emissive_texture.texture;
             if (emissive != nullptr)
             {
-                outMaterial->baseColor = cgltf_image_index(cgltfData, emissive->image);
+                //outMaterial->baseColor = cgltf_image_index(cgltfData, emissive->image);
             }
         }
     }
