@@ -47,6 +47,7 @@ namespace bindings
     BINDING int normalMap = 7;
     BINDING int baseColorMap = 8;
     BINDING int metallicRoughnessMap = 9;
+    BINDING int emissionMap = 10;
 }
 
 #endif //METAL_EXPERIMENT_SHADER_BINDINGS_H

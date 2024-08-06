@@ -69,6 +69,7 @@ fragment half4 gltf_pbr_fragment(
     texture2d<float, access::sample> baseColorMap [[texture(bindings::baseColorMap)]],
     texture2d<float, access::sample> normalMap [[texture(bindings::normalMap)]],
     texture2d<float, access::sample> metallicRoughnessMap [[texture(bindings::metallicRoughnessMap)]],
+    texture2d<float, access::sample> emissionMap [[texture(bindings::emissionMap)]],
     texture2d<float, access::sample> prefilteredEnvironmentMap [[texture(bindings::prefilteredEnvironmentMap)]],
     texture2d<float, access::sample> brdfLookupTexture [[texture(bindings::brdfLookupTexture)]],
     texture2d<float, access::sample> irradianceMap [[texture(bindings::irradianceMap)]]
@@ -133,8 +134,16 @@ fragment half4 gltf_pbr_fragment(
     float3 kD = albedo * Edss;
     float3 dielectric = FssEss * radiance + (Fms*Ems+kD) * irradiance;
 
+    // mix conductor with dielectric
     float3 color = mix(dielectric, conductor, metalness);
 
+    // occlusion
     color *= occlusion;
+
+    // emission
+    float3 emission = emissionMap.sample(sampler, in.uv0).rgb;
+    color = max(float3(0, 0, 0), color);
+    color += emission;
+
     return half4(float4(color, 1.0f));
 }

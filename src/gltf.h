@@ -14,32 +14,12 @@
 
 static constexpr size_t invalidIndex = std::numeric_limits<size_t>::max();
 
-enum class GltfMaterialType
-{
-    Unlit,
-    Pbr
-};
-
-struct GltfMaterialUnlit
-{
-    size_t baseColorMap = invalidIndex; // texture index
-};
-
 struct GltfMaterialPbr
 {
     size_t baseColorMap = invalidIndex; // texture index
     size_t metallicRoughnessMap = invalidIndex; // texture index
     size_t normalMap = invalidIndex; // texture index
-};
-
-struct GltfMaterial
-{
-    GltfMaterialType type = GltfMaterialType::Unlit;
-    union
-    {
-        GltfMaterialUnlit unlit{};
-        GltfMaterialPbr pbr;
-    };
+    size_t emissionMap = invalidIndex; // texture index
 };
 
 struct GltfVertexAttribute
@@ -90,7 +70,7 @@ struct GltfModel
     // data
     std::vector<GltfMesh> meshes;
     std::vector<id <MTLTexture>> textures;
-    std::vector<GltfMaterial> materials;
+    std::vector<GltfMaterialPbr> materials;
 
     // scenes
     std::vector<GltfScene> scenes;

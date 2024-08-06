@@ -1213,11 +1213,11 @@ void onLaunch(App* app)
         success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "the_d-21_multi-missions_ugv.glb", &app->gltfUgv);
         assert(success);
 
-//        success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfCathedral);
-//        assert(success);
-//
-//        success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
-//        assert(success);
+        success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfCathedral);
+        assert(success);
+
+        success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
+        assert(success);
     }
 
     // create brdf lookup texture (same for all skyboxes)
@@ -1444,6 +1444,11 @@ struct GltfPbrInstanceData
     glm::mat4 localToWorldTransposedInverse;
 };
 
+[[nodiscard]] bool isValidTexture(GltfModel* model, size_t index)
+{
+    return index != invalidIndex && model->textures.size() > index;
+}
+
 void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, GltfPrimitive* primitive)
 {
     // bind vertex attributes
@@ -1481,41 +1486,17 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
     // set material
     if (primitive->material != invalidIndex)
     {
-        GltfMaterial* material = &model->materials[primitive->material];
-        switch (material->type)
-        {
-            case GltfMaterialType::Unlit:
-            {
-                [encoder setRenderPipelineState:app->shaderUnlit];
-                break;
-            }
-            case GltfMaterialType::Pbr:
-            {
-                [encoder setRenderPipelineState:app->shaderGltfPbr];
-                GltfMaterialPbr pbr = material->pbr;
-                if (pbr.baseColorMap != invalidIndex && model->textures.size() > pbr.baseColorMap)
-                {
-                    id <MTLTexture> texture = model->textures[pbr.baseColorMap];
-                    [encoder setFragmentTexture:texture atIndex:bindings::baseColorMap];
-                }
-                if (pbr.normalMap != invalidIndex && model->textures.size() > pbr.normalMap)
-                {
-                    id <MTLTexture> texture = model->textures[pbr.normalMap];
-                    [encoder setFragmentTexture:texture atIndex:bindings::normalMap];
-                }
-                if (pbr.metallicRoughnessMap != invalidIndex && model->textures.size() > pbr.metallicRoughnessMap)
-                {
-                    id <MTLTexture> texture = model->textures[pbr.metallicRoughnessMap];
-                    [encoder setFragmentTexture:texture atIndex:bindings::metallicRoughnessMap];
-                }
-                break;
-            }
-        }
-    }
-    else
-    {
-        // render with default material
-        assert(false && "not implemented");
+        GltfMaterialPbr pbr = model->materials[primitive->material];
+
+        id <MTLTexture> baseColor = isValidTexture(model, pbr.baseColorMap) ? model->textures[pbr.baseColorMap] : nullptr;
+        id <MTLTexture> normal = isValidTexture(model, pbr.normalMap) ? model->textures[pbr.normalMap] : nullptr;
+        id <MTLTexture> metallicRoughness = isValidTexture(model, pbr.metallicRoughnessMap) ? model->textures[pbr.metallicRoughnessMap] : nullptr;
+        id <MTLTexture> emission = isValidTexture(model, pbr.emissionMap) ? model->textures[pbr.emissionMap] : nullptr;
+
+        [encoder setFragmentTexture:baseColor atIndex:bindings::baseColorMap];
+        [encoder setFragmentTexture:normal atIndex:bindings::normalMap];
+        [encoder setFragmentTexture:metallicRoughness atIndex:bindings::metallicRoughnessMap];
+        [encoder setFragmentTexture:emission atIndex:bindings::emissionMap];
     }
 
     GltfPbrFragmentData fragmentData{
@@ -1555,6 +1536,7 @@ void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel
 {
     [encoder setCullMode:MTLCullModeBack];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+    [encoder setRenderPipelineState:app->shaderGltfPbr];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
     // traverse scene
@@ -1678,10 +1660,9 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     // draw gltfs
     if (1)
     {
-        //drawGltf(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(2, 2, 2)));
         drawGltfPbr(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(10, 10, 10)));
-        //drawGltf(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
-        //drawGltf(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 10, 0)));
+        drawGltfPbr(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
+        drawGltfPbr(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 10, 0)));
     }
 
     // draw pbr (not textured yet)
