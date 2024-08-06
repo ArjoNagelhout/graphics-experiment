@@ -310,13 +310,13 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
             cgltf_texture* baseColor = mat.base_color_texture.texture;
             if (baseColor != nullptr)
             {
-                outMaterial->baseColor = cgltf_image_index(cgltfData, baseColor->image);
+                outMaterial->baseColorMap = cgltf_image_index(cgltfData, baseColor->image);
             }
 
             cgltf_texture* metallicRoughness = mat.metallic_roughness_texture.texture;
             if (metallicRoughness != nullptr)
             {
-                outMaterial->metallicRoughness = cgltf_image_index(cgltfData, metallicRoughness->image);
+                outMaterial->metallicRoughnessMap = cgltf_image_index(cgltfData, metallicRoughness->image);
             }
 
             cgltf_texture* emissive = material->emissive_texture.texture;

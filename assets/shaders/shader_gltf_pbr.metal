@@ -60,8 +60,6 @@ vertex GltfPbrRasterizerData gltf_pbr_vertex(
 struct GltfPbrFragmentData
 {
     float3 cameraPosition;
-    float roughness;
-    float3 color;
     uint mipLevels;
 };
 
@@ -78,6 +76,11 @@ fragment half4 gltf_pbr_fragment(
 {
     constexpr sampler mipSampler(address::repeat, filter::linear, mip_filter::linear);
     constexpr sampler sampler(address::repeat, filter::linear);
+
+    float3 occlusionMetalnessRoughness = metallicRoughnessMap.sample(sampler, in.uv0).rgb;
+    float occlusion = occlusionMetalnessRoughness.r;
+    float metalness = occlusionMetalnessRoughness.g;
+    float roughness = occlusionMetalnessRoughness.b;
 
     // normal mapping
     float3x3 normalToWorld = float3x3(
@@ -102,14 +105,14 @@ fragment half4 gltf_pbr_fragment(
 
     // F0 is the color when the normal faces the camera
     float3 F0 = baseColorMap.sample(sampler, in.uv0).rgb;
-    float3 Fr = max(float3(1.0f - data.roughness), F0) - F0;
+    float3 Fr = max(float3(1.0f - roughness), F0) - F0;
 
     float3 kS = F0 + Fr * pow(1.0f - nDotV, 5.0f);
 
-    float2 f_ab = brdfLookupTexture.sample(sampler, float2(nDotV, clamp(data.roughness, 0.001f, 0.999f))).rg;
+    float2 f_ab = brdfLookupTexture.sample(sampler, float2(nDotV, clamp(roughness, 0.001f, 0.999f))).rg;
     float3 FssEss = kS * f_ab.x + f_ab.y;
 
-    float mipLevel = data.roughness * data.mipLevels;
+    float mipLevel = roughness * data.mipLevels;
     float3 radiance = prefilteredEnvironmentMap.sample(mipSampler, outDirectionUv, level(mipLevel)).rgb;
 
     float3 irradiance = irradianceMap.sample(sampler, normalUv).rgb;
@@ -121,5 +124,7 @@ fragment half4 gltf_pbr_fragment(
     float3 Fms = FssEss * Favg / (1.0f - (1.0f - Ess) * Favg);
 
     // conductor
-    return half4(float4(FssEss * radiance + Fms * Ems * irradiance, 1.0f));
+    float3 color = FssEss * radiance + Fms * Ems * irradiance;
+    color *= occlusion;
+    return half4(float4(color, 1.0f));
 }

@@ -17,8 +17,8 @@ static constexpr size_t invalidIndex = std::numeric_limits<size_t>::max();
 struct GltfMaterial
 {
     // texture indices
-    size_t baseColor = invalidIndex;
-    size_t metallicRoughness = invalidIndex;
+    size_t baseColorMap = invalidIndex;
+    size_t metallicRoughnessMap = invalidIndex;
     size_t normalMap = invalidIndex;
 };
 

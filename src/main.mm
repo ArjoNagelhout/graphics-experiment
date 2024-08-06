@@ -1464,9 +1464,9 @@ void drawGltfPrimitive(id <MTLRenderCommandEncoder> encoder, GltfModel* model, G
     if (primitive->material != invalidIndex)
     {
         GltfMaterial* mat = &model->materials[primitive->material];
-        if (mat->baseColor != invalidIndex)
+        if (mat->baseColorMap != invalidIndex)
         {
-            id <MTLTexture> texture = model->textures[mat->baseColor];
+            id <MTLTexture> texture = model->textures[mat->baseColorMap];
             [encoder setFragmentTexture:texture atIndex:0];
         }
     }
@@ -1543,8 +1543,6 @@ void drawGltf(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* m
 struct GltfPbrFragmentData
 {
     simd_float3 cameraPosition;
-    float roughness;
-    simd_float3 color;
     uint mipLevels;
 };
 
@@ -1592,9 +1590,9 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
     if (primitive->material != invalidIndex)
     {
         GltfMaterial* mat = &model->materials[primitive->material];
-        if (mat->baseColor != invalidIndex && model->textures.size() > mat->baseColor)
+        if (mat->baseColorMap != invalidIndex && model->textures.size() > mat->baseColorMap)
         {
-            id <MTLTexture> texture = model->textures[mat->baseColor];
+            id <MTLTexture> texture = model->textures[mat->baseColorMap];
             [encoder setFragmentTexture:texture atIndex:bindings::baseColorMap];
         }
         if (mat->normalMap != invalidIndex && model->textures.size() > mat->normalMap)
@@ -1602,12 +1600,15 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
             id <MTLTexture> texture = model->textures[mat->normalMap];
             [encoder setFragmentTexture:texture atIndex:bindings::normalMap];
         }
+        if (mat->metallicRoughnessMap != invalidIndex && model->textures.size() > mat->metallicRoughnessMap)
+        {
+            id <MTLTexture> texture = model->textures[mat->metallicRoughnessMap];
+            [encoder setFragmentTexture:texture atIndex:bindings::metallicRoughnessMap];
+        }
     }
 
     GltfPbrFragmentData fragmentData{
         .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
-        .roughness = app->currentRoughness,//(float)x / 10.0f,
-        .color = app->currentColor, // simd_float3{1.0f - (float)y / 10.0f, 1.0f, 1},
         .mipLevels = app->mipLevels
     };
     [encoder setFragmentBytes:&fragmentData length:sizeof(GltfPbrFragmentData) atIndex:bindings::globalFragmentData];
