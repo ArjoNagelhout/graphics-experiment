@@ -40,42 +40,50 @@ List of features to implement or techniques to experiment with. This list is nei
 - [ ] Gltf import with stride of 16 bytes instead of 12 for vector3, this is better for alignment. packed_float3 is not ideal.
 - [ ] Scene file format -> utilize GLTF instead of inventing own scene model
 - [ ] Collision (terrain collider, box collider)
+- [ ] Asynchronous loading and decoding of png / jpeg
+- [ ] Caching of imported textures / other assets
 
 #### Rendering techniques
+- [X] Directional light shadow mapping
 - [X] Blinn phong shading
 - [X] Fog
 - [X] Skybox (panoramic / 360 spherical)
 - [X] Compilation of shader variants
 - [ ] PBR shading (OpenPBR Surface)
-     - [X] conductor
-     - [ ] dielectric
-     - [ ] subsurface
+  - [X] conductors
+  - [X] dielectrics
+  - [ ] subsurface
+  - [ ] transmission
+  - [ ] coat
+  - [ ] glass
 - [ ] Deferred rendering (gbuffer etc., support many non-image based lights)
-- [ ] Point lights, area lights, spot lights
+- [ ] Point lights, area lights, spot lights, directional lights
 - [ ] Animation / rigging of a mesh, skinning
-- [ ] Multiple light sources (point light, directional light, colored lights) probably best with deferred rendering
 - [ ] Automatic mip-mapping of textures for better interpolation at grazing angles
-- [ ] Lens flare / post-processing effects
 - [ ] Raytracing reflections, denoising
 - [ ] Ambient occlusion baking using path tracing
-- [ ] Screen-space ambient occlusion
-- [ ] Screen space reflections
-- [ ] Use cubemaps instead of equirectangular projection
-- [ ] HDR support from image based lighting
 - [ ] Specular reflection probes / environment probes
+- [ ] Screen space reflections
+- [ ] Screen-space ambient occlusion
+- [ ] Lens flare / post-processing effects
+- [ ] Support cubemaps instead of equirectangular projection
+- [ ] HDR support for image based lighting
 - [ ] Terrain system
-     - [ ] Terrain normals (calculate derivatives for perlin noise terrain)
-     - [ ] Grass / foliage / tree shader (animated with wind etc.)
-     - [ ] Terrain chunks
-- [ ] Particle system
-- [ ] Water shader
+  - [ ] Heightmaps
+  - [ ] Erosion / simulation
+  - [ ] Tri-planar mapping
+  - [ ] Terrain chunks / LOD system
+- [ ] Particle systems (fire)
+- [ ] Volumetrics / volumetric fog
+- [ ] Grass / foliage / tree vertex shader (animated with wind etc.)
+- [ ] Water / ocean shader
 - [ ] Hair shader
-- [ ] Skin shader
+- [ ] Skin shader (optimized, subsurface scattering)
 - [ ] Frustum culling -> meshes should have bounds
-- [ ] Occlusion culling
-- [ ] LOD system
-- [ ] 3d text rendering
-- [ ] Stereoscopic rendering
+- [ ] Occlusion culling -> could be done by specific middleware? / on the GPU?
+- [ ] LOD system and blending
+- [ ] Proper text rendering (glyph caching, using truetype / opentype rendering library), use signed distance fields (SDF) for 3D text rendering. 
+- [ ] Stereoscopic rendering for VR
 
 Look at frame decompositions of games:
 - e.g. https://www.adriancourreges.com/blog/2015/11/02/gta-v-graphics-study/

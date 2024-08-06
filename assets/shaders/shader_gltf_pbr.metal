@@ -79,8 +79,8 @@ fragment half4 gltf_pbr_fragment(
 
     float3 occlusionMetalnessRoughness = metallicRoughnessMap.sample(sampler, in.uv0).rgb;
     float occlusion = occlusionMetalnessRoughness.r;
-    float metalness = occlusionMetalnessRoughness.g;
-    float roughness = occlusionMetalnessRoughness.b;
+    float roughness = occlusionMetalnessRoughness.g;
+    float metalness = occlusionMetalnessRoughness.b;
 
     // normal mapping
     float3x3 normalToWorld = float3x3(
@@ -88,7 +88,6 @@ fragment half4 gltf_pbr_fragment(
         normalize(in.worldSpaceBitangent),
         normalize(in.worldSpaceNormal)
     );
-
     float3 localNormal = normalMap.sample(sampler, in.uv0).rgb;
     localNormal = localNormal * 2.0f - 1.0f;
 
@@ -104,9 +103,10 @@ fragment half4 gltf_pbr_fragment(
     float2 normalUv = directionToUvEquirectangular(normal);
 
     // F0 is the color when the normal faces the camera
-    float3 F0 = baseColorMap.sample(sampler, in.uv0).rgb;
-    float3 Fr = max(float3(1.0f - roughness), F0) - F0;
+    float3 baseColor = baseColorMap.sample(sampler, in.uv0).rgb;
+    float3 F0 = mix(float3(0.04, 0.04, 0.04), baseColor, metalness);
 
+    float3 Fr = max(float3(1.0f - roughness), F0) - F0;
     float3 kS = F0 + Fr * pow(1.0f - nDotV, 5.0f);
 
     float2 f_ab = brdfLookupTexture.sample(sampler, float2(nDotV, clamp(roughness, 0.001f, 0.999f))).rg;
@@ -123,8 +123,18 @@ fragment half4 gltf_pbr_fragment(
     float3 Favg = F0 + (1.0f - F0) / 21;
     float3 Fms = FssEss * Favg / (1.0f - (1.0f - Ess) * Favg);
 
-    // conductor
-    float3 color = FssEss * radiance + Fms * Ems * irradiance;
+    // conductors
+    float3 conductor = FssEss * radiance + Fms * Ems * irradiance;
+
+    // dielectrics
+    float3 albedo = baseColor;
+
+    float3 Edss = 1.0f - (FssEss + Fms * Ems);
+    float3 kD = albedo * Edss;
+    float3 dielectric = FssEss * radiance + (Fms*Ems+kD) * irradiance;
+
+    float3 color = mix(dielectric, conductor, metalness);
+
     color *= occlusion;
     return half4(float4(color, 1.0f));
 }

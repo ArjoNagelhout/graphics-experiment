@@ -300,23 +300,25 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
     {
         for (int i = 0; i < cgltfData->materials_count; i++)
         {
-            GltfMaterial* outMaterial = &outModel->materials.emplace_back();
+            GltfMaterial* outMaterial = &outModel->materials.emplace_back(GltfMaterial{});
             cgltf_material* material = &cgltfData->materials[i];
             assert(material->has_pbr_metallic_roughness);
             cgltf_pbr_metallic_roughness mat = material->pbr_metallic_roughness;
 
-            outMaterial->normalMap = cgltf_image_index(cgltfData, material->normal_texture.texture->image);
+            outMaterial->type = GltfMaterialType::Pbr;
+
+            outMaterial->pbr.normalMap = cgltf_image_index(cgltfData, material->normal_texture.texture->image);
 
             cgltf_texture* baseColor = mat.base_color_texture.texture;
             if (baseColor != nullptr)
             {
-                outMaterial->baseColorMap = cgltf_image_index(cgltfData, baseColor->image);
+                outMaterial->pbr.baseColorMap = cgltf_image_index(cgltfData, baseColor->image);
             }
 
             cgltf_texture* metallicRoughness = mat.metallic_roughness_texture.texture;
             if (metallicRoughness != nullptr)
             {
-                outMaterial->metallicRoughnessMap = cgltf_image_index(cgltfData, metallicRoughness->image);
+                outMaterial->pbr.metallicRoughnessMap = cgltf_image_index(cgltfData, metallicRoughness->image);
             }
 
             cgltf_texture* emissive = material->emissive_texture.texture;

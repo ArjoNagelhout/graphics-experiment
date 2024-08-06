@@ -1426,119 +1426,11 @@ enum DrawSceneFlags_
     return glm::normalize(directionVector);
 }
 
-void drawGltfPrimitive(id <MTLRenderCommandEncoder> encoder, GltfModel* model, GltfPrimitive* primitive)
-{
-    // bind vertex attributes
-    size_t offset = 0;
-    for (auto& attribute: primitive->attributes)
-    {
-        int index = 0;
-        switch (attribute.type)
-        {
-            case cgltf_attribute_type_invalid:assert(false);
-                break;
-            case cgltf_attribute_type_position:index = bindings::positions;
-                break;
-            case cgltf_attribute_type_normal:index = bindings::normals;
-                break;
-            case cgltf_attribute_type_tangent:index = bindings::tangents;
-                break;
-            case cgltf_attribute_type_texcoord:index = bindings::uv0s;
-                break;
-            case cgltf_attribute_type_color:index = bindings::colors;
-                break;
-            case cgltf_attribute_type_joints:assert(false);
-                break;
-            case cgltf_attribute_type_weights:assert(false);
-                break;
-            case cgltf_attribute_type_custom:assert(false);
-                break;
-            case cgltf_attribute_type_max_enum:assert(false);
-                break;
-        }
-        [encoder setVertexBuffer:primitive->vertexBuffer offset:offset atIndex:index];
-        offset += attribute.size;
-    }
-
-    // set correct fragment texture
-    if (primitive->material != invalidIndex)
-    {
-        GltfMaterial* mat = &model->materials[primitive->material];
-        if (mat->baseColorMap != invalidIndex)
-        {
-            id <MTLTexture> texture = model->textures[mat->baseColorMap];
-            [encoder setFragmentTexture:texture atIndex:0];
-        }
-    }
-
-    [encoder
-        drawIndexedPrimitives:primitive->primitiveType
-        indexCount:primitive->indexCount
-        indexType:primitive->indexType
-        indexBuffer:primitive->indexBuffer
-        indexBufferOffset:0
-        instanceCount:1
-        baseVertex:0
-        baseInstance:0];
-}
-
-void drawGltfMesh(id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 localToWorld, GltfMesh* mesh)
-{
-    InstanceData instance{
-        .localToWorld = localToWorld
-    };
-    [encoder setVertexBytes:&instance length:sizeof(InstanceData) atIndex:bindings::instanceData];
-
-    for (auto& primitive: mesh->primitives)
-    {
-        drawGltfPrimitive(encoder, model, &primitive);
-    }
-}
-
 struct GltfDFSData
 {
     GltfNode* node;
     glm::mat4 localToWorld; // calculated
 };
-
-void drawGltf(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 transform)
-{
-    [encoder setCullMode:MTLCullModeNone];
-    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-    [encoder setRenderPipelineState:app->shaderGltf]; // shaderGltf];
-    [encoder setDepthStencilState:app->depthStencilStateDefault];
-
-    // traverse scene
-    GltfScene* scene = &model->scenes[0];
-
-    // dfs
-    std::stack<GltfDFSData> stack;
-    GltfNode* rootNode = &model->nodes[scene->rootNode];
-    stack.push({.node = rootNode, .localToWorld = transform});
-    while (!stack.empty())
-    {
-        GltfDFSData d = stack.top();
-        stack.pop();
-
-        // draw mesh at transform
-        if (d.node->meshIndex != invalidIndex)
-        {
-            drawGltfMesh(encoder, model, d.localToWorld, &model->meshes[d.node->meshIndex]);
-        }
-
-        // iterate over children
-        for (int i = 0; i < d.node->childNodes.size(); i++)
-        {
-            size_t childIndex = d.node->childNodes[i];
-            GltfNode* child = &model->nodes[childIndex];
-
-            // calculate localToWorld
-            glm::mat4 localToWorld = d.localToWorld * child->localTransform;
-
-            stack.push({.node = child, .localToWorld = localToWorld});
-        }
-    }
-}
 
 struct GltfPbrFragmentData
 {
@@ -1586,25 +1478,44 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
         offset += attribute.size;
     }
 
-    // set correct fragment texture
+    // set material
     if (primitive->material != invalidIndex)
     {
-        GltfMaterial* mat = &model->materials[primitive->material];
-        if (mat->baseColorMap != invalidIndex && model->textures.size() > mat->baseColorMap)
+        GltfMaterial* material = &model->materials[primitive->material];
+        switch (material->type)
         {
-            id <MTLTexture> texture = model->textures[mat->baseColorMap];
-            [encoder setFragmentTexture:texture atIndex:bindings::baseColorMap];
+            case GltfMaterialType::Unlit:
+            {
+                [encoder setRenderPipelineState:app->shaderUnlit];
+                break;
+            }
+            case GltfMaterialType::Pbr:
+            {
+                [encoder setRenderPipelineState:app->shaderGltfPbr];
+                GltfMaterialPbr pbr = material->pbr;
+                if (pbr.baseColorMap != invalidIndex && model->textures.size() > pbr.baseColorMap)
+                {
+                    id <MTLTexture> texture = model->textures[pbr.baseColorMap];
+                    [encoder setFragmentTexture:texture atIndex:bindings::baseColorMap];
+                }
+                if (pbr.normalMap != invalidIndex && model->textures.size() > pbr.normalMap)
+                {
+                    id <MTLTexture> texture = model->textures[pbr.normalMap];
+                    [encoder setFragmentTexture:texture atIndex:bindings::normalMap];
+                }
+                if (pbr.metallicRoughnessMap != invalidIndex && model->textures.size() > pbr.metallicRoughnessMap)
+                {
+                    id <MTLTexture> texture = model->textures[pbr.metallicRoughnessMap];
+                    [encoder setFragmentTexture:texture atIndex:bindings::metallicRoughnessMap];
+                }
+                break;
+            }
         }
-        if (mat->normalMap != invalidIndex && model->textures.size() > mat->normalMap)
-        {
-            id <MTLTexture> texture = model->textures[mat->normalMap];
-            [encoder setFragmentTexture:texture atIndex:bindings::normalMap];
-        }
-        if (mat->metallicRoughnessMap != invalidIndex && model->textures.size() > mat->metallicRoughnessMap)
-        {
-            id <MTLTexture> texture = model->textures[mat->metallicRoughnessMap];
-            [encoder setFragmentTexture:texture atIndex:bindings::metallicRoughnessMap];
-        }
+    }
+    else
+    {
+        // render with default material
+        assert(false && "not implemented");
     }
 
     GltfPbrFragmentData fragmentData{
@@ -1644,7 +1555,6 @@ void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel
 {
     [encoder setCullMode:MTLCullModeBack];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-    [encoder setRenderPipelineState:app->shaderGltfPbr];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
     // traverse scene
