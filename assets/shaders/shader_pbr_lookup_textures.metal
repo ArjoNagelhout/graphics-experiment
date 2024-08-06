@@ -1,4 +1,4 @@
-struct PBRIrradianceMapData
+struct PbrIrradianceMapData
 {
     uint width;
     uint height;
@@ -7,7 +7,7 @@ struct PBRIrradianceMapData
 
 // irradiance map
 kernel void pbr_create_irradiance_map(
-    device PBRIrradianceMapData const& data [[buffer(0)]],
+    device PbrIrradianceMapData const& data [[buffer(0)]],
     texture2d<float, access::sample> source [[texture(1)]],
     texture2d<float, access::write> outTexture [[texture(2)]],
     uint2 id [[thread_position_in_grid]]
@@ -53,7 +53,7 @@ float2 hammersley(uint i, uint N)
     return float2(float(i) / float(N), radicalInverse);
 }
 
-struct PBRPrefilterEnvironmentMapData
+struct PbrPrefilterEnvironmentMapData
 {
     float roughness;
     uint mipLevel;
@@ -85,7 +85,7 @@ float3 importanceSampleGGX(float2 Xi, float roughness, float3 N)
 // uses equirectangular projection
 // https://cdn2.unrealengine.com/Resources/files/2013SiggraphPresentationsNotes-26915738.pdf
 kernel void pbr_create_prefiltered_environment_map(
-    device PBRPrefilterEnvironmentMapData const& data [[buffer(0)]],
+    device PbrPrefilterEnvironmentMapData const& data [[buffer(0)]],
     texture2d<float, access::sample> source [[texture(1)]],
     texture2d<float, access::write> outView [[texture(2)]], // specific mip map level
     uint2 id [[thread_position_in_grid]]
@@ -123,7 +123,7 @@ kernel void pbr_create_prefiltered_environment_map(
     outView.write(float4(color, 1.0f), id);
 }
 
-struct PBRIntegrateBRDFData
+struct PbrIntegrateBRDFData
 {
     uint width;
     uint height;
@@ -141,7 +141,7 @@ float gSmithApproximation(float roughness, float nDotV, float nDotL)
 }
 
 kernel void pbr_create_brdf_lookup_texture(
-    device PBRIntegrateBRDFData const& data [[buffer(0)]],
+    device PbrIntegrateBRDFData const& data [[buffer(0)]],
     texture2d<float, access::write> lookupTexture [[texture(1)]],
     uint2 id [[thread_position_in_grid]]
 )

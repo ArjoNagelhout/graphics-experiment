@@ -383,7 +383,8 @@ struct App
     id <MTLRenderPipelineState> shaderUnlitAlphaBlend;
     id <MTLRenderPipelineState> shaderUnlitColored; // simplest shader possible, only uses the color
     id <MTLRenderPipelineState> shaderGltf;
-    id <MTLRenderPipelineState> shaderOpenPBRSurface; // OpenPBR Surface implementation from https://academysoftwarefoundation.github.io/OpenPBR/
+    id <MTLRenderPipelineState> shaderPbr; // OpenPbr Surface implementation from https://academysoftwarefoundation.github.io/OpenPbr/
+    id <MTLRenderPipelineState> shaderGltfPbr; // combined gltf and pbr shader
 
     // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
     id <MTLDepthStencilState> depthStencilStateClear;
@@ -393,7 +394,11 @@ struct App
     Font font;
 
     // camera
-    Transform cameraTransform;
+    Transform cameraTransform{
+        .position = glm::vec3(0, 1, -2.0f),
+        .rotation = glm::quat(1, 0, 0, 0),
+        .scale = glm::vec3(1, 1, 1)
+    };
     float cameraYaw;
     float cameraPitch;
     float cameraRoll;
@@ -408,7 +413,7 @@ struct App
     // active skybox
     id <MTLTexture> currentSkybox;
 
-    // PBR
+    // Pbr
     id <MTLTexture> prefilteredEnvironmentMap;
     id <MTLTexture> irradianceMap; // also precalculated per skybox
     std::vector<id <MTLTexture>> textureViews;
@@ -696,7 +701,7 @@ id <MTLComputePipelineState> createComputeShader(id <MTLDevice> device, id <MTLL
     return pipeline;
 }
 
-struct PBRIrradianceMapData
+struct PbrIrradianceMapData
 {
     unsigned int width;
     unsigned int height;
@@ -734,12 +739,12 @@ id <MTLTexture> createIrradianceMap(
         [encoder setComputePipelineState:pipeline];
 
         // set data
-        PBRIrradianceMapData data{
+        PbrIrradianceMapData data{
             .width = width,
             .height = height,
             .sampleCountPerRevolution = 90
         };
-        [encoder setBytes:&data length:sizeof(PBRIrradianceMapData) atIndex:0];
+        [encoder setBytes:&data length:sizeof(PbrIrradianceMapData) atIndex:0];
         [encoder setTexture:source atIndex:1];
         [encoder setTexture:outTexture atIndex:2];
 
@@ -755,7 +760,7 @@ id <MTLTexture> createIrradianceMap(
     return outTexture;
 }
 
-struct PBRPrefilterEnvironmentMapData
+struct PbrPrefilterEnvironmentMapData
 {
     float roughness;
     unsigned int mipLevel;
@@ -819,14 +824,14 @@ id <MTLTexture> createPrefilteredEnvironmentMap(
             float roughness = (float)mipLevel / (float)maxMipLevel;
 //            std::cout << "mipLevel: " << mipLevel << ", width: " << width << ", height: " << height << ", roughness: " << roughness << std::endl;
 
-            PBRPrefilterEnvironmentMapData data{
+            PbrPrefilterEnvironmentMapData data{
                 .roughness = roughness,
                 .mipLevel = mipLevel,
                 .width = width,
                 .height = height,
                 .sampleCount = 512
             };
-            [compute setBytes:&data length:sizeof(PBRPrefilterEnvironmentMapData) atIndex:0];
+            [compute setBytes:&data length:sizeof(PbrPrefilterEnvironmentMapData) atIndex:0];
 
             // create texture view for a specific mip level, so that we can write to that specific level
             id <MTLTexture> outView = [outTexture
@@ -855,7 +860,7 @@ id <MTLTexture> createPrefilteredEnvironmentMap(
     return outTexture;
 }
 
-struct PBRIntegrateBRDFData
+struct PbrIntegrateBRDFData
 {
     unsigned int width;
     unsigned int height;
@@ -864,7 +869,7 @@ struct PBRIntegrateBRDFData
 
 void onSkyboxChanged(App* app)
 {
-    // create prefiltered environment map for PBR rendering
+    // create prefiltered environment map for Pbr rendering
     id <MTLTexture> skybox = app->currentSkybox;
     app->prefilteredEnvironmentMap = createPrefilteredEnvironmentMap(
         app->device, app->library, app->commandQueue, app->currentSkybox, &app->mipLevels, &app->textureViews);
@@ -1016,7 +1021,8 @@ void onLaunch(App* app)
             shadersPath / "shader_lit.metal",
             shadersPath / "shader_unlit.metal",
             shadersPath / "shader_gltf.metal",
-            shadersPath / "shader_openpbr_surface.metal",
+            shadersPath / "shader_pbr.metal",
+            shadersPath / "shader_gltf_pbr.metal",
 
             // compute shaders
             shadersPath / "shader_pbr_lookup_textures.metal"
@@ -1068,7 +1074,8 @@ void onLaunch(App* app)
         app->shaderUnlitColored = createShader(app, @"unlit_vertex", @"unlit_colored_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         app->shaderGltf = createShader(app, @"gltf_vertex", @"gltf_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
-        app->shaderOpenPBRSurface = createShader(app, @"openpbr_surface_vertex", @"openpbr_surface_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->shaderPbr = createShader(app, @"pbr_vertex", @"pbr_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->shaderGltfPbr = createShader(app, @"gltf_pbr_vertex", @"gltf_pbr_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
     }
 
     // create depth clear pipeline state and depth stencil state
@@ -1156,15 +1163,6 @@ void onLaunch(App* app)
         app->axes = createAxes(app->device);
     }
 
-    // set camera transform
-    {
-        app->cameraTransform = {
-            .position = glm::vec3(5.0f, 5.0f, -7.0f),
-            .rotation = glm::quat(1, 0, 0, 0),
-            .scale = glm::vec3(1, 1, 1)
-        };
-    }
-
     // create terrain and trees on terrain
     if (0)
     {
@@ -1208,7 +1206,7 @@ void onLaunch(App* app)
     }
 
     // import gltfs
-    if (0)
+    if (1)
     {
         bool success;
 
@@ -1244,12 +1242,12 @@ void onLaunch(App* app)
             id <MTLCommandBuffer> commandBuffer = [app->commandQueue commandBuffer];
             id <MTLComputeCommandEncoder> compute = [commandBuffer computeCommandEncoder];
             [compute setComputePipelineState:pipeline];
-            PBRIntegrateBRDFData data{
+            PbrIntegrateBRDFData data{
                 .width = width,
                 .height = height,
                 .sampleCount = 512
             };
-            [compute setBytes:&data length:sizeof(PBRIntegrateBRDFData) atIndex:0];
+            [compute setBytes:&data length:sizeof(PbrIntegrateBRDFData) atIndex:0];
             [compute setTexture:app->brdfLookupTexture atIndex:1];
 
             MTLSize threads = MTLSizeMake(width, height, 1);
@@ -1503,7 +1501,7 @@ struct GltfDFSData
     glm::mat4 localToWorld; // calculated
 };
 
-void drawGltf(App* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 transform)
+void drawGltf(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 transform)
 {
     [encoder setCullMode:MTLCullModeNone];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1542,12 +1540,145 @@ void drawGltf(App* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, 
     }
 }
 
-struct OpenPBRSurfaceGlobalVertexData
+struct GltfPbrFragmentData
+{
+    simd_float3 cameraPosition;
+    float roughness;
+    simd_float3 color;
+    uint mipLevels;
+};
+
+struct GltfPbrInstanceData
+{
+    glm::mat4 localToWorld;
+    glm::mat4 localToWorldTransposedInverse;
+};
+
+void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, GltfPrimitive* primitive)
+{
+    // bind vertex attributes
+    size_t offset = 0;
+    for (auto& attribute: primitive->attributes)
+    {
+        int index = 0;
+        switch (attribute.type)
+        {
+            case cgltf_attribute_type_invalid:assert(false);
+                break;
+            case cgltf_attribute_type_position:index = bindings::positions;
+                break;
+            case cgltf_attribute_type_normal:index = bindings::normals;
+                break;
+            case cgltf_attribute_type_tangent:index = bindings::tangents;
+                break;
+            case cgltf_attribute_type_texcoord:index = bindings::uv0s;
+                break;
+            case cgltf_attribute_type_color:index = bindings::colors;
+                break;
+            case cgltf_attribute_type_joints:assert(false);
+                break;
+            case cgltf_attribute_type_weights:assert(false);
+                break;
+            case cgltf_attribute_type_custom:assert(false);
+                break;
+            case cgltf_attribute_type_max_enum:assert(false);
+                break;
+        }
+        [encoder setVertexBuffer:primitive->vertexBuffer offset:offset atIndex:index];
+        offset += attribute.size;
+    }
+
+    // set correct fragment texture
+    if (primitive->material != invalidIndex)
+    {
+        GltfMaterial* mat = &model->materials[primitive->material];
+        if (mat->baseColor != invalidIndex && model->textures.size() > mat->baseColor)
+        {
+            id <MTLTexture> texture = model->textures[mat->baseColor];
+            [encoder setFragmentTexture:texture atIndex:0];
+        }
+    }
+
+    GltfPbrFragmentData fragmentData{
+        .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
+        .roughness = app->currentRoughness,//(float)x / 10.0f,
+        .color = app->currentColor, // simd_float3{1.0f - (float)y / 10.0f, 1.0f, 1},
+        .mipLevels = app->mipLevels
+    };
+    [encoder setFragmentBytes:&fragmentData length:sizeof(GltfPbrFragmentData) atIndex:bindings::globalFragmentData];
+    [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:bindings::prefilteredEnvironmentMap];
+    [encoder setFragmentTexture:app->brdfLookupTexture atIndex:bindings::brdfLookupTexture];
+    [encoder setFragmentTexture:app->irradianceMap atIndex:bindings::irradianceMap];
+    [encoder
+        drawIndexedPrimitives:primitive->primitiveType
+        indexCount:primitive->indexCount
+        indexType:primitive->indexType
+        indexBuffer:primitive->indexBuffer
+        indexBufferOffset:0
+        instanceCount:1
+        baseVertex:0
+        baseInstance:0];
+}
+
+void drawGltfMeshPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 localToWorld, GltfMesh* mesh)
+{
+    GltfPbrInstanceData instance{
+        .localToWorld = localToWorld,
+        .localToWorldTransposedInverse = glm::transpose(glm::inverse(localToWorld))
+    };
+    [encoder setVertexBytes:&instance length:sizeof(GltfPbrInstanceData) atIndex:bindings::instanceData];
+
+    for (auto& primitive: mesh->primitives)
+    {
+        drawGltfPrimitivePbr(app, encoder, model, &primitive);
+    }
+}
+
+void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 transform)
+{
+    [encoder setCullMode:MTLCullModeNone];
+    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+    [encoder setRenderPipelineState:app->shaderGltfPbr];
+    [encoder setDepthStencilState:app->depthStencilStateDefault];
+
+    // traverse scene
+    GltfScene* scene = &model->scenes[0];
+
+    // dfs
+    std::stack<GltfDFSData> stack;
+    GltfNode* rootNode = &model->nodes[scene->rootNode];
+    stack.push({.node = rootNode, .localToWorld = transform});
+    while (!stack.empty())
+    {
+        GltfDFSData d = stack.top();
+        stack.pop();
+
+        // draw mesh at transform
+        if (d.node->meshIndex != invalidIndex)
+        {
+            drawGltfMeshPbr(app, encoder, model, d.localToWorld, &model->meshes[d.node->meshIndex]);
+        }
+
+        // iterate over children
+        for (int i = 0; i < d.node->childNodes.size(); i++)
+        {
+            size_t childIndex = d.node->childNodes[i];
+            GltfNode* child = &model->nodes[childIndex];
+
+            // calculate localToWorld
+            glm::mat4 localToWorld = d.localToWorld * child->localTransform;
+
+            stack.push({.node = child, .localToWorld = localToWorld});
+        }
+    }
+}
+
+struct PbrGlobalVertexData
 {
     glm::mat4 localToWorldTransposedInverse;
 };
 
-struct OpenPBRSurfaceGlobalFragmentData
+struct PbrGlobalFragmentData
 {
     simd_float3 cameraPosition;
     float roughness;
@@ -1629,15 +1760,16 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw gltfs
-    if (0)
+    if (1)
     {
-        drawGltf(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(2, 2, 2)));
+        //drawGltf(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(2, 2, 2)));
+        drawGltfPbr(app, encoder, &app->gltfUgv, glm::mat4(1));
         //drawGltf(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
         //drawGltf(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 10, 0)));
     }
 
     // draw pbr (not textured yet)
-    if (1)
+    if (0)
     {
         // for now, we store all material settings inside the fragment bytes, so that we don't have to create a separate buffer for all different material settings
         for (int x = 0; x < 10; x++)
@@ -1647,27 +1779,27 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                 // draw pbr
                 [encoder setCullMode:MTLCullModeBack];
                 [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-                [encoder setRenderPipelineState:app->shaderOpenPBRSurface];
+                [encoder setRenderPipelineState:app->shaderPbr];
                 [encoder setDepthStencilState:app->depthStencilStateDefault];
 
                 InstanceData instance{
                     .localToWorld = glm::rotate(glm::scale(glm::translate(glm::vec3(x * 6, y * 3, 0)), glm::vec3(0.5, 0.5, 0.5)),
                                                 app->time + (float)x / 6.0f + (float)y / 3.0f, glm::vec3(0, 1, 0))
                 };
-                OpenPBRSurfaceGlobalVertexData globalVertexData{
+                PbrGlobalVertexData globalVertexData{
                     .localToWorldTransposedInverse = glm::transpose(glm::inverse(instance.localToWorld))
                 };
 
                 //float roughness = 0.5f * sin(app->time) + 0.5f;
                 //std::cout << roughness << std::endl;
-                OpenPBRSurfaceGlobalFragmentData globalFragmentData{
+                PbrGlobalFragmentData globalFragmentData{
                     .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
                     .roughness = app->currentRoughness,//(float)x / 10.0f,
                     .color = app->currentColor, // simd_float3{1.0f - (float)y / 10.0f, 1.0f, 1},
                     .mipLevels = app->mipLevels
                 };
-                [encoder setVertexBytes:&globalVertexData length:sizeof(OpenPBRSurfaceGlobalVertexData) atIndex:bindings::globalVertexData];
-                [encoder setFragmentBytes:&globalFragmentData length:sizeof(OpenPBRSurfaceGlobalFragmentData) atIndex:bindings::globalFragmentData];
+                [encoder setVertexBytes:&globalVertexData length:sizeof(PbrGlobalVertexData) atIndex:bindings::globalVertexData];
+                [encoder setFragmentBytes:&globalFragmentData length:sizeof(PbrGlobalFragmentData) atIndex:bindings::globalFragmentData];
 
                 [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:bindings::prefilteredEnvironmentMap];
                 [encoder setFragmentTexture:app->brdfLookupTexture atIndex:bindings::brdfLookupTexture];

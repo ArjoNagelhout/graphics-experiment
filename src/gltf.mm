@@ -44,7 +44,7 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
     }
 
     // images
-    if (1)
+    if (0)
     {
         for (int i = 0; i < cgltfData->images_count; i++)
         {
@@ -52,7 +52,7 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
 
             if (image->uri != nullptr)
             {
-                if (strncmp(image->uri, "data:", 5) == 0)
+                if (strlen(image->uri) >= 5 && strncmp(image->uri, "data:", 5) == 0)
                 {
                     // data URI (string starts with data:content/type;base64,)
                     // todo

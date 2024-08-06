@@ -1,14 +1,58 @@
-// implementation of https://academysoftwarefoundation.github.io/OpenPBR
-// https://jcgt.org/published/0008/01/03/paper.pdf
+// non-interleaved vertex buffer layout
 
-// non-constant parameters used in the vertex function
-struct OpenPBRSurfaceGlobalVertexData
+struct GltfPbrRasterizerData
 {
+    float4 position [[position]];
+    float4 normal;
+    float2 uv0;
+    float4 color;
+    float2 lightMapUv0;
+
+    // pbr
+    float3 worldSpacePosition;
+    float3 worldSpaceNormal;
+};
+
+struct GltfPbrInstanceData
+{
+    float4x4 localToWorld;
     float4x4 localToWorldTransposedInverse;
 };
 
-// non-constant parameters used in the fragment function
-struct OpenPBRSurfaceGlobalFragmentData
+vertex GltfPbrRasterizerData gltf_pbr_vertex(
+    uint vertexId [[vertex_id]],
+    uint instanceId [[instance_id]],
+    device CameraData const& camera [[buffer(bindings::cameraData)]],
+    device GltfPbrInstanceData const* instances [[buffer(bindings::instanceData)]],
+    device packed_float3 const* positions [[buffer(bindings::positions)]],
+    device packed_float3 const* normals [[buffer(bindings::normals)]],
+    device packed_float2 const* uv0s [[buffer(bindings::uv0s)]],
+    device packed_float3 const* colors [[buffer(bindings::colors)]],
+    device packed_float2 const* lightMapUvs [[buffer(bindings::lightMapUvs)]],
+    device packed_float3 const* tangents [[buffer(bindings::tangents)]])
+{
+    GltfPbrRasterizerData out;
+    device GltfPbrInstanceData const& instance = instances[instanceId];
+
+    // vertex data non-interleaved
+    device packed_float3 const& p = positions[vertexId];
+    device packed_float3 const& normal = normals[vertexId];
+    device packed_float2 const& uv0 = uv0s[vertexId];
+
+    float4 position = instance.localToWorld * float4(p, 1.0f);
+    out.position = camera.viewProjection * position;
+    out.worldSpacePosition = position.xyz / position.w;
+
+    // calculate world-space normal
+    out.worldSpaceNormal = (instance.localToWorldTransposedInverse * float4(normal, 0.0f)).xyz;
+
+    out.uv0 = uv0;
+    out.normal = float4(normal, 1.0f);
+
+    return out;
+}
+
+struct GltfPbrFragmentData
 {
     float3 cameraPosition;
     float roughness;
@@ -16,40 +60,9 @@ struct OpenPBRSurfaceGlobalFragmentData
     uint mipLevels;
 };
 
-struct OpenPBRSurfaceRasterizerData
-{
-    float4 position [[position]];
-
-    float3 worldSpacePosition;
-    float3 worldSpaceNormal;
-};
-
-vertex OpenPBRSurfaceRasterizerData openpbr_surface_vertex(
-    uint vertexId [[vertex_id]],
-    uint instanceId [[instance_id]],
-    device CameraData const& camera [[buffer(bindings::cameraData)]],
-    device InstanceData const* instances [[buffer(bindings::instanceData)]],
-    device VertexData const* vertices [[buffer(bindings::vertexData)]],
-    device OpenPBRSurfaceGlobalVertexData const& data [[buffer(bindings::globalVertexData)]]
-)
-{
-    OpenPBRSurfaceRasterizerData out;
-    device InstanceData const& instance = instances[instanceId];
-    device VertexData const& v = vertices[vertexId];
-
-    float4 position = instance.localToWorld * v.position;
-    out.position = camera.viewProjection * position;
-    out.worldSpacePosition = position.xyz / position.w;
-
-    // calculate world-space normal
-    out.worldSpaceNormal = (data.localToWorldTransposedInverse * float4(v.normal.xyz, 0.0f)).xyz;
-
-    return out;
-}
-
-fragment half4 openpbr_surface_fragment(
-    OpenPBRSurfaceRasterizerData in [[stage_in]],
-    device OpenPBRSurfaceGlobalFragmentData const& data [[buffer(bindings::globalFragmentData)]],
+fragment half4 gltf_pbr_fragment(
+    GltfPbrRasterizerData in [[stage_in]],
+    device GltfPbrFragmentData const& data [[buffer(bindings::globalFragmentData)]],
     texture2d<half, access::sample> reflectionMap [[texture(bindings::reflectionMap)]],
     texture2d<float, access::sample> prefilteredEnvironmentMap [[texture(bindings::prefilteredEnvironmentMap)]],
     texture2d<float, access::sample> brdfLookupTexture [[texture(bindings::brdfLookupTexture)]],
