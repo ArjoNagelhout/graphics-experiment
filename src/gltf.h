@@ -22,26 +22,9 @@ struct GltfMaterialPbr
     size_t emissionMap = invalidIndex; // texture index
 };
 
-struct GltfVertexAttribute
-{
-    cgltf_attribute_type type;
-    size_t componentCount;
-    size_t size; // size of this part of the buffer
-};
-
 struct GltfPrimitive
 {
-    // buffers
-    id <MTLBuffer> vertexBuffer;
-    id <MTLBuffer> indexBuffer;
-
-    size_t vertexCount;
-    MTLPrimitiveType primitiveType;
-    MTLIndexType indexType;
-    size_t indexCount;
-
-    // attributes descriptor
-    std::vector<GltfVertexAttribute> attributes;
+    MeshDeinterleaved mesh;
 
     // material reference
     size_t material = invalidIndex;

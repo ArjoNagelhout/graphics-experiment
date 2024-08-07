@@ -9,6 +9,47 @@
 
 #import <Metal/Metal.h>
 
+#include <vector>
+
+enum class VertexAttributeType : uint16_t
+{
+    Position,
+    Normal,
+    Tangent,
+    TextureCoordinate,
+    Color,
+    Joints,
+    Weights,
+};
+
+// only floats supported right now
+struct VertexAttribute
+{
+    VertexAttributeType type;
+    uint16_t index;
+    size_t componentCount; // amount of floats per vertex (e.g. 3 for a vector3)
+    size_t size; // size of this part of the buffer
+};
+
+// todo: use grouped interleaved attributes that are grouped per pass where they are needed
+// e.g. shadow pass only needs 1., this is faster due to having less memory reads
+// 1. position (uv0 if alpha testing)
+// 2. normal, tangent, uv0, uv1, etc.
+// 3. skinning data
+// still store everything in the same buffer, only change attributes
+// generate shader based on data layout
+struct MeshDeinterleaved
+{
+    id <MTLBuffer> vertexBuffer;
+    id <MTLBuffer> indexBuffer;
+    size_t vertexCount;
+    size_t indexCount;
+    MTLPrimitiveType primitiveType;
+    MTLIndexType indexType;
+    bool indexed;
+    std::vector<VertexAttribute> attributes;
+};
+
 struct VertexData
 {
     simd_float4 position;

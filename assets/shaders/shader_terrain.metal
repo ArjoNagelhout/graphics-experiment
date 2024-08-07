@@ -4,7 +4,7 @@ vertex RasterizerDataLit terrain_vertex(
     device VertexData const* vertices [[buffer(bindings::vertexData)]],
     device CameraData const& camera [[buffer(bindings::cameraData)]],
     device InstanceData const* instances [[buffer(bindings::instanceData)]],
-    device LightData const& light [[buffer(3)]])
+    device LightData const& light [[buffer(bindings::lightData)]])
 {
     RasterizerDataLit out;
     device VertexData const& data = vertices[vertexID];

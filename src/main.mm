@@ -383,7 +383,6 @@ struct App
     id <MTLRenderPipelineState> shaderUnlit; // textured
     id <MTLRenderPipelineState> shaderUnlitAlphaBlend;
     id <MTLRenderPipelineState> shaderUnlitColored; // simplest shader possible, only uses the color
-    id <MTLRenderPipelineState> shaderGltf;
     id <MTLRenderPipelineState> shaderPbr; // OpenPbr Surface implementation from https://academysoftwarefoundation.github.io/OpenPbr/
     id <MTLRenderPipelineState> shaderGltfPbr; // combined gltf and pbr shader
 
@@ -1021,7 +1020,6 @@ void onLaunch(App* app)
             // 3D
             shadersPath / "shader_lit.metal",
             shadersPath / "shader_unlit.metal",
-            shadersPath / "shader_gltf.metal",
             shadersPath / "shader_pbr.metal",
             shadersPath / "shader_gltf_pbr.metal",
 
@@ -1074,7 +1072,6 @@ void onLaunch(App* app)
         app->shaderUnlitAlphaBlend = createShader(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
         app->shaderUnlitColored = createShader(app, @"unlit_vertex", @"unlit_colored_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
-        app->shaderGltf = createShader(app, @"gltf_vertex", @"gltf_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
         app->shaderPbr = createShader(app, @"pbr_vertex", @"pbr_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
         app->shaderGltfPbr = createShader(app, @"gltf_pbr_vertex", @"gltf_pbr_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
     }
@@ -1120,9 +1117,9 @@ void onLaunch(App* app)
         app->skybox4Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_4.png");
 
         app->iconSunTexture = importTexture(app->device, app->config->assetsPath / "textures" / "sun.png");
-//        app->terrainGreenTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain_green.png");
-//        app->terrainYellowTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain.png");
-//        app->waterTexture = importTexture(app->device, app->config->assetsPath / "textures" / "water.png");
+        app->terrainGreenTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain_green.png");
+        app->terrainYellowTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain.png");
+        app->waterTexture = importTexture(app->device, app->config->assetsPath / "textures" / "water.png");
     }
 
     // import font
@@ -1165,7 +1162,7 @@ void onLaunch(App* app)
     }
 
     // create terrain and trees on terrain
-    if (0)
+    if (1)
     {
         std::vector<VertexData> vertices{};
         std::vector<uint32_t> indices{};
@@ -1177,7 +1174,7 @@ void onLaunch(App* app)
 
         int maxIndex = (int)vertices.size();
         // create tree instances at random positions from vertex data of the terrain
-        int treeCount = 10;
+        int treeCount = 100;
         app->treeInstances.resize(treeCount);
         for (int i = 0; i < treeCount; i++)
         {
@@ -1190,7 +1187,7 @@ void onLaunch(App* app)
         }
 
         // create shrub instances
-        int shrubCount = 10;
+        int shrubCount = 100;
         app->shrubInstances.resize(shrubCount);
         for (int i = 0; i < shrubCount; i++)
         {
@@ -1214,11 +1211,11 @@ void onLaunch(App* app)
         success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "the_d-21_multi-missions_ugv.glb", &app->gltfUgv);
         assert(success);
 
-//        success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfCathedral);
-//        assert(success);
-//
-//        success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
-//        assert(success);
+        success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfCathedral);
+        assert(success);
+
+        success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
+        assert(success);
     }
 
     // create brdf lookup texture (same for all skyboxes)
@@ -1340,7 +1337,7 @@ void clearDepthBuffer(App* app, id <MTLRenderCommandEncoder> encoder)
     [encoder setDepthStencilState:app->depthStencilStateClear];
     [encoder setRenderPipelineState:app->shaderClearDepth];
 
-    // Normalized Device Coordinates of a tristrip we'll draw to clear the buffer
+    // Normalized Device Coordinates of a triangle strip we'll draw to clear the buffer
     // (the vertex shader set in pipelineDepthClear ignores all transforms and just passes these through)
     float clearCoords[8] = {
         -1, -1,
@@ -1455,31 +1452,28 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
 {
     // bind vertex attributes
     size_t offset = 0;
-    for (auto& attribute: primitive->attributes)
+    for (auto& attribute: primitive->mesh.attributes)
     {
         int index = 0;
         //@formatter:off
         switch (attribute.type)
         {
-            case cgltf_attribute_type_invalid:assert(false); break;
-            case cgltf_attribute_type_position:index = bindings::positions; break;
-            case cgltf_attribute_type_normal:index = bindings::normals; break;
-            case cgltf_attribute_type_tangent:index = bindings::tangents; break;
-            case cgltf_attribute_type_texcoord:index = bindings::uv0s; break;
-            case cgltf_attribute_type_color:index = bindings::colors; break;
-            case cgltf_attribute_type_joints:assert(false); break;
-            case cgltf_attribute_type_weights:assert(false); break;
-            case cgltf_attribute_type_custom:assert(false); break;
-            case cgltf_attribute_type_max_enum:assert(false); break;
+            case VertexAttributeType::Position: index = bindings::positions; break;
+            case VertexAttributeType::Normal: index = bindings::normals; break;
+            case VertexAttributeType::Tangent: index = bindings::tangents; break;
+            case VertexAttributeType::TextureCoordinate: index = bindings::uv0s; break;
+            case VertexAttributeType::Color: index = bindings::colors; break;
+            case VertexAttributeType::Joints: assert(false);
+            case VertexAttributeType::Weights: assert(false);
         }
         //@formatter:on
-        [encoder setVertexBuffer:primitive->vertexBuffer offset:offset atIndex:index];
+        [encoder setVertexBuffer:primitive->mesh.vertexBuffer offset:offset atIndex:index];
         offset += attribute.size;
     }
 
     // set material
-    if (primitive->material != invalidIndex)
     {
+        assert(primitive->material != invalidIndex);
         GltfMaterialPbr pbr = model->materials[primitive->material];
 
         id <MTLTexture> baseColor = isValidTexture(model, pbr.baseColorMap) ? model->textures[pbr.baseColorMap] : nullptr;
@@ -1502,10 +1496,10 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
     [encoder setFragmentTexture:app->brdfLookupTexture atIndex:bindings::brdfLookupTexture];
     [encoder setFragmentTexture:app->irradianceMap atIndex:bindings::irradianceMap];
     [encoder
-        drawIndexedPrimitives:primitive->primitiveType
-        indexCount:primitive->indexCount
-        indexType:primitive->indexType
-        indexBuffer:primitive->indexBuffer
+        drawIndexedPrimitives:primitive->mesh.primitiveType
+        indexCount:primitive->mesh.indexCount
+        indexType:primitive->mesh.indexType
+        indexBuffer:primitive->mesh.indexBuffer
         indexBufferOffset:0
         instanceCount:1
         baseVertex:0
@@ -1583,13 +1577,13 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     assert(encoder != nullptr);
 
     // draw terrain
-    if (0)
+    if (1)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shaderShadow : app->terrainShader];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->terrainGreenTexture atIndex:0];
+        [encoder setFragmentTexture:app->terrainGreenTexture atIndex:bindings::texture];
         std::vector<InstanceData> instances{
             {.localToWorld = glm::mat4(1)}//glm::rotate(app->time, glm::vec3(0, 1, 0))},
 //            {.localToWorld = glm::scale(glm::translate(glm::vec3(0, 0, 9)), glm::vec3(0.5f))},
@@ -1600,13 +1594,13 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw water
-    if (0)
+    if (1)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shaderShadow : app->waterShader];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->waterTexture atIndex:0];
+        [encoder setFragmentTexture:app->waterTexture atIndex:bindings::texture];
         InstanceData instance{
             .localToWorld = glm::mat4(1)
         };
@@ -1614,24 +1608,24 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw trees
-    if (0)
+    if (1)
     {
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:app->shaderLit];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->treeTexture atIndex:0];
+        [encoder setFragmentTexture:app->treeTexture atIndex:bindings::texture];
         drawMeshInstanced(encoder, &app->tree, &app->treeInstances);
     }
 
     // draw shrubs
-    if (0)
+    if (1)
     {
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:app->shaderLitAlphaBlend];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->shrubTexture atIndex:0];
+        [encoder setFragmentTexture:app->shrubTexture atIndex:bindings::texture];
         drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
 
         std::vector<InstanceData>* instances = &app->shrubInstances;
@@ -1655,12 +1649,12 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     if (1)
     {
         drawGltfPbr(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(10, 10, 10)));
-//        drawGltfPbr(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
-//        drawGltfPbr(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 10, 0)));
+        drawGltfPbr(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
+        drawGltfPbr(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 20, 0)));
     }
 
     // draw pbr (not textured yet)
-    if (0)
+    if (1)
     {
         // for now, we store all material settings inside the fragment bytes, so that we don't have to create a separate buffer for all different material settings
         for (int x = 0; x < 10; x++)
@@ -1836,7 +1830,7 @@ void onDraw(App* app)
             drawScene(app, encoder, DrawSceneFlags_None);
         }
 
-        // we need to sample the equirectangular projection skybox texture using spherical coordinates.
+        // we sample the equirectangular projection skybox texture using spherical coordinates.
         // the position of the camera is not taken into account
         Transform skyboxCameraTransform = app->cameraTransform;
         skyboxCameraTransform.position = glm::vec3(0);

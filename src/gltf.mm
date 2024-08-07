@@ -15,6 +15,23 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
+[[nodiscard]] VertexAttributeType convertGltfAttributeType(cgltf_attribute_type type)
+{
+    switch (type)
+    {
+        case cgltf_attribute_type_invalid: assert(false);
+        case cgltf_attribute_type_position: return VertexAttributeType::Position;
+        case cgltf_attribute_type_normal: return VertexAttributeType::Normal;
+        case cgltf_attribute_type_tangent: return VertexAttributeType::Tangent;
+        case cgltf_attribute_type_texcoord: return VertexAttributeType::TextureCoordinate;
+        case cgltf_attribute_type_color: return VertexAttributeType::Color;
+        case cgltf_attribute_type_joints: return VertexAttributeType::Joints;
+        case cgltf_attribute_type_weights: return VertexAttributeType::Weights;
+        case cgltf_attribute_type_custom: assert(false);
+        case cgltf_attribute_type_max_enum: assert(false);
+    }
+}
+
 bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfModel* outModel)
 {
     assert(exists(path));
@@ -207,25 +224,25 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                         case cgltf_primitive_type_max_enum:assert(false); break;
                     }
                     //@formatter:on
-                    outPrimitive->primitiveType = t;
+                    outPrimitive->mesh.primitiveType = t;
                 }
 
                 // get data for each attribute
-                outPrimitive->vertexCount = std::numeric_limits<size_t>::max();
+                outPrimitive->mesh.vertexCount = std::numeric_limits<size_t>::max();
                 size_t totalVertexBufferSize = 0;
                 for (int k = 0; k < primitive->attributes_count; k++)
                 {
-                    GltfVertexAttribute* outAttribute = &outPrimitive->attributes.emplace_back();
+                    VertexAttribute* outAttribute = &outPrimitive->mesh.attributes.emplace_back();
                     cgltf_attribute* attribute = &primitive->attributes[k];
-                    outAttribute->type = attribute->type;
+                    outAttribute->type = convertGltfAttributeType(attribute->type);
                     std::cout << "attribute: " << (attribute->name ? attribute->name : "") << std::endl;
 
                     assert(outPrimitive->vertexCount == std::numeric_limits<size_t>::max() || outPrimitive->vertexCount == attribute->data->count);
-                    outPrimitive->vertexCount = attribute->data->count;
+                    outPrimitive->mesh.vertexCount = attribute->data->count;
                     assert(attribute->data->component_type == cgltf_component_type_r_32f && "only float component type is implemented");
 
                     outAttribute->componentCount = cgltf_num_components(attribute->data->type);
-                    outAttribute->size = outAttribute->componentCount * sizeof(float) * outPrimitive->vertexCount;
+                    outAttribute->size = outAttribute->componentCount * sizeof(float) * outPrimitive->mesh.vertexCount;
                     totalVertexBufferSize += outAttribute->size;
                 }
 
@@ -234,11 +251,11 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                 size_t offset = 0;
                 for (int k = 0; k < primitive->attributes_count; k++)
                 {
-                    GltfVertexAttribute* outAttribute = &outPrimitive->attributes[k];
+                    VertexAttribute* outAttribute = &outPrimitive->mesh.attributes[k];
                     cgltf_attribute* attribute = &primitive->attributes[k];
 
                     auto* begin = (float*)&values[offset];
-                    size_t floatCount = outAttribute->componentCount * outPrimitive->vertexCount;
+                    size_t floatCount = outAttribute->componentCount * outPrimitive->mesh.vertexCount;
                     size_t floatsUnpacked = cgltf_accessor_unpack_floats(attribute->data, begin, floatCount);
                     assert(floatsUnpacked == floatCount);
 
@@ -248,32 +265,32 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                 // upload vertex buffer to GPU
                 {
                     MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-                    outPrimitive->vertexBuffer = [device newBufferWithBytes:values.data() length:values.size() * sizeof(float) options:options];
+                    outPrimitive->mesh.vertexBuffer = [device newBufferWithBytes:values.data() length:values.size() * sizeof(float) options:options];
                 }
 
                 // populate index buffer and upload to GPU
                 {
-                    outPrimitive->indexCount = primitive->indices->count;
+                    outPrimitive->mesh.indexCount = primitive->indices->count;
                     size_t componentSize = cgltf_component_size(primitive->indices->component_type);
                     if (componentSize == 4) // 32 bits
                     {
-                        outPrimitive->indexType = MTLIndexTypeUInt32;
+                        outPrimitive->mesh.indexType = MTLIndexTypeUInt32;
                     }
                     else if (componentSize == 2) // 16 bits
                     {
-                        outPrimitive->indexType = MTLIndexTypeUInt16;
+                        outPrimitive->mesh.indexType = MTLIndexTypeUInt16;
                     }
                     else
                     {
                         assert(false && "invalid index component type");
                     }
 
-                    std::vector<unsigned char> indexBuffer(componentSize * outPrimitive->indexCount);
-                    size_t unpackedIndices = cgltf_accessor_unpack_indices(primitive->indices, indexBuffer.data(), componentSize, outPrimitive->indexCount);
+                    std::vector<unsigned char> indexBuffer(componentSize * outPrimitive->mesh.indexCount);
+                    size_t unpackedIndices = cgltf_accessor_unpack_indices(primitive->indices, indexBuffer.data(), componentSize, outPrimitive->mesh.indexCount);
                     assert(unpackedIndices == outPrimitive->indexCount);
 
                     MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-                    outPrimitive->indexBuffer = [device
+                    outPrimitive->mesh.indexBuffer = [device
                         newBufferWithBytes:indexBuffer.data()
                         length:indexBuffer.size() * sizeof(unsigned char) options:options];
                 }
