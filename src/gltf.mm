@@ -265,7 +265,7 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                 // upload vertex buffer to GPU
                 {
                     MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-                    outPrimitive->mesh.vertexBuffer = [device newBufferWithBytes:values.data() length:values.size() * sizeof(float) options:options];
+                    outPrimitive->mesh.vertexBuffer = [device newBufferWithBytes:values.data() length:values.size() * sizeof(unsigned char) options:options];
                 }
 
                 // populate index buffer and upload to GPU

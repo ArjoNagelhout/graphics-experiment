@@ -50,6 +50,15 @@ struct MeshDeinterleaved
     std::vector<VertexAttribute> attributes;
 };
 
+[[nodiscard]] MeshDeinterleaved createMeshDeinterleaved(
+    id <MTLDevice> device,
+    std::vector<simd_float4>* positions,
+    std::vector<simd_float4>* normals,
+    std::vector<simd_float4>* colors,
+    std::vector<simd_float2>* uv0s,
+    std::vector<uint32_t>* indices, // if nullptr, this mesh is not indexed
+    MTLPrimitiveType primitiveType);
+
 struct VertexData
 {
     simd_float4 position;

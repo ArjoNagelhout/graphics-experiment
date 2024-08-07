@@ -1675,8 +1675,6 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                     .localToWorldTransposedInverse = glm::transpose(glm::inverse(instance.localToWorld))
                 };
 
-                //float roughness = 0.5f * sin(app->time) + 0.5f;
-                //std::cout << roughness << std::endl;
                 PbrGlobalFragmentData globalFragmentData{
                     .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
                     .roughness = app->currentRoughness,//(float)x / 10.0f,

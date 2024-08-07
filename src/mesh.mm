@@ -29,3 +29,77 @@ Mesh createMeshIndexed(id <MTLDevice> device, std::vector<VertexData>* vertices,
 
     return mesh;
 }
+
+MeshDeinterleaved createMeshDeinterleaved(
+    id <MTLDevice> device,
+    std::vector<simd_float4>* positions,
+    std::vector<simd_float4>* normals,
+    std::vector<simd_float4>* colors,
+    std::vector<simd_float2>* uv0s,
+    std::vector<uint32_t>* indices, // if nullptr, this mesh is not indexed
+    MTLPrimitiveType primitiveType)
+{
+    assert(positions && !positions->empty());
+
+    MeshDeinterleaved mesh{};
+    size_t offset = 0;
+    mesh.vertexCount = positions->size();
+    std::vector<VertexAttribute>* attributes = &mesh.attributes;
+
+    // positions
+    {
+        attributes->emplace_back(VertexAttribute{
+            .type = VertexAttributeType::Position,
+            .componentCount = 4
+        });
+    }
+
+    if (normals)
+    {
+        attributes->emplace_back(VertexAttribute{
+            .type = VertexAttributeType::Normal,
+            .componentCount = 4
+        });
+    }
+
+    if (colors)
+    {
+        attributes->emplace_back(VertexAttribute{
+            .type = VertexAttributeType::Color,
+            .componentCount = 4
+        });
+    }
+
+    if (uv0s)
+    {
+        attributes->emplace_back(VertexAttribute{
+            .type = VertexAttributeType::TextureCoordinate,
+            .componentCount = 2
+        });
+    }
+
+    // set sizes
+    size_t totalSize = 0;
+    for (VertexAttribute& attribute: *attributes)
+    {
+        attribute.size = attribute.componentCount * sizeof(float) * mesh.vertexCount;
+        totalSize += attribute.size;
+    }
+
+    // create vertex buffer
+    {
+        MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
+//        mesh.vertexBuffer = [device]
+    }
+
+    // indexed mesh
+    if (indices)
+    {
+        mesh.indexed = true;
+        mesh.indexType = MTLIndexTypeUInt32;
+
+        // create index buffer
+    }
+
+    return mesh;
+}
