@@ -193,27 +193,20 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                 // set primitive type
                 {
                     MTLPrimitiveType t;
+                    //@formatter:off
                     switch (primitive->type)
                     {
-                        case cgltf_primitive_type_invalid:assert(false);
-                            break;
-                        case cgltf_primitive_type_points:t = MTLPrimitiveTypePoint;
-                            break;
-                        case cgltf_primitive_type_lines:t = MTLPrimitiveTypeLine;
-                            break;
-                        case cgltf_primitive_type_line_loop:assert(false);
-                            break;
-                        case cgltf_primitive_type_line_strip:t = MTLPrimitiveTypeLineStrip;
-                            break;
-                        case cgltf_primitive_type_triangles:t = MTLPrimitiveTypeTriangle;
-                            break;
-                        case cgltf_primitive_type_triangle_strip:t = MTLPrimitiveTypeTriangleStrip;
-                            break;
-                        case cgltf_primitive_type_triangle_fan:assert(false);
-                            break;
-                        case cgltf_primitive_type_max_enum:assert(false);
-                            break;
+                        case cgltf_primitive_type_invalid:assert(false); break;
+                        case cgltf_primitive_type_points:t = MTLPrimitiveTypePoint; break;
+                        case cgltf_primitive_type_lines:t = MTLPrimitiveTypeLine; break;
+                        case cgltf_primitive_type_line_loop:assert(false); break;
+                        case cgltf_primitive_type_line_strip:t = MTLPrimitiveTypeLineStrip; break;
+                        case cgltf_primitive_type_triangles:t = MTLPrimitiveTypeTriangle; break;
+                        case cgltf_primitive_type_triangle_strip:t = MTLPrimitiveTypeTriangleStrip; break;
+                        case cgltf_primitive_type_triangle_fan:assert(false); break;
+                        case cgltf_primitive_type_max_enum:assert(false); break;
                     }
+                    //@formatter:on
                     outPrimitive->primitiveType = t;
                 }
 

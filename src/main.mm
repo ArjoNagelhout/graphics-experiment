@@ -96,7 +96,8 @@ void onSliderValueChanged(App*, int index, float value);
 
 @interface SliderDelegate : NSObject
 @property(unsafe_unretained, nonatomic) App* app;
-- (void)sliderValueChanged:(NSSlider *)sender;
+
+- (void)sliderValueChanged:(NSSlider*)sender;
 @end
 
 /*
@@ -471,7 +472,7 @@ struct App
 };
 
 @implementation SliderDelegate
-- (void)sliderValueChanged:(NSSlider *)sender {
+- (void)sliderValueChanged:(NSSlider*)sender {
     float value = sender.floatValue;
     int index = sender.tag;
     if (index == 0)
@@ -940,10 +941,10 @@ void onLaunch(App* app)
         app->sliderDelegate = [[SliderDelegate alloc] init];
         app->sliderDelegate.app = app;
 
-        NSView *containerView = [[NSView alloc] initWithFrame:NSMakeRect(50, 50, 300, 200)];
+        NSView* containerView = [[NSView alloc] initWithFrame:NSMakeRect(50, 50, 300, 200)];
         [app->splitView addSubview:containerView];
 
-        NSSlider *slider1 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 120, 100, 20)];
+        NSSlider* slider1 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 120, 100, 20)];
         slider1.minValue = 0.0f;
         slider1.maxValue = 1.0f;
         slider1.tag = 0;
@@ -951,7 +952,7 @@ void onLaunch(App* app)
         [slider1 setTarget:app->sliderDelegate];
         [slider1 setAction:@selector(sliderValueChanged:)];
 
-        NSSlider *slider2 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 80, 100, 20)];
+        NSSlider* slider2 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 80, 100, 20)];
         slider2.minValue = 0.0f;
         slider2.maxValue = 1.0f;
         slider2.tag = 1;
@@ -959,7 +960,7 @@ void onLaunch(App* app)
         [slider2 setTarget:app->sliderDelegate];
         [slider2 setAction:@selector(sliderValueChanged:)];
 
-        NSSlider *slider3 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 40, 100, 20)];
+        NSSlider* slider3 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 40, 100, 20)];
         slider3.minValue = 0.0f;
         slider3.maxValue = 1.0f;
         slider3.tag = 2;
@@ -967,7 +968,7 @@ void onLaunch(App* app)
         [slider3 setTarget:app->sliderDelegate];
         [slider3 setAction:@selector(sliderValueChanged:)];
 
-        NSSlider *slider4 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 200, 100, 20)];
+        NSSlider* slider4 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 200, 100, 20)];
         slider4.minValue = 0.0f;
         slider4.maxValue = 1.0f;
         slider4.tag = 3;
@@ -1213,11 +1214,11 @@ void onLaunch(App* app)
         success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "the_d-21_multi-missions_ugv.glb", &app->gltfUgv);
         assert(success);
 
-        success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfCathedral);
-        assert(success);
-
-        success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
-        assert(success);
+//        success = importGltf(app->device, app->config->assetsPath / "gltf" / "cathedral.glb", &app->gltfCathedral);
+//        assert(success);
+//
+//        success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
+//        assert(success);
     }
 
     // create brdf lookup texture (same for all skyboxes)
@@ -1261,7 +1262,8 @@ void onLaunch(App* app)
     }
 
     app->currentSkybox = app->skyboxTexture;
-    onSkyboxChanged(app); // creates prefiltered environment map and irradiance map for the currently active skybox (should be cached, but not important for now)
+    onSkyboxChanged(
+        app); // creates prefiltered environment map and irradiance map for the currently active skybox (should be cached, but not important for now)
 
     // make window active
     [app->window makeKeyAndOrderFront:NSApp];
@@ -1456,29 +1458,21 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
     for (auto& attribute: primitive->attributes)
     {
         int index = 0;
+        //@formatter:off
         switch (attribute.type)
         {
-            case cgltf_attribute_type_invalid:assert(false);
-                break;
-            case cgltf_attribute_type_position:index = bindings::positions;
-                break;
-            case cgltf_attribute_type_normal:index = bindings::normals;
-                break;
-            case cgltf_attribute_type_tangent:index = bindings::tangents;
-                break;
-            case cgltf_attribute_type_texcoord:index = bindings::uv0s;
-                break;
-            case cgltf_attribute_type_color:index = bindings::colors;
-                break;
-            case cgltf_attribute_type_joints:assert(false);
-                break;
-            case cgltf_attribute_type_weights:assert(false);
-                break;
-            case cgltf_attribute_type_custom:assert(false);
-                break;
-            case cgltf_attribute_type_max_enum:assert(false);
-                break;
+            case cgltf_attribute_type_invalid:assert(false); break;
+            case cgltf_attribute_type_position:index = bindings::positions; break;
+            case cgltf_attribute_type_normal:index = bindings::normals; break;
+            case cgltf_attribute_type_tangent:index = bindings::tangents; break;
+            case cgltf_attribute_type_texcoord:index = bindings::uv0s; break;
+            case cgltf_attribute_type_color:index = bindings::colors; break;
+            case cgltf_attribute_type_joints:assert(false); break;
+            case cgltf_attribute_type_weights:assert(false); break;
+            case cgltf_attribute_type_custom:assert(false); break;
+            case cgltf_attribute_type_max_enum:assert(false); break;
         }
+        //@formatter:on
         [encoder setVertexBuffer:primitive->vertexBuffer offset:offset atIndex:index];
         offset += attribute.size;
     }
@@ -1661,8 +1655,8 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     if (1)
     {
         drawGltfPbr(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(10, 10, 10)));
-        drawGltfPbr(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
-        drawGltfPbr(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 10, 0)));
+//        drawGltfPbr(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
+//        drawGltfPbr(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 10, 0)));
     }
 
     // draw pbr (not textured yet)
