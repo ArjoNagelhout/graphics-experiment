@@ -1,8 +1,6 @@
 # metal-experiment 
 
-![Screenshot 1](https://github.com/user-attachments/assets/0b9083ae-c8ad-4c41-a08e-1b2e75acaece)
-
-![Screenshot 2](https://github.com/user-attachments/assets/350fb0de-f1a7-4661-a0fe-50d69fde9a0e)
+![Latest](Screenshot 2024-08-08 at 19 13 49" src="https://github.com/user-attachments/assets/c26fc56a-c00a-4ecd-a050-3c2b78fa6ea0)
 
 This open-ended experiment is intended to experiment with real-time graphics techniques and AEC data.
 It is desktop first, but with the intention to support VR. Two broad scopes / directions are defined hereafter:
