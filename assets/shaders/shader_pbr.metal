@@ -58,7 +58,7 @@ constant bool hasMetallicRoughnessMap [[function_constant(binding_constant::hasM
 
 fragment half4 pbr_fragment(
     GltfPbrRasterizerData in [[stage_in]],
-    device GltfPbrFragmentData const& data [[buffer(binding_fragment::globalFragmentData)]],
+    device GltfPbrFragmentData const& data [[buffer(binding_fragment::fragmentData)]],
 
     // texture maps
     texture2d<float, access::sample> baseColorMap [[texture(binding_fragment::baseColorMap)]],
@@ -76,16 +76,18 @@ fragment half4 pbr_fragment(
     constexpr sampler sampler(address::repeat, filter::linear);
 
     float3 occlusionMetalnessRoughness = metallicRoughnessMap.sample(sampler, in.uv0).rgb;
-    float occlusion = occlusionMetalnessRoughness.r;
+    float occlusion;
     float roughness;
     float metalness;
     if (hasMetallicRoughnessMap)
     {
+        occlusion = occlusionMetalnessRoughness.r;
         roughness = occlusionMetalnessRoughness.g;
         metalness = occlusionMetalnessRoughness.b;
     }
     else
     {
+        occlusion = 1.0f;
         roughness = data.roughness;
         metalness = data.metalness;
     }
@@ -106,7 +108,7 @@ fragment half4 pbr_fragment(
     }
     else
     {
-        normal = in.worldSpaceNormal;
+        normal = normalize(in.worldSpaceNormal);
     }
 
     float3 cameraDirection = normalize(in.worldSpacePosition - data.cameraPosition); // from camera position to world space vertex position

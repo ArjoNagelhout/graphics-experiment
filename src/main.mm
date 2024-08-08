@@ -1350,7 +1350,7 @@ void clearDepthBuffer(App* app, id <MTLRenderCommandEncoder> encoder)
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
-void bindMeshDeinterleavedAttributes(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh)
+void bindPrimitiveAttributes(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh)
 {
     // bind vertex attributes
     size_t offset = 0;
@@ -1374,10 +1374,9 @@ void bindMeshDeinterleavedAttributes(id <MTLRenderCommandEncoder> encoder, MeshD
     }
 }
 
-void drawMeshDeinterleavedInstanced(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, std::vector<InstanceData>* instances)
+void drawPrimitive(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, uint32_t instanceCount)
 {
-    [encoder setVertexBytes:instances->data() length:sizeof(InstanceData) * instances->size() atIndex:binding_vertex::instanceData];
-    bindMeshDeinterleavedAttributes(encoder, mesh);
+    bindPrimitiveAttributes(encoder, mesh);
     if (mesh->indexed)
     {
         [encoder
@@ -1386,7 +1385,7 @@ void drawMeshDeinterleavedInstanced(id <MTLRenderCommandEncoder> encoder, MeshDe
             indexType:mesh->indexType
             indexBuffer:mesh->indexBuffer
             indexBufferOffset:0
-            instanceCount:instances->size()
+            instanceCount:instanceCount
             baseVertex:0
             baseInstance:0];
     }
@@ -1396,31 +1395,21 @@ void drawMeshDeinterleavedInstanced(id <MTLRenderCommandEncoder> encoder, MeshDe
             drawPrimitives:mesh->primitiveType
             vertexStart:0
             vertexCount:mesh->vertexCount
-            instanceCount:instances->size()
+            instanceCount:instanceCount
             baseInstance:0];
     }
 }
 
-void drawMeshDeinterleaved(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, InstanceData* instance)
+void drawPrimitiveInstance(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, InstanceData* instance)
 {
     [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:binding_vertex::instanceData];
-    bindMeshDeinterleavedAttributes(encoder, mesh);
-    if (mesh->indexed)
-    {
-        [encoder
-            drawIndexedPrimitives:mesh->primitiveType
-            indexCount:mesh->indexCount
-            indexType:mesh->indexType
-            indexBuffer:mesh->indexBuffer
-            indexBufferOffset:0];
-    }
-    else
-    {
-        [encoder
-            drawPrimitives:mesh->primitiveType
-            vertexStart:0
-            vertexCount:mesh->vertexCount];
-    }
+    drawPrimitive(encoder, mesh, 1);
+}
+
+void drawPrimitiveInstances(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, std::vector<InstanceData>* instances)
+{
+    [encoder setVertexBytes:instances->data() length:sizeof(InstanceData) * instances->size() atIndex:binding_vertex::instanceData];
+    drawPrimitive(encoder, mesh, instances->size());
 }
 
 void setCameraData(id <MTLRenderCommandEncoder> encoder, glm::mat4 viewProjection)
@@ -1480,13 +1469,13 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
         .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
         .mipLevels = app->mipLevels
     };
-    [encoder setFragmentBytes:&fragmentData length:sizeof(GltfPbrFragmentData) atIndex:binding_fragment::globalFragmentData];
+    [encoder setFragmentBytes:&fragmentData length:sizeof(GltfPbrFragmentData) atIndex:binding_fragment::fragmentData];
     [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:binding_fragment::prefilteredEnvironmentMap];
     [encoder setFragmentTexture:app->brdfLookupTexture atIndex:binding_fragment::brdfLookupTexture];
     [encoder setFragmentTexture:app->irradianceMap atIndex:binding_fragment::irradianceMap];
 
     // draw mesh
-    bindMeshDeinterleavedAttributes(encoder, &primitive->mesh);
+    bindPrimitiveAttributes(encoder, &primitive->mesh);
     [encoder
         drawIndexedPrimitives:primitive->mesh.primitiveType
         indexCount:primitive->mesh.indexCount
@@ -1563,13 +1552,10 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shaderShadow : app->shaderTerrain];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->textureTerrainGreen atIndex:binding_fragment::texture];
-        std::vector<InstanceData> instances{
-            {.localToWorld = glm::mat4(1)}//glm::rotate(app->time, glm::vec3(0, 1, 0))},
-//            {.localToWorld = glm::scale(glm::translate(glm::vec3(0, 0, 9)), glm::vec3(0.5f))},
-//            {.localToWorld = glm::translate(glm::vec3(9, 0, 9))},
-//            {.localToWorld = glm::translate(glm::vec3(9, 0, 0))},
+        InstanceData instance{
+            .localToWorld = glm::mat4(1)
         };
-        drawMeshDeinterleavedInstanced(encoder, &app->meshTerrain, &instances);
+        drawPrimitiveInstance(encoder, &app->meshTerrain, &instance);
     }
 
     // draw water
@@ -1583,7 +1569,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         InstanceData instance{
             .localToWorld = glm::mat4(1)
         };
-        drawMeshDeinterleaved(encoder, &app->meshPlane, &instance);
+        drawPrimitiveInstance(encoder, &app->meshPlane, &instance);
     }
 
     // draw trees
@@ -1594,7 +1580,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         [encoder setRenderPipelineState:app->shaderLit];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->textureTree atIndex:binding_fragment::texture];
-        drawMeshDeinterleavedInstanced(encoder, &app->meshTree, &app->treeInstances);
+        drawPrimitiveInstances(encoder, &app->meshTree, &app->treeInstances);
     }
 
     // draw shrubs
@@ -1605,7 +1591,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         [encoder setRenderPipelineState:app->shaderLit];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->textureShrub atIndex:binding_fragment::texture];
-        drawMeshDeinterleavedInstanced(encoder, &app->meshTree, &app->shrubInstances);
+        drawPrimitiveInstances(encoder, &app->meshTree, &app->shrubInstances);
     }
 
     // draw gltfs
@@ -1616,46 +1602,47 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         drawGltfPbr(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 20, 0)));
     }
 
-    // draw pbr (not textured)
-    //if (1)
-//    {
-//        // for now, we store all material settings inside the fragment bytes, so that we don't have to create a separate buffer for all different material settings
-//        for (int x = 0; x < 10; x++)
-//        {
-//            for (int y = 0; y < 5; y++)
-//            {
-//                // draw pbr
-//                [encoder setCullMode:MTLCullModeBack];
-//                [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-//                [encoder setRenderPipelineState:app->shaderPbr];
-//                [encoder setDepthStencilState:app->depthStencilStateDefault];
-//
-//                glm::mat4 localToWorld = glm::rotate(
-//                    glm::scale(glm::translate(glm::vec3(x * 6, y * 3, 0)), glm::vec3(0.5, 0.5, 0.5)),
-//                    app->time + (float)x / 6.0f + (float)y / 3.0f, glm::vec3(0, 1, 0));
-//
-//                GltfPbrInstanceData instance{
-//                    .localToWorld = localToWorld,
-//                    .localToWorldTransposedInverse = glm::transpose(glm::inverse(localToWorld))
-//                };
-//
-//                GltfPbrFragmentData globalFragmentData{
-//                    .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
-//                    .mipLevels = app->mipLevels,
-//                    .metalness = 1.0f,
-//                    .roughness = app->currentRoughness,//(float)x / 10.0f,
-//                    .baseColor = app->currentColor, // simd_float3{1.0f - (float)y / 10.0f, 1.0f, 1},
-//                };
-//
-//                [encoder setFragmentBytes:&globalFragmentData length:sizeof(PbrGlobalFragmentData) atIndex:binding_fragment::globalFragmentData];
-//
-//                [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:binding_fragment::prefilteredEnvironmentMap];
-//                [encoder setFragmentTexture:app->brdfLookupTexture atIndex:binding_fragment::brdfLookupTexture];
-//                [encoder setFragmentTexture:app->irradianceMap atIndex:binding_fragment::irradianceMap];
-//                drawMeshDeinterleaved(encoder, &app->meshRoundedCube, &instance);
-//            }
-//        }
-//    }
+    // draw pbr, not textured, rounded cubes
+    if (1)
+    {
+        // for now, we store all material settings inside the fragment bytes, so that we don't have to create a separate buffer for all different material settings
+        for (int x = 0; x < 10; x++)
+        {
+            for (int y = 0; y < 5; y++)
+            {
+                // draw pbr
+                [encoder setCullMode:MTLCullModeBack];
+                [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+                [encoder setRenderPipelineState:app->shaderPbr];
+                [encoder setDepthStencilState:app->depthStencilStateDefault];
+
+                glm::mat4 localToWorld = glm::rotate(
+                    glm::scale(glm::translate(glm::vec3(x * 6, y * 3, 0)), glm::vec3(0.5, 0.5, 0.5)),
+                    app->time + (float)x / 6.0f + (float)y / 3.0f, glm::vec3(0, 1, 0));
+
+                GltfPbrInstanceData instance{
+                    .localToWorld = localToWorld,
+                    .localToWorldTransposedInverse = glm::transpose(glm::inverse(localToWorld))
+                };
+
+                GltfPbrFragmentData fragmentData{
+                    .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
+                    .mipLevels = app->mipLevels,
+                    .metalness = 1.0f,
+                    .roughness = app->currentRoughness,
+                    .baseColor = app->currentColor
+                };
+
+                [encoder setFragmentBytes:&fragmentData length:sizeof(GltfPbrFragmentData) atIndex:binding_fragment::fragmentData];
+                [encoder setFragmentTexture:nullptr atIndex:binding_fragment::emissionMap];
+                [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:binding_fragment::prefilteredEnvironmentMap];
+                [encoder setFragmentTexture:app->brdfLookupTexture atIndex:binding_fragment::brdfLookupTexture];
+                [encoder setFragmentTexture:app->irradianceMap atIndex:binding_fragment::irradianceMap];
+                [encoder setVertexBytes:&instance length:sizeof(GltfPbrInstanceData) atIndex:binding_vertex::instanceData];
+                drawPrimitive(encoder, &app->meshRoundedCube, 1);
+            }
+        }
+    }
 }
 
 void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transform)
@@ -1665,7 +1652,7 @@ void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transfor
     [encoder setDepthStencilState:app->depthStencilStateDefault];
     [encoder setRenderPipelineState:app->shaderUnlitColored];
     InstanceData instance{.localToWorld = transform};
-    drawMeshDeinterleaved(encoder, &app->meshAxes, &instance);
+    drawPrimitiveInstance(encoder, &app->meshAxes, &instance);
 }
 
 void drawTexture(App* app, id <MTLRenderCommandEncoder> encoder, id <MTLTexture> texture, RectMinMaxi pixelCoords)
@@ -1811,7 +1798,7 @@ void onDraw(App* app)
             InstanceData instance{
                 .localToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(10))
             };
-            drawMeshDeinterleaved(encoder, &app->meshCube, &instance);
+            drawPrimitiveInstance(encoder, &app->meshCube, &instance);
         }
 
         // clear depth buffer (sets vertex bytes at index 0)
@@ -1830,7 +1817,7 @@ void onDraw(App* app)
             InstanceData instance{
                 .localToWorld = glm::scale(transformToMatrix(&app->sunTransform), glm::vec3(0.25f))
             };
-            drawMeshDeinterleaved(encoder, &app->meshCube, &instance);
+            drawPrimitiveInstance(encoder, &app->meshCube, &instance);
         }
 
         // draw axes at sun position

@@ -32,7 +32,7 @@ namespace binding_vertex
     // fragment bindings
 namespace binding_fragment
 {
-    BINDING int globalFragmentData = 0; // same for each fragment
+    BINDING int fragmentData = 0; // same for each fragment
     BINDING int texture = 1;
     BINDING int shadowMap = 2;
     BINDING int reflectionMap = 3; // skybox or reflection probe
