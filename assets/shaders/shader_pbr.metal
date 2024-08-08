@@ -19,7 +19,7 @@ vertex GltfPbrRasterizerData pbr_vertex(
     uint vertexId [[vertex_id]],
     uint instanceId [[instance_id]],
     device CameraData const& camera [[buffer(binding_vertex::cameraData)]],
-    device GltfPbrInstanceData const* instances [[buffer(binding_vertex::instanceData)]],
+    device PbrInstanceData const* instances [[buffer(binding_vertex::instanceData)]],
 
     // vertex data
     device packed_float3 const* positions [[buffer(binding_vertex::positions)]],
@@ -35,7 +35,7 @@ vertex GltfPbrRasterizerData pbr_vertex(
     device packed_float2 const& uv0 = uv0s[vertexId];
 
     GltfPbrRasterizerData out;
-    device GltfPbrInstanceData const& instance = instances[instanceId];
+    device PbrInstanceData const& instance = instances[instanceId];
 
     float4 worldSpacePosition = instance.localToWorld * float4(position, 1.0f);
     out.position = camera.viewProjection * worldSpacePosition;
@@ -58,7 +58,7 @@ constant bool hasMetallicRoughnessMap [[function_constant(binding_constant::hasM
 
 fragment half4 pbr_fragment(
     GltfPbrRasterizerData in [[stage_in]],
-    device GltfPbrFragmentData const& data [[buffer(binding_fragment::fragmentData)]],
+    device PbrFragmentData const& data [[buffer(binding_fragment::fragmentData)]],
 
     // texture maps
     texture2d<float, access::sample> baseColorMap [[texture(binding_fragment::baseColorMap)]],

@@ -38,7 +38,7 @@ struct VertexAttribute
 // 3. skinning data
 // still store everything in the same buffer, only change attributes
 // generate shader based on data layout
-struct MeshDeinterleaved
+struct PrimitiveDeinterleaved
 {
     id <MTLBuffer> vertexBuffer;
     id <MTLBuffer> indexBuffer;
@@ -82,7 +82,7 @@ struct MeshDeinterleavedDescriptor
     MTLPrimitiveType primitiveType = MTLPrimitiveTypeTriangle;
 };
 
-[[nodiscard]] MeshDeinterleaved createMeshDeinterleaved(
+[[nodiscard]] PrimitiveDeinterleaved createMeshDeinterleaved(
     id <MTLDevice> device,
     MeshDeinterleavedDescriptor* descriptor);
 

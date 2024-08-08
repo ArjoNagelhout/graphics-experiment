@@ -68,7 +68,7 @@ namespace binding_constant
 #define MATRIX4X4 float4x4
 #endif
 
-struct GltfPbrFragmentData
+struct PbrFragmentData
 {
     FLOAT3 cameraPosition;
     unsigned int mipLevels;
@@ -79,7 +79,7 @@ struct GltfPbrFragmentData
     FLOAT3 baseColor;
 };
 
-struct GltfPbrInstanceData
+struct PbrInstanceData
 {
     MATRIX4X4 localToWorld;
     MATRIX4X4 localToWorldTransposedInverse;

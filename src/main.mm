@@ -424,17 +424,17 @@ struct App
     float currentRoughness = 0.0f;
 
     // primitives
-    MeshDeinterleaved meshCube;
-    MeshDeinterleaved meshCubeWithoutUV;
-    MeshDeinterleaved meshRoundedCube;
-    MeshDeinterleaved meshSphere;
-    MeshDeinterleaved meshPlane;
+    PrimitiveDeinterleaved meshCube;
+    PrimitiveDeinterleaved meshCubeWithoutUV;
+    PrimitiveDeinterleaved meshRoundedCube;
+    PrimitiveDeinterleaved meshSphere;
+    PrimitiveDeinterleaved meshPlane;
 
     // axes
-    MeshDeinterleaved meshAxes;
+    PrimitiveDeinterleaved meshAxes;
 
     // terrain
-    MeshDeinterleaved meshTerrain;
+    PrimitiveDeinterleaved meshTerrain;
     id <MTLRenderPipelineState> shaderTerrain;
     id <MTLRenderPipelineState> shaderWater;
     id <MTLTexture> textureTerrainGreen;
@@ -442,7 +442,7 @@ struct App
     id <MTLTexture> textureWater;
 
     // tree
-    MeshDeinterleaved meshTree;
+    PrimitiveDeinterleaved meshTree;
     id <MTLTexture> textureTree;
     std::vector<InstanceData> treeInstances;
 
@@ -1350,7 +1350,7 @@ void clearDepthBuffer(App* app, id <MTLRenderCommandEncoder> encoder)
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
-void bindPrimitiveAttributes(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh)
+void bindPrimitiveAttributes(id <MTLRenderCommandEncoder> encoder, PrimitiveDeinterleaved* mesh)
 {
     // bind vertex attributes
     size_t offset = 0;
@@ -1374,7 +1374,7 @@ void bindPrimitiveAttributes(id <MTLRenderCommandEncoder> encoder, MeshDeinterle
     }
 }
 
-void drawPrimitive(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, uint32_t instanceCount)
+void drawPrimitive(id <MTLRenderCommandEncoder> encoder, PrimitiveDeinterleaved* mesh, uint32_t instanceCount)
 {
     bindPrimitiveAttributes(encoder, mesh);
     if (mesh->indexed)
@@ -1400,13 +1400,13 @@ void drawPrimitive(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh
     }
 }
 
-void drawPrimitiveInstance(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, InstanceData* instance)
+void drawPrimitiveInstance(id <MTLRenderCommandEncoder> encoder, PrimitiveDeinterleaved* mesh, InstanceData* instance)
 {
     [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:binding_vertex::instanceData];
     drawPrimitive(encoder, mesh, 1);
 }
 
-void drawPrimitiveInstances(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, std::vector<InstanceData>* instances)
+void drawPrimitiveInstances(id <MTLRenderCommandEncoder> encoder, PrimitiveDeinterleaved* mesh, std::vector<InstanceData>* instances)
 {
     [encoder setVertexBytes:instances->data() length:sizeof(InstanceData) * instances->size() atIndex:binding_vertex::instanceData];
     drawPrimitive(encoder, mesh, instances->size());
@@ -1465,11 +1465,11 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
         [encoder setFragmentTexture:emission atIndex:binding_fragment::emissionMap];
     }
 
-    GltfPbrFragmentData fragmentData{
+    PbrFragmentData fragmentData{
         .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
         .mipLevels = app->mipLevels
     };
-    [encoder setFragmentBytes:&fragmentData length:sizeof(GltfPbrFragmentData) atIndex:binding_fragment::fragmentData];
+    [encoder setFragmentBytes:&fragmentData length:sizeof(PbrFragmentData) atIndex:binding_fragment::fragmentData];
     [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:binding_fragment::prefilteredEnvironmentMap];
     [encoder setFragmentTexture:app->brdfLookupTexture atIndex:binding_fragment::brdfLookupTexture];
     [encoder setFragmentTexture:app->irradianceMap atIndex:binding_fragment::irradianceMap];
@@ -1489,11 +1489,11 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
 
 void drawGltfMeshPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 localToWorld, GltfMesh* mesh)
 {
-    GltfPbrInstanceData instance{
+    PbrInstanceData instance{
         .localToWorld = localToWorld,
         .localToWorldTransposedInverse = glm::transpose(glm::inverse(localToWorld))
     };
-    [encoder setVertexBytes:&instance length:sizeof(GltfPbrInstanceData) atIndex:binding_vertex::instanceData];
+    [encoder setVertexBytes:&instance length:sizeof(PbrInstanceData) atIndex:binding_vertex::instanceData];
 
     for (auto& primitive: mesh->primitives)
     {
@@ -1620,12 +1620,12 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                     glm::scale(glm::translate(glm::vec3(x * 6, y * 3, 0)), glm::vec3(0.5, 0.5, 0.5)),
                     app->time + (float)x / 6.0f + (float)y / 3.0f, glm::vec3(0, 1, 0));
 
-                GltfPbrInstanceData instance{
+                PbrInstanceData instance{
                     .localToWorld = localToWorld,
                     .localToWorldTransposedInverse = glm::transpose(glm::inverse(localToWorld))
                 };
 
-                GltfPbrFragmentData fragmentData{
+                PbrFragmentData fragmentData{
                     .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
                     .mipLevels = app->mipLevels,
                     .metalness = 1.0f,
@@ -1633,12 +1633,12 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                     .baseColor = app->currentColor
                 };
 
-                [encoder setFragmentBytes:&fragmentData length:sizeof(GltfPbrFragmentData) atIndex:binding_fragment::fragmentData];
+                [encoder setFragmentBytes:&fragmentData length:sizeof(PbrFragmentData) atIndex:binding_fragment::fragmentData];
                 [encoder setFragmentTexture:nullptr atIndex:binding_fragment::emissionMap];
                 [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:binding_fragment::prefilteredEnvironmentMap];
                 [encoder setFragmentTexture:app->brdfLookupTexture atIndex:binding_fragment::brdfLookupTexture];
                 [encoder setFragmentTexture:app->irradianceMap atIndex:binding_fragment::irradianceMap];
-                [encoder setVertexBytes:&instance length:sizeof(GltfPbrInstanceData) atIndex:binding_vertex::instanceData];
+                [encoder setVertexBytes:&instance length:sizeof(PbrInstanceData) atIndex:binding_vertex::instanceData];
                 drawPrimitive(encoder, &app->meshRoundedCube, 1);
             }
         }

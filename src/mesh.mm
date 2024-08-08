@@ -2,13 +2,13 @@
 
 #include <vector>
 
-[[nodiscard]] MeshDeinterleaved createMeshDeinterleaved(
+[[nodiscard]] PrimitiveDeinterleaved createMeshDeinterleaved(
     id <MTLDevice> device,
     MeshDeinterleavedDescriptor* descriptor)
 {
     assert(descriptor->positions && !descriptor->positions->empty());
 
-    MeshDeinterleaved mesh{};
+    PrimitiveDeinterleaved mesh{};
     mesh.vertexCount = descriptor->positions->size();
     std::vector<VertexAttribute>* attributes = &mesh.attributes;
     mesh.primitiveType = descriptor->primitiveType;

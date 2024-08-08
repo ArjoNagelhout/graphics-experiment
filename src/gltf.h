@@ -24,7 +24,7 @@ struct GltfMaterialPbr
 
 struct GltfPrimitive
 {
-    MeshDeinterleaved mesh;
+    PrimitiveDeinterleaved mesh;
 
     // material reference
     size_t material = invalidIndex;

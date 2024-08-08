@@ -200,7 +200,7 @@ int roundedCubeCreateBottomFace(RoundedCubeData* data, int t, int ring)
     return t;
 }
 
-MeshDeinterleaved createRoundedCube(id <MTLDevice> device, simd_float3 size, float cornerRadius, int cornerDivisions)
+PrimitiveDeinterleaved createRoundedCube(id <MTLDevice> device, simd_float3 size, float cornerRadius, int cornerDivisions)
 {
     float smallestSize = std::numeric_limits<float>::max();
     for (int i = 0; i < 3; i++)
@@ -287,7 +287,7 @@ MeshDeinterleaved createRoundedCube(id <MTLDevice> device, simd_float3 size, flo
 // sphere
 //-------------------------------
 
-MeshDeinterleaved createUVSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDivisions)
+PrimitiveDeinterleaved createUVSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDivisions)
 {
     constexpr float angleCorrectionForCenterAlign = -0.5f * pi_;
 
@@ -346,7 +346,7 @@ MeshDeinterleaved createUVSphere(id <MTLDevice> device, int horizontalDivisions,
 // cube without uv
 //-------------------------------
 
-MeshDeinterleaved createCubeWithoutUV(id <MTLDevice> device)
+PrimitiveDeinterleaved createCubeWithoutUV(id <MTLDevice> device)
 {
     float s = 1.0f;
     std::vector<float3> positions{
@@ -378,7 +378,7 @@ MeshDeinterleaved createCubeWithoutUV(id <MTLDevice> device)
 // cube
 //-------------------------------
 
-MeshDeinterleaved createCube(id <MTLDevice> device)
+PrimitiveDeinterleaved createCube(id <MTLDevice> device)
 {
     float uvmin = 0.0f;
     float uvmax = 1.0f;
@@ -466,7 +466,7 @@ MeshDeinterleaved createCube(id <MTLDevice> device)
 // plane
 //-------------------------------
 
-MeshDeinterleaved createPlane(id <MTLDevice> device, RectMinMaxf extents)
+PrimitiveDeinterleaved createPlane(id <MTLDevice> device, RectMinMaxf extents)
 {
     std::vector<float3> positions{
         {extents.minX, 0, extents.minY},
@@ -492,7 +492,7 @@ MeshDeinterleaved createPlane(id <MTLDevice> device, RectMinMaxf extents)
 // tree
 //-------------------------------
 
-MeshDeinterleaved createTree(id <MTLDevice> device, float width, float height)
+PrimitiveDeinterleaved createTree(id <MTLDevice> device, float width, float height)
 {
     std::vector<float3> positions{
         {-width / 2, 0, 0},
@@ -577,7 +577,7 @@ void createTerrain(
 // axes
 //-------------------------------
 
-MeshDeinterleaved createAxes(id <MTLDevice> device)
+PrimitiveDeinterleaved createAxes(id <MTLDevice> device)
 {
     std::vector<uint32_t> indices;
     std::vector<uint32_t> indicesTemplate{
