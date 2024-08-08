@@ -8,10 +8,10 @@ struct SkyboxRasterizerData
 vertex SkyboxRasterizerData skybox_vertex(
     uint vertexId [[vertex_id]],
     uint instanceId [[instance_id]],
-    device CameraData const& camera [[buffer(bindings::cameraData)]],
+    device CameraData const& camera [[buffer(binding_vertex::cameraData)]],
 
     // vertex data
-    device packed_float3 const* positions [[buffer(bindings::positions)]]
+    device packed_float3 const* positions [[buffer(binding_vertex::positions)]]
 )
 {
     SkyboxRasterizerData out;
@@ -27,7 +27,7 @@ vertex SkyboxRasterizerData skybox_vertex(
 
 fragment half4 skybox_fragment(
     SkyboxRasterizerData in [[stage_in]],
-    texture2d<half, access::sample> tex [[texture(bindings::texture)]])
+    texture2d<half, access::sample> tex [[texture(binding_fragment::texture)]])
 {
     // the GPU's rasterizer performs linear interpolation
     // linearly interpolating between two normalized vectors does not result in a

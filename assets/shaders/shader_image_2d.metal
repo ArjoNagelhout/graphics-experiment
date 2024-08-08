@@ -12,7 +12,7 @@ struct Image2dRasterizerData
 
 vertex Image2dRasterizerData image_2d_vertex(
     uint vertexID [[vertex_id]],
-    device Image2dVertexData const* vertices [[buffer(bindings::vertexData)]])
+    device Image2dVertexData const* vertices [[buffer(binding_vertex::vertexData)]])
 {
     Image2dRasterizerData out;
     device Image2dVertexData const& data = vertices[vertexID];
@@ -23,7 +23,7 @@ vertex Image2dRasterizerData image_2d_vertex(
 
 fragment half4 image_2d_fragment(
     Image2dRasterizerData in [[stage_in]],
-    texture2d<half, access::sample> texture [[texture(bindings::texture)]])
+    texture2d<half, access::sample> texture [[texture(binding_fragment::texture)]])
 {
     constexpr sampler s(address::repeat, filter::linear);
     return half4(texture.sample(s, in.uv0).rgb, 1.0f);

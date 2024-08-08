@@ -1,14 +1,14 @@
 vertex RasterizerDataLit lit_vertex(
     uint vertexId [[vertex_id]],
     uint instanceId [[instance_id]],
-    device CameraData const& camera [[buffer(bindings::cameraData)]],
-    device InstanceData const* instances [[buffer(bindings::instanceData)]],
-    device LightData const& light [[buffer(bindings::lightData)]],
+    device CameraData const& camera [[buffer(binding_vertex::cameraData)]],
+    device InstanceData const* instances [[buffer(binding_vertex::instanceData)]],
+    device LightData const& light [[buffer(binding_vertex::lightData)]],
 
     // vertex data
-    device packed_float3 const* positions [[buffer(bindings::positions)]],
-    device packed_float4 const* colors [[buffer(bindings::colors)]],
-    device packed_float2 const* uv0s [[buffer(bindings::uv0s)]]
+    device packed_float3 const* positions [[buffer(binding_vertex::positions)]],
+    device packed_float4 const* colors [[buffer(binding_vertex::colors)]],
+    device packed_float2 const* uv0s [[buffer(binding_vertex::uv0s)]]
 )
 {
     // vertex data
@@ -28,12 +28,12 @@ vertex RasterizerDataLit lit_vertex(
     return out;
 }
 
-constant bool alphaCutout [[function_constant(0)]];
+constant bool alphaCutout [[function_constant(binding_constant::alphaCutout)]];
 
 fragment half4 lit_fragment(
     RasterizerDataLit in [[stage_in]],
-    texture2d<half, access::sample> texture [[texture(bindings::texture)]],
-    depth2d<float, access::sample> shadowMap [[texture(bindings::shadowMap)]])
+    texture2d<half, access::sample> texture [[texture(binding_fragment::texture)]],
+    depth2d<float, access::sample> shadowMap [[texture(binding_fragment::shadowMap)]])
 {
     constexpr sampler s(address::repeat, filter::nearest);
 

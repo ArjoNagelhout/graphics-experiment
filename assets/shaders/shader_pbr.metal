@@ -15,23 +15,17 @@ struct GltfPbrRasterizerData
     float3 worldSpaceNormal;
 };
 
-struct GltfPbrInstanceData
-{
-    float4x4 localToWorld;
-    float4x4 localToWorldTransposedInverse;
-};
-
 vertex GltfPbrRasterizerData pbr_vertex(
     uint vertexId [[vertex_id]],
     uint instanceId [[instance_id]],
-    device CameraData const& camera [[buffer(bindings::cameraData)]],
-    device GltfPbrInstanceData const* instances [[buffer(bindings::instanceData)]],
+    device CameraData const& camera [[buffer(binding_vertex::cameraData)]],
+    device GltfPbrInstanceData const* instances [[buffer(binding_vertex::instanceData)]],
 
     // vertex data
-    device packed_float3 const* positions [[buffer(bindings::positions)]],
-    device packed_float3 const* normals [[buffer(bindings::normals)]],
-    device packed_float2 const* uv0s [[buffer(bindings::uv0s)]],
-    device packed_float3 const* tangents [[buffer(bindings::tangents)]]
+    device packed_float3 const* positions [[buffer(binding_vertex::positions)]],
+    device packed_float3 const* normals [[buffer(binding_vertex::normals)]],
+    device packed_float2 const* uv0s [[buffer(binding_vertex::uv0s)]],
+    device packed_float3 const* tangents [[buffer(binding_vertex::tangents)]]
 )
 {
     // vertex data
@@ -58,26 +52,24 @@ vertex GltfPbrRasterizerData pbr_vertex(
     return out;
 }
 
-struct GltfPbrFragmentData
-{
-    float3 cameraPosition;
-    uint mipLevels;
-};
+constant bool hasBaseColorMap [[function_constant(binding_constant::hasBaseColorMap)]];
+constant bool hasNormalMap [[function_constant(binding_constant::hasNormalMap)]];
+constant bool hasMetallicRoughnessMap [[function_constant(binding_constant::hasMetallicRoughnessMap)]];
 
 fragment half4 pbr_fragment(
     GltfPbrRasterizerData in [[stage_in]],
-    device GltfPbrFragmentData const& data [[buffer(bindings::globalFragmentData)]],
+    device GltfPbrFragmentData const& data [[buffer(binding_fragment::globalFragmentData)]],
 
     // texture maps
-    texture2d<float, access::sample> baseColorMap [[texture(bindings::baseColorMap)]],
-    texture2d<float, access::sample> normalMap [[texture(bindings::normalMap)]],
-    texture2d<float, access::sample> metallicRoughnessMap [[texture(bindings::metallicRoughnessMap)]],
-    texture2d<float, access::sample> emissionMap [[texture(bindings::emissionMap)]],
+    texture2d<float, access::sample> baseColorMap [[texture(binding_fragment::baseColorMap)]],
+    texture2d<float, access::sample> normalMap [[texture(binding_fragment::normalMap)]],
+    texture2d<float, access::sample> metallicRoughnessMap [[texture(binding_fragment::metallicRoughnessMap)]],
+    texture2d<float, access::sample> emissionMap [[texture(binding_fragment::emissionMap)]],
 
     // lookup textures for solving the microfacet brdf
-    texture2d<float, access::sample> prefilteredEnvironmentMap [[texture(bindings::prefilteredEnvironmentMap)]],
-    texture2d<float, access::sample> brdfLookupTexture [[texture(bindings::brdfLookupTexture)]],
-    texture2d<float, access::sample> irradianceMap [[texture(bindings::irradianceMap)]]
+    texture2d<float, access::sample> prefilteredEnvironmentMap [[texture(binding_fragment::prefilteredEnvironmentMap)]],
+    texture2d<float, access::sample> brdfLookupTexture [[texture(binding_fragment::brdfLookupTexture)]],
+    texture2d<float, access::sample> irradianceMap [[texture(binding_fragment::irradianceMap)]]
 )
 {
     constexpr sampler mipSampler(address::repeat, filter::linear, mip_filter::linear);
@@ -85,20 +77,39 @@ fragment half4 pbr_fragment(
 
     float3 occlusionMetalnessRoughness = metallicRoughnessMap.sample(sampler, in.uv0).rgb;
     float occlusion = occlusionMetalnessRoughness.r;
-    float roughness = occlusionMetalnessRoughness.g;
-    float metalness = occlusionMetalnessRoughness.b;
+    float roughness;
+    float metalness;
+    if (hasMetallicRoughnessMap)
+    {
+        roughness = occlusionMetalnessRoughness.g;
+        metalness = occlusionMetalnessRoughness.b;
+    }
+    else
+    {
+        roughness = data.roughness;
+        metalness = data.metalness;
+    }
 
     // normal mapping
-    float3x3 normalToWorld = float3x3(
-        normalize(in.worldSpaceTangent),
-        normalize(in.worldSpaceBitangent),
-        normalize(in.worldSpaceNormal)
-    );
-    float3 localNormal = normalMap.sample(sampler, in.uv0).rgb;
-    localNormal = localNormal * 2.0f - 1.0f;
+    float3 normal;
+    if (hasNormalMap)
+    {
+        float3x3 normalToWorld = float3x3(
+            normalize(in.worldSpaceTangent),
+            normalize(in.worldSpaceBitangent),
+            normalize(in.worldSpaceNormal)
+        );
+        float3 localNormal = normalMap.sample(sampler, in.uv0).rgb;
+        localNormal = localNormal * 2.0f - 1.0f;
 
-    float3 normal = normalize(normalToWorld * localNormal);
-    float3 cameraDirection = normalize(in.worldSpacePosition - data.cameraPosition);
+        normal = normalize(normalToWorld * localNormal);
+    }
+    else
+    {
+        normal = in.worldSpaceNormal;
+    }
+
+    float3 cameraDirection = normalize(in.worldSpacePosition - data.cameraPosition); // from camera position to world space vertex position
     float3 outDirection = reflect(cameraDirection, normal);
 
     // when the normal faces the camera, the dot product becomes 1.0f, which creates a white spot, so we add a slight offset
@@ -109,7 +120,16 @@ fragment half4 pbr_fragment(
     float2 normalUv = directionToUvEquirectangular(normal);
 
     // F0 is the color when the normal faces the camera
-    float3 baseColor = baseColorMap.sample(sampler, in.uv0).rgb;
+    float3 baseColor;
+    if (hasBaseColorMap)
+    {
+        baseColor = baseColorMap.sample(sampler, in.uv0).rgb;
+    }
+    else
+    {
+        baseColor = data.baseColor;
+    }
+
     float3 F0 = mix(float3(0.04, 0.04, 0.04), baseColor, metalness);
 
     float3 Fr = max(float3(1.0f - roughness), F0) - F0;

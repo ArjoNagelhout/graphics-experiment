@@ -1,12 +1,12 @@
 vertex RasterizerDataLit terrain_vertex(
     uint vertexId [[vertex_id]],
     uint instanceId [[instance_id]],
-    device CameraData const& camera [[buffer(bindings::cameraData)]],
-    device InstanceData const* instances [[buffer(bindings::instanceData)]],
-    device LightData const& light [[buffer(bindings::lightData)]],
+    device CameraData const& camera [[buffer(binding_vertex::cameraData)]],
+    device InstanceData const* instances [[buffer(binding_vertex::instanceData)]],
+    device LightData const& light [[buffer(binding_vertex::lightData)]],
 
     // vertex data
-    device packed_float3 const* positions [[buffer(bindings::positions)]]
+    device packed_float3 const* positions [[buffer(binding_vertex::positions)]]
 )
 {
     RasterizerDataLit out;

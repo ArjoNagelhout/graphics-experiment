@@ -384,6 +384,7 @@ struct App
     id <MTLRenderPipelineState> shaderUnlitAlphaBlend;
     id <MTLRenderPipelineState> shaderUnlitColored; // simplest shader possible, only uses the color
     id <MTLRenderPipelineState> shaderPbr; // OpenPbr Surface implementation from https://academysoftwarefoundation.github.io/OpenPbr/
+    id <MTLRenderPipelineState> shaderPbrWithMaps;
 
     // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
     id <MTLDepthStencilState> depthStencilStateClear;
@@ -980,9 +981,8 @@ void onLaunch(App* app)
         // read shader source from metal source file (Metal Shading Language, MSL)
         std::filesystem::path shadersPath = app->config->assetsPath / "shaders";
         std::vector<std::filesystem::path> paths{
-            shadersPath / "shader_bindings.h",
-
             shadersPath / "shader_common.metal",
+            shadersPath / "shader_bindings.h",
 
             // utility
             shadersPath / "shader_clear_depth.metal",
@@ -1023,13 +1023,15 @@ void onLaunch(App* app)
 
     // create shaders
     {
-        MTLFunctionConstantValues* lit = [[MTLFunctionConstantValues alloc] init];
+        // constants
         bool false_ = false;
-        [lit setConstantValue:&false_ type:MTLDataTypeBool atIndex:0];
+        bool true_ = true;
+
+        MTLFunctionConstantValues* lit = [[MTLFunctionConstantValues alloc] init];
+        [lit setConstantValue:&false_ type:MTLDataTypeBool atIndex:binding_constant::alphaCutout];
 
         MTLFunctionConstantValues* litCutout = [[MTLFunctionConstantValues alloc] init];
-        bool true_ = true;
-        [litCutout setConstantValue:&true_ type:MTLDataTypeBool atIndex:0];
+        [litCutout setConstantValue:&true_ type:MTLDataTypeBool atIndex:binding_constant::alphaCutout];
 
         // utility
         app->shaderShadow = createShader(app, @"shadow_vertex", @"shadow_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
@@ -1049,7 +1051,22 @@ void onLaunch(App* app)
         app->shaderUnlitAlphaBlend = createShader(app, @"unlit_vertex", @"unlit_fragment", nullptr, nullptr, ShaderFeatureFlags_AlphaBlend);
         app->shaderUnlitColored = createShader(app, @"unlit_vertex", @"unlit_colored_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
-        app->shaderPbr = createShader(app, @"pbr_vertex", @"pbr_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+
+        // PBR
+        {
+            MTLFunctionConstantValues* hasMaps = [[MTLFunctionConstantValues alloc] init];
+            [hasMaps setConstantValue:&true_ type:MTLDataTypeBool atIndex:binding_constant::hasBaseColorMap];
+            [hasMaps setConstantValue:&true_ type:MTLDataTypeBool atIndex:binding_constant::hasNormalMap];
+            [hasMaps setConstantValue:&true_ type:MTLDataTypeBool atIndex:binding_constant::hasMetallicRoughnessMap];
+
+            MTLFunctionConstantValues* doesNotHaveMaps = [[MTLFunctionConstantValues alloc] init];
+            [doesNotHaveMaps setConstantValue:&false_ type:MTLDataTypeBool atIndex:binding_constant::hasBaseColorMap];
+            [doesNotHaveMaps setConstantValue:&false_ type:MTLDataTypeBool atIndex:binding_constant::hasNormalMap];
+            [doesNotHaveMaps setConstantValue:&false_ type:MTLDataTypeBool atIndex:binding_constant::hasMetallicRoughnessMap];
+
+            app->shaderPbrWithMaps = createShader(app, @"pbr_vertex", @"pbr_fragment", nullptr, hasMaps, ShaderFeatureFlags_None);
+            app->shaderPbr = createShader(app, @"pbr_vertex", @"pbr_fragment", nullptr, doesNotHaveMaps, ShaderFeatureFlags_None);
+        }
     }
 
     // create depth clear pipeline state and depth stencil state
@@ -1343,11 +1360,11 @@ void bindMeshDeinterleavedAttributes(id <MTLRenderCommandEncoder> encoder, MeshD
         //@formatter:off
         switch (attribute.type)
         {
-            case VertexAttributeType::Position: index = bindings::positions; break;
-            case VertexAttributeType::Normal: index = bindings::normals; break;
-            case VertexAttributeType::Tangent: index = bindings::tangents; break;
-            case VertexAttributeType::TextureCoordinate: index = bindings::uv0s; break;
-            case VertexAttributeType::Color: index = bindings::colors; break;
+            case VertexAttributeType::Position: index = binding_vertex::positions; break;
+            case VertexAttributeType::Normal: index = binding_vertex::normals; break;
+            case VertexAttributeType::Tangent: index = binding_vertex::tangents; break;
+            case VertexAttributeType::TextureCoordinate: index = binding_vertex::uv0s; break;
+            case VertexAttributeType::Color: index = binding_vertex::colors; break;
             case VertexAttributeType::Joints: assert(false);
             case VertexAttributeType::Weights: assert(false);
         }
@@ -1359,7 +1376,7 @@ void bindMeshDeinterleavedAttributes(id <MTLRenderCommandEncoder> encoder, MeshD
 
 void drawMeshDeinterleavedInstanced(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, std::vector<InstanceData>* instances)
 {
-    [encoder setVertexBytes:instances->data() length:sizeof(InstanceData) * instances->size() atIndex:bindings::instanceData];
+    [encoder setVertexBytes:instances->data() length:sizeof(InstanceData) * instances->size() atIndex:binding_vertex::instanceData];
     bindMeshDeinterleavedAttributes(encoder, mesh);
     if (mesh->indexed)
     {
@@ -1386,7 +1403,7 @@ void drawMeshDeinterleavedInstanced(id <MTLRenderCommandEncoder> encoder, MeshDe
 
 void drawMeshDeinterleaved(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, InstanceData* instance)
 {
-    [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:bindings::instanceData];
+    [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:binding_vertex::instanceData];
     bindMeshDeinterleavedAttributes(encoder, mesh);
     if (mesh->indexed)
     {
@@ -1409,7 +1426,7 @@ void drawMeshDeinterleaved(id <MTLRenderCommandEncoder> encoder, MeshDeinterleav
 void setCameraData(id <MTLRenderCommandEncoder> encoder, glm::mat4 viewProjection)
 {
     CameraData cameraData{viewProjection};
-    [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:bindings::cameraData];
+    [encoder setVertexBytes:&cameraData length:sizeof(CameraData) atIndex:binding_vertex::cameraData];
 }
 
 enum DrawSceneFlags_
@@ -1418,9 +1435,9 @@ enum DrawSceneFlags_
     DrawSceneFlags_IsShadowPass = 1 << 0
 };
 
-[[nodiscard]] simd::float3 glmVec3ToSimdFloat3(glm::vec3 in)
+[[nodiscard]] simd_float3 glmVec3ToSimdFloat3(glm::vec3 in)
 {
-    return simd::float3{in.x, in.y, in.z}; // could also simply reinterpret cast as the struct layout should be the same
+    return simd_float3{in.x, in.y, in.z}; // could also simply reinterpret cast as the struct layout should be the same
 }
 
 [[nodiscard]] glm::vec3 quaternionToDirectionVector(glm::quat in)
@@ -1434,18 +1451,6 @@ struct GltfDFSData
 {
     GltfNode* node;
     glm::mat4 localToWorld; // calculated
-};
-
-struct GltfPbrFragmentData
-{
-    simd_float3 cameraPosition;
-    uint mipLevels;
-};
-
-struct GltfPbrInstanceData
-{
-    glm::mat4 localToWorld;
-    glm::mat4 localToWorldTransposedInverse;
 };
 
 [[nodiscard]] bool isValidTexture(GltfModel* model, size_t index)
@@ -1465,20 +1470,20 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
         id <MTLTexture> metallicRoughness = isValidTexture(model, pbr.metallicRoughnessMap) ? model->textures[pbr.metallicRoughnessMap] : nullptr;
         id <MTLTexture> emission = isValidTexture(model, pbr.emissionMap) ? model->textures[pbr.emissionMap] : nullptr;
 
-        [encoder setFragmentTexture:baseColor atIndex:bindings::baseColorMap];
-        [encoder setFragmentTexture:normal atIndex:bindings::normalMap];
-        [encoder setFragmentTexture:metallicRoughness atIndex:bindings::metallicRoughnessMap];
-        [encoder setFragmentTexture:emission atIndex:bindings::emissionMap];
+        [encoder setFragmentTexture:baseColor atIndex:binding_fragment::baseColorMap];
+        [encoder setFragmentTexture:normal atIndex:binding_fragment::normalMap];
+        [encoder setFragmentTexture:metallicRoughness atIndex:binding_fragment::metallicRoughnessMap];
+        [encoder setFragmentTexture:emission atIndex:binding_fragment::emissionMap];
     }
 
     GltfPbrFragmentData fragmentData{
         .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
         .mipLevels = app->mipLevels
     };
-    [encoder setFragmentBytes:&fragmentData length:sizeof(GltfPbrFragmentData) atIndex:bindings::globalFragmentData];
-    [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:bindings::prefilteredEnvironmentMap];
-    [encoder setFragmentTexture:app->brdfLookupTexture atIndex:bindings::brdfLookupTexture];
-    [encoder setFragmentTexture:app->irradianceMap atIndex:bindings::irradianceMap];
+    [encoder setFragmentBytes:&fragmentData length:sizeof(GltfPbrFragmentData) atIndex:binding_fragment::globalFragmentData];
+    [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:binding_fragment::prefilteredEnvironmentMap];
+    [encoder setFragmentTexture:app->brdfLookupTexture atIndex:binding_fragment::brdfLookupTexture];
+    [encoder setFragmentTexture:app->irradianceMap atIndex:binding_fragment::irradianceMap];
 
     // draw mesh
     bindMeshDeinterleavedAttributes(encoder, &primitive->mesh);
@@ -1499,7 +1504,7 @@ void drawGltfMeshPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfM
         .localToWorld = localToWorld,
         .localToWorldTransposedInverse = glm::transpose(glm::inverse(localToWorld))
     };
-    [encoder setVertexBytes:&instance length:sizeof(GltfPbrInstanceData) atIndex:bindings::instanceData];
+    [encoder setVertexBytes:&instance length:sizeof(GltfPbrInstanceData) atIndex:binding_vertex::instanceData];
 
     for (auto& primitive: mesh->primitives)
     {
@@ -1511,7 +1516,7 @@ void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel
 {
     [encoder setCullMode:MTLCullModeBack];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-    [encoder setRenderPipelineState:app->shaderPbr];
+    [encoder setRenderPipelineState:app->shaderPbrWithMaps];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
     // traverse scene
@@ -1546,31 +1551,18 @@ void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel
     }
 }
 
-struct PbrGlobalVertexData
-{
-    glm::mat4 localToWorldTransposedInverse;
-};
-
-struct PbrGlobalFragmentData
-{
-    simd_float3 cameraPosition;
-    float roughness;
-    simd_float3 color;
-    unsigned int mipLevels;
-};
-
 void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ flags)
 {
     assert(encoder != nullptr);
 
     // draw terrain
-    if (1)
+    if (0)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shaderShadow : app->shaderTerrain];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->textureTerrainGreen atIndex:bindings::texture];
+        [encoder setFragmentTexture:app->textureTerrainGreen atIndex:binding_fragment::texture];
         std::vector<InstanceData> instances{
             {.localToWorld = glm::mat4(1)}//glm::rotate(app->time, glm::vec3(0, 1, 0))},
 //            {.localToWorld = glm::scale(glm::translate(glm::vec3(0, 0, 9)), glm::vec3(0.5f))},
@@ -1581,13 +1573,13 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw water
-    if (1)
+    if (0)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:app->shaderWater];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->textureWater atIndex:bindings::texture];
+        [encoder setFragmentTexture:app->textureWater atIndex:binding_fragment::texture];
         InstanceData instance{
             .localToWorld = glm::mat4(1)
         };
@@ -1595,24 +1587,24 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw trees
-    if (1)
+    if (0)
     {
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:app->shaderLit];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->textureTree atIndex:bindings::texture];
+        [encoder setFragmentTexture:app->textureTree atIndex:binding_fragment::texture];
         drawMeshDeinterleavedInstanced(encoder, &app->meshTree, &app->treeInstances);
     }
 
     // draw shrubs
-    if (1)
+    if (0)
     {
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:app->shaderLit];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->textureShrub atIndex:bindings::texture];
+        [encoder setFragmentTexture:app->textureShrub atIndex:binding_fragment::texture];
         drawMeshDeinterleavedInstanced(encoder, &app->meshTree, &app->shrubInstances);
     }
 
@@ -1624,44 +1616,46 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         drawGltfPbr(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 20, 0)));
     }
 
-    // draw pbr (not textured yet)
-    if (1)
-    {
-        // for now, we store all material settings inside the fragment bytes, so that we don't have to create a separate buffer for all different material settings
-        for (int x = 0; x < 10; x++)
-        {
-            for (int y = 0; y < 5; y++)
-            {
-                // draw pbr
-                [encoder setCullMode:MTLCullModeBack];
-                [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-                [encoder setRenderPipelineState:app->shaderPbr];
-                [encoder setDepthStencilState:app->depthStencilStateDefault];
-
-                InstanceData instance{
-                    .localToWorld = glm::rotate(glm::scale(glm::translate(glm::vec3(x * 6, y * 3, 0)), glm::vec3(0.5, 0.5, 0.5)),
-                                                app->time + (float)x / 6.0f + (float)y / 3.0f, glm::vec3(0, 1, 0))
-                };
-                PbrGlobalVertexData globalVertexData{
-                    .localToWorldTransposedInverse = glm::transpose(glm::inverse(instance.localToWorld))
-                };
-
-                PbrGlobalFragmentData globalFragmentData{
-                    .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
-                    .roughness = app->currentRoughness,//(float)x / 10.0f,
-                    .color = app->currentColor, // simd_float3{1.0f - (float)y / 10.0f, 1.0f, 1},
-                    .mipLevels = app->mipLevels
-                };
-                [encoder setVertexBytes:&globalVertexData length:sizeof(PbrGlobalVertexData) atIndex:bindings::globalVertexData];
-                [encoder setFragmentBytes:&globalFragmentData length:sizeof(PbrGlobalFragmentData) atIndex:bindings::globalFragmentData];
-
-                [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:bindings::prefilteredEnvironmentMap];
-                [encoder setFragmentTexture:app->brdfLookupTexture atIndex:bindings::brdfLookupTexture];
-                [encoder setFragmentTexture:app->irradianceMap atIndex:bindings::irradianceMap];
-                drawMeshDeinterleaved(encoder, &app->meshRoundedCube, &instance);
-            }
-        }
-    }
+    // draw pbr (not textured)
+    //if (1)
+//    {
+//        // for now, we store all material settings inside the fragment bytes, so that we don't have to create a separate buffer for all different material settings
+//        for (int x = 0; x < 10; x++)
+//        {
+//            for (int y = 0; y < 5; y++)
+//            {
+//                // draw pbr
+//                [encoder setCullMode:MTLCullModeBack];
+//                [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+//                [encoder setRenderPipelineState:app->shaderPbr];
+//                [encoder setDepthStencilState:app->depthStencilStateDefault];
+//
+//                glm::mat4 localToWorld = glm::rotate(
+//                    glm::scale(glm::translate(glm::vec3(x * 6, y * 3, 0)), glm::vec3(0.5, 0.5, 0.5)),
+//                    app->time + (float)x / 6.0f + (float)y / 3.0f, glm::vec3(0, 1, 0));
+//
+//                GltfPbrInstanceData instance{
+//                    .localToWorld = localToWorld,
+//                    .localToWorldTransposedInverse = glm::transpose(glm::inverse(localToWorld))
+//                };
+//
+//                GltfPbrFragmentData globalFragmentData{
+//                    .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
+//                    .mipLevels = app->mipLevels,
+//                    .metalness = 1.0f,
+//                    .roughness = app->currentRoughness,//(float)x / 10.0f,
+//                    .baseColor = app->currentColor, // simd_float3{1.0f - (float)y / 10.0f, 1.0f, 1},
+//                };
+//
+//                [encoder setFragmentBytes:&globalFragmentData length:sizeof(PbrGlobalFragmentData) atIndex:binding_fragment::globalFragmentData];
+//
+//                [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:binding_fragment::prefilteredEnvironmentMap];
+//                [encoder setFragmentTexture:app->brdfLookupTexture atIndex:binding_fragment::brdfLookupTexture];
+//                [encoder setFragmentTexture:app->irradianceMap atIndex:binding_fragment::irradianceMap];
+//                drawMeshDeinterleaved(encoder, &app->meshRoundedCube, &instance);
+//            }
+//        }
+//    }
 }
 
 void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transform)
@@ -1679,12 +1673,12 @@ void drawTexture(App* app, id <MTLRenderCommandEncoder> encoder, id <MTLTexture>
     [encoder setCullMode:MTLCullModeBack];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [encoder setRenderPipelineState:app->shaderImage2d];
-    [encoder setFragmentTexture:texture atIndex:bindings::texture];
+    [encoder setFragmentTexture:texture atIndex:binding_fragment::texture];
 
     RectMinMaxf extents = pixelCoordsToNDC(app, pixelCoords);
     std::vector<Image2dVertexData> vertices;
     addQuad(&vertices, extents, /*uv*/ RectMinMaxf{0, 0, 1, 1});
-    [encoder setVertexBytes:vertices.data() length:vertices.size() * sizeof(Image2dVertexData) atIndex:bindings::vertexData];
+    [encoder setVertexBytes:vertices.data() length:vertices.size() * sizeof(Image2dVertexData) atIndex:binding_vertex::vertexData];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
 }
 
@@ -1792,8 +1786,8 @@ void onDraw(App* app)
             view = glm::inverse(transformToMatrix(&app->cameraTransform));
             viewProjection = projection * view;
 
-            [encoder setFragmentTexture:app->shadowMap atIndex:bindings::shadowMap];
-            [encoder setVertexBytes:&lightData length:sizeof(LightData) atIndex:bindings::lightData];
+            [encoder setFragmentTexture:app->shadowMap atIndex:binding_fragment::shadowMap];
+            [encoder setVertexBytes:&lightData length:sizeof(LightData) atIndex:binding_vertex::lightData];
 
             setCameraData(encoder, viewProjection);
             drawScene(app, encoder, DrawSceneFlags_None);
@@ -1813,7 +1807,7 @@ void onDraw(App* app)
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
             [encoder setRenderPipelineState:app->shaderSkybox];
-            [encoder setFragmentTexture:app->currentSkybox atIndex:bindings::texture];
+            [encoder setFragmentTexture:app->currentSkybox atIndex:binding_fragment::texture];
             InstanceData instance{
                 .localToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(10))
             };
@@ -1832,7 +1826,7 @@ void onDraw(App* app)
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
             [encoder setRenderPipelineState:app->shaderUnlitAlphaBlend];
-            [encoder setFragmentTexture:app->textureIconSun atIndex:bindings::texture];
+            [encoder setFragmentTexture:app->textureIconSun atIndex:binding_fragment::texture];
             InstanceData instance{
                 .localToWorld = glm::scale(transformToMatrix(&app->sunTransform), glm::vec3(0.25f))
             };
@@ -1891,7 +1885,7 @@ void onDraw(App* app)
             [encoder setCullMode:MTLCullModeBack];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setRenderPipelineState:app->shaderImage2d];
-            [encoder setFragmentTexture:app->fontAtlas.texture atIndex:bindings::texture];
+            [encoder setFragmentTexture:app->fontAtlas.texture atIndex:binding_fragment::texture];
             std::vector<Image2dVertexData> vertices;
 
             glm::vec3* pos = &app->cameraTransform.position;
@@ -1908,7 +1902,7 @@ void onDraw(App* app)
             MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
             id <MTLBuffer> buffer = [app->device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(Image2dVertexData) options:options];
 
-            [encoder setVertexBuffer:buffer offset:0 atIndex:bindings::vertexData];
+            [encoder setVertexBuffer:buffer offset:0 atIndex:binding_vertex::vertexData];
             [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
         }
 
