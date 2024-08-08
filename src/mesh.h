@@ -71,36 +71,19 @@ struct float4
     float w;
 };
 
+// to avoid having to specify all parameters each time in a function
+struct MeshDeinterleavedDescriptor
+{
+    std::vector<float3>* positions = nullptr;
+    std::vector<float3>* normals = nullptr;
+    std::vector<float4>* colors = nullptr;
+    std::vector<float2>* uv0s = nullptr;
+    std::vector<uint32_t>* indices = nullptr; // if nullptr, this mesh is not indexed
+    MTLPrimitiveType primitiveType = MTLPrimitiveTypeTriangle;
+};
+
 [[nodiscard]] MeshDeinterleaved createMeshDeinterleaved(
     id <MTLDevice> device,
-    std::vector<float3>* positions,
-    std::vector<float3>* normals,
-    std::vector<float4>* colors,
-    std::vector<float2>* uv0s,
-    std::vector<uint32_t>* indices, // if nullptr, this mesh is not indexed
-    MTLPrimitiveType primitiveType);
-
-struct VertexData
-{
-    simd_float4 position;
-    simd_float4 normal;
-    simd_float4 color;
-    simd_float2 uv0;
-};
-
-struct Mesh
-{
-    id <MTLBuffer> vertexBuffer;
-    bool indexed;
-    id <MTLBuffer> indexBuffer;
-    MTLIndexType indexType;
-    size_t vertexCount;
-    size_t indexCount;
-    MTLPrimitiveType primitiveType;
-};
-
-[[nodiscard]] Mesh createMesh(id <MTLDevice> device, std::vector<VertexData>* vertices, MTLPrimitiveType primitiveType);
-
-[[nodiscard]] Mesh createMeshIndexed(id <MTLDevice> device, std::vector<VertexData>* vertices, std::vector<uint32_t>* indices, MTLPrimitiveType primitiveType);
+    MeshDeinterleavedDescriptor* descriptor);
 
 #endif //METAL_EXPERIMENT_MESH_H

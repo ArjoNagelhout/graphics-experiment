@@ -6,17 +6,22 @@ struct SkyboxRasterizerData
 };
 
 vertex SkyboxRasterizerData skybox_vertex(
-    uint vertexID [[vertex_id]],
-    uint instanceID [[instance_id]],
-    device VertexData const* vertices [[buffer(bindings::vertexData)]],
-    device CameraData const& camera [[buffer(bindings::cameraData)]])
+    uint vertexId [[vertex_id]],
+    uint instanceId [[instance_id]],
+    device CameraData const& camera [[buffer(bindings::cameraData)]],
+
+    // vertex data
+    device packed_float3 const* positions [[buffer(bindings::positions)]]
+)
 {
     SkyboxRasterizerData out;
-    device VertexData const& data = vertices[vertexID];
 
-    out.position = camera.viewProjection * data.position;
+    // vertex data
+    device packed_float3 const& position = positions[vertexId];
+
+    out.position = camera.viewProjection * float4(position, 1.0f);
     out.position.z = out.position.w;
-    out.direction = data.position.xyz;
+    out.direction = position;
     return out;
 }
 

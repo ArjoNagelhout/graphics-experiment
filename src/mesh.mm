@@ -2,49 +2,16 @@
 
 #include <vector>
 
-Mesh createMesh(id <MTLDevice> device, std::vector<VertexData>* vertices, MTLPrimitiveType primitiveType)
-{
-    Mesh mesh{};
-    mesh.indexed = false;
-    mesh.indexType = MTLIndexTypeUInt32;
-    mesh.primitiveType = primitiveType;
-
-    // create vertex buffer
-    MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-    mesh.vertexBuffer = [device newBufferWithBytes:vertices->data() length:vertices->size() * sizeof(VertexData) options:options];
-    mesh.vertexCount = vertices->size();
-
-    return mesh;
-}
-
-Mesh createMeshIndexed(id <MTLDevice> device, std::vector<VertexData>* vertices, std::vector<uint32_t>* indices, MTLPrimitiveType primitiveType)
-{
-    Mesh mesh = createMesh(device, vertices, primitiveType);
-
-    // create index buffer
-    MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-    mesh.indexBuffer = [device newBufferWithBytes:indices->data() length:indices->size() * sizeof(uint32_t) options:options];
-    mesh.indexCount = indices->size();
-    mesh.indexed = true;
-
-    return mesh;
-}
-
-MeshDeinterleaved createMeshDeinterleaved(
+[[nodiscard]] MeshDeinterleaved createMeshDeinterleaved(
     id <MTLDevice> device,
-    std::vector<float3>* positions,
-    std::vector<float3>* normals,
-    std::vector<float4>* colors,
-    std::vector<float2>* uv0s,
-    std::vector<uint32_t>* indices, // if nullptr, this mesh is not indexed
-    MTLPrimitiveType primitiveType)
+    MeshDeinterleavedDescriptor* descriptor)
 {
-    assert(positions && !positions->empty());
+    assert(descriptor->positions && !descriptor->positions->empty());
 
     MeshDeinterleaved mesh{};
-    mesh.vertexCount = positions->size();
+    mesh.vertexCount = descriptor->positions->size();
     std::vector<VertexAttribute>* attributes = &mesh.attributes;
-    mesh.primitiveType = primitiveType;
+    mesh.primitiveType = descriptor->primitiveType;
 
     // positions
     attributes->emplace_back(VertexAttribute{
@@ -52,27 +19,27 @@ MeshDeinterleaved createMeshDeinterleaved(
         .componentCount = 3
     });
 
-    if (normals)
+    if (descriptor->normals)
     {
-        assert(normals->size() == mesh.vertexCount); // should be same amount of vertices
+        assert(descriptor->normals->size() == mesh.vertexCount); // should be same amount of vertices
         attributes->emplace_back(VertexAttribute{
             .type = VertexAttributeType::Normal,
             .componentCount = 3
         });
     }
 
-    if (colors)
+    if (descriptor->colors)
     {
-        assert(colors->size() == mesh.vertexCount); // should be same amount of vertices
+        assert(descriptor->colors->size() == mesh.vertexCount); // should be same amount of vertices
         attributes->emplace_back(VertexAttribute{
             .type = VertexAttributeType::Color,
             .componentCount = 4
         });
     }
 
-    if (uv0s)
+    if (descriptor->uv0s)
     {
-        assert(uv0s->size() == mesh.vertexCount); // should be same amount of vertices
+        assert(descriptor->uv0s->size() == mesh.vertexCount); // should be same amount of vertices
         attributes->emplace_back(VertexAttribute{
             .type = VertexAttributeType::TextureCoordinate,
             .componentCount = 2
@@ -84,6 +51,7 @@ MeshDeinterleaved createMeshDeinterleaved(
     for (VertexAttribute& attribute: *attributes)
     {
         attribute.size = attribute.componentCount * sizeof(float) * mesh.vertexCount;
+
         totalSize += attribute.size;
     }
 
@@ -100,11 +68,13 @@ MeshDeinterleaved createMeshDeinterleaved(
             void* source = nullptr;
             switch (attribute.type)
             {
-                case VertexAttributeType::Position: source = positions->data(); break;
-                case VertexAttributeType::Normal: source = normals->data(); break;
-                case VertexAttributeType::Color: source = colors->data(); break;
-                case VertexAttributeType::TextureCoordinate: source = uv0s->data(); break;
+                //@formatter:off
+                case VertexAttributeType::Position: source = descriptor->positions->data(); break;
+                case VertexAttributeType::Normal: source = descriptor->normals->data(); break;
+                case VertexAttributeType::Color: source = descriptor->colors->data(); break;
+                case VertexAttributeType::TextureCoordinate: source = descriptor->uv0s->data(); break;
                 default: continue;
+                //@formatter:on
             }
             memcpy(data + offset, source, attribute.size);
             offset += attribute.size;
@@ -115,14 +85,17 @@ MeshDeinterleaved createMeshDeinterleaved(
     }
 
     // indexed mesh
-    if (indices)
+    if (descriptor->indices)
     {
+        assert(!descriptor->indices->empty());
+
         mesh.indexed = true;
         mesh.indexType = MTLIndexTypeUInt32;
+        mesh.indexCount = descriptor->indices->size();
 
         // create index buffer
         MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-        mesh.indexBuffer = [device newBufferWithBytes:indices->data() length:indices->size() * sizeof(uint32_t) options:options];
+        mesh.indexBuffer = [device newBufferWithBytes:descriptor->indices->data() length:descriptor->indices->size() * sizeof(uint32_t) options:options];
     }
 
     return mesh;

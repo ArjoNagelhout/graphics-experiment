@@ -20,14 +20,6 @@ struct RasterizerDataLit
     float4 fragmentPositionLightSpace;
 };
 
-struct VertexData
-{
-    float4 position;
-    float4 normal;
-    float4 color;
-    float2 uv0;
-};
-
 struct CameraData
 {
     float4x4 viewProjection;

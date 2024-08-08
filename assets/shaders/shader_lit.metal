@@ -1,21 +1,30 @@
 vertex RasterizerDataLit lit_vertex(
-    uint vertexID [[vertex_id]],
-    uint instanceID [[instance_id]],
-    device VertexData const* vertices [[buffer(bindings::vertexData)]],
+    uint vertexId [[vertex_id]],
+    uint instanceId [[instance_id]],
     device CameraData const& camera [[buffer(bindings::cameraData)]],
     device InstanceData const* instances [[buffer(bindings::instanceData)]],
-    device LightData const& light [[buffer(bindings::lightData)]])
-{
-    RasterizerDataLit out;
-    device VertexData const& data = vertices[vertexID];
-    device InstanceData const& instance = instances[instanceID];
+    device LightData const& light [[buffer(bindings::lightData)]],
 
-    out.fragmentPosition = instance.localToWorld * data.position;
+    // vertex data
+    device packed_float3 const* positions [[buffer(bindings::positions)]],
+    device packed_float4 const* colors [[buffer(bindings::colors)]],
+    device packed_float2 const* uv0s [[buffer(bindings::uv0s)]]
+)
+{
+    // vertex data
+    device packed_float3 const& position = positions[vertexId];
+    device packed_float4 const& color = colors[vertexId];
+    device packed_float2 const& uv0 = uv0s[vertexId];
+
+    RasterizerDataLit out;
+    device InstanceData const& instance = instances[instanceId];
+
+    out.fragmentPosition = instance.localToWorld * float4(position, 1.0f);
     out.fragmentPositionLightSpace = light.lightSpace * float4(out.fragmentPosition.xyz, 1);
     out.position = camera.viewProjection * out.fragmentPosition;
 
-    out.color = data.color;
-    out.uv0 = data.uv0;
+    out.color = color;
+    out.uv0 = uv0;
     return out;
 }
 

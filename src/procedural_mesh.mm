@@ -28,7 +28,8 @@ struct RoundedCubeData
     int cornerVertices;
     float positionPerIndex;
 
-    std::vector<VertexData> vertices;
+    std::vector<float3> positions;
+    std::vector<float3> normals;
     std::vector<uint32_t> indices;
 };
 
@@ -37,17 +38,14 @@ void roundedCubeSetVertex(RoundedCubeData* data, int vertexIndex, simd_float3 po
     position -= data->size / 2.0f;
     simd_float3 inner = position;
 
-    VertexData& vertex = data->vertices[vertexIndex];
-
-    vertex.position = simd_make_float4(position, 1.0f);
-
     simd_float3 min = -data->size / 2.0f + simd_make_float3(1.0f, 1.0f, 1.0f) * data->cornerRadius;
     simd_float3 max = data->size / 2.0f - simd_make_float3(1.0f, 1.0f, 1.0f) * data->cornerRadius;
     inner = simd_clamp(inner, min, max);
 
     simd_float3 normal = simd_normalize(position - inner);
-    vertex.normal = simd_make_float4(normal, 1.0f);
-    vertex.position = simd_make_float4(inner + normal * data->cornerRadius, 1.0f);
+    data->normals[vertexIndex] = float3{normal.x, normal.y, normal.z};
+    simd_float3 pos = inner + normal * data->cornerRadius;
+    data->positions[vertexIndex] = float3{pos.x, pos.y, pos.z};
 }
 
 void roundedCubeAddRow(RoundedCubeData* data, int* const vertexIndex, float y)
@@ -167,7 +165,7 @@ int roundedCubeCreateBottomFace(RoundedCubeData* data, int t, int ring)
 {
     int sizePerAxis = (data->cornerDivisions + 2) * 2 - 1;
     int v = 1;
-    int vMid = (int)data->vertices.size() - (sizePerAxis - 1) * (sizePerAxis - 1);
+    int vMid = (int)data->positions.size() - (sizePerAxis - 1) * (sizePerAxis - 1);
     t = roundedCubeSetQuad(data, t, ring - 1, vMid, 0, 1);
     for (int x = 1; x < sizePerAxis - 1; x++, v++, vMid++)
     {
@@ -202,7 +200,7 @@ int roundedCubeCreateBottomFace(RoundedCubeData* data, int t, int ring)
     return t;
 }
 
-Mesh createRoundedCube(id <MTLDevice> device, simd_float3 size, float cornerRadius, int cornerDivisions)
+MeshDeinterleaved createRoundedCube(id <MTLDevice> device, simd_float3 size, float cornerRadius, int cornerDivisions)
 {
     float smallestSize = std::numeric_limits<float>::max();
     for (int i = 0; i < 3; i++)
@@ -227,7 +225,8 @@ Mesh createRoundedCube(id <MTLDevice> device, simd_float3 size, float cornerRadi
         int rowVertices = (data.cornerVertices * 2) - 2;
         int planeVertices = rowVertices * rowVertices;
         int totalVertices = 2 * planeVertices + around;
-        data.vertices.resize(totalVertices);
+        data.positions.resize(totalVertices);
+        data.normals.resize(totalVertices);
 
         int v = 0;
         for (int y = 0; y < data.cornerVertices; y++)
@@ -275,18 +274,25 @@ Mesh createRoundedCube(id <MTLDevice> device, simd_float3 size, float cornerRadi
         t = roundedCubeCreateBottomFace(&data, t, ring);
     }
 
-    return createMeshIndexed(device, &data.vertices, &data.indices, MTLPrimitiveTypeTriangle);
+    MeshDeinterleavedDescriptor descriptor{
+        .positions = &data.positions,
+        .normals = &data.normals,
+        .indices = &data.indices,
+        .primitiveType = MTLPrimitiveTypeTriangle
+    };
+    return createMeshDeinterleaved(device, &descriptor);
 }
 
 //-------------------------------
 // sphere
 //-------------------------------
 
-Mesh createUVSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDivisions)
+MeshDeinterleaved createUVSphere(id <MTLDevice> device, int horizontalDivisions, int verticalDivisions)
 {
     constexpr float angleCorrectionForCenterAlign = -0.5f * pi_;
 
-    std::vector<VertexData> vertices;
+    std::vector<float3> positions;
+    std::vector<float2> uv0s;
     std::vector<uint32_t> indices;
 
     int latitudeIndex = 0;
@@ -309,7 +315,8 @@ Mesh createUVSphere(id <MTLDevice> device, int horizontalDivisions, int vertical
             float u = (float)h / (float)verticalDivisions;
             float v = 1.0f - (float)w / (float)horizontalDivisions;
 
-            vertices.emplace_back(VertexData{.position{x, y, z, 1}, .uv0{u, v}});
+            positions.emplace_back(float3{x, y, z});
+            uv0s.emplace_back(float2{u, v});
 
             if (h != verticalDivisions && w != horizontalDivisions)
             {
@@ -326,25 +333,31 @@ Mesh createUVSphere(id <MTLDevice> device, int horizontalDivisions, int vertical
         }
     }
 
-    return createMeshIndexed(device, &vertices, &indices, MTLPrimitiveTypeTriangle);
+    MeshDeinterleavedDescriptor descriptor{
+        .positions = &positions,
+        .uv0s = &uv0s,
+        .indices = &indices,
+        .primitiveType = MTLPrimitiveTypeTriangle
+    };
+    return createMeshDeinterleaved(device, &descriptor);
 }
 
 //-------------------------------
 // cube without uv
 //-------------------------------
 
-Mesh createCubeWithoutUV(id <MTLDevice> device)
+MeshDeinterleaved createCubeWithoutUV(id <MTLDevice> device)
 {
     float s = 1.0f;
-    std::vector<VertexData> vertices{
-        {{-s, +s, -s, 1}},
-        {{-s, -s, -s, 1}},
-        {{+s, +s, -s, 1}},
-        {{+s, -s, -s, 1}},
-        {{-s, +s, +s, 1}},
-        {{-s, -s, +s, 1}},
-        {{+s, +s, +s, 1}},
-        {{+s, -s, +s, 1}},
+    std::vector<float3> positions{
+        {-s, +s, -s},
+        {-s, -s, -s},
+        {+s, +s, -s},
+        {+s, -s, -s},
+        {-s, +s, +s},
+        {-s, -s, +s},
+        {+s, +s, +s},
+        {+s, -s, +s},
     };
 
     std::vector<uint32_t> indices{
@@ -353,43 +366,74 @@ Mesh createCubeWithoutUV(id <MTLDevice> device)
         4, 0, 5, 1, 7, 3, 6, 2, 4, 0,
     };
 
-    return createMeshIndexed(device, &vertices, &indices, MTLPrimitiveTypeTriangleStrip);
+    MeshDeinterleavedDescriptor descriptor{
+        .positions = &positions,
+        .indices = &indices,
+        .primitiveType = MTLPrimitiveTypeTriangleStrip
+    };
+    return createMeshDeinterleaved(device, &descriptor);
 }
 
 //-------------------------------
 // cube
 //-------------------------------
 
-Mesh createCube(id <MTLDevice> device)
+MeshDeinterleaved createCube(id <MTLDevice> device)
 {
     float uvmin = 0.0f;
     float uvmax = 1.0f;
     float s = 1.0f;
-    std::vector<VertexData> vertices{
-        {.position{-s, -s, -s, 1}, .uv0{uvmin, uvmin}},  // A 0
-        {.position{+s, -s, -s, 1}, .uv0{uvmax, uvmin}},  // B 1
-        {.position{+s, +s, -s, 1}, .uv0{uvmax, uvmax}},  // C 2
-        {.position{-s, +s, -s, 1}, .uv0{uvmin, uvmax}},  // D 3
-        {.position{-s, -s, +s, 1}, .uv0{uvmin, uvmin}},  // E 4
-        {.position{+s, -s, +s, 1}, .uv0{uvmax, uvmin}},  // F 5
-        {.position{+s, +s, +s, 1}, .uv0{uvmax, uvmax}},  // G 6
-        {.position{-s, +s, +s, 1}, .uv0{uvmin, uvmax}},  // H 7
-        {.position{-s, +s, -s, 1}, .uv0{uvmin, uvmin}},  // D 8
-        {.position{-s, -s, -s, 1}, .uv0{uvmax, uvmin}},  // A 9
-        {.position{-s, -s, +s, 1}, .uv0{uvmax, uvmax}},  // E 10
-        {.position{-s, +s, +s, 1}, .uv0{uvmin, uvmax}},  // H 11
-        {.position{+s, -s, -s, 1}, .uv0{uvmin, uvmin}},  // B 12
-        {.position{+s, +s, -s, 1}, .uv0{uvmax, uvmin}},  // C 13
-        {.position{+s, +s, +s, 1}, .uv0{uvmax, uvmax}},  // G 14
-        {.position{+s, -s, +s, 1}, .uv0{uvmin, uvmax}},  // F 15
-        {.position{-s, -s, -s, 1}, .uv0{uvmin, uvmin}},  // A 16
-        {.position{+s, -s, -s, 1}, .uv0{uvmax, uvmin}},  // B 17
-        {.position{+s, -s, +s, 1}, .uv0{uvmax, uvmax}},  // F 18
-        {.position{-s, -s, +s, 1}, .uv0{uvmin, uvmax}},  // E 19
-        {.position{+s, +s, -s, 1}, .uv0{uvmin, uvmin}},  // C 20
-        {.position{-s, +s, -s, 1}, .uv0{uvmax, uvmin}},  // D 21
-        {.position{-s, +s, +s, 1}, .uv0{uvmax, uvmax}},  // H 22
-        {.position{+s, +s, +s, 1}, .uv0{uvmin, uvmax}},  // G 23
+    std::vector<float3> positions{
+        {-s, -s, -s}, // A 0
+        {+s, -s, -s}, // B 1
+        {+s, +s, -s}, // C 2
+        {-s, +s, -s}, // D 3
+        {-s, -s, +s}, // E 4
+        {+s, -s, +s}, // F 5
+        {+s, +s, +s}, // G 6
+        {-s, +s, +s}, // H 7
+        {-s, +s, -s}, // D 8
+        {-s, -s, -s}, // A 9
+        {-s, -s, +s}, // E 10
+        {-s, +s, +s}, // H 11
+        {+s, -s, -s}, // B 12
+        {+s, +s, -s}, // C 13
+        {+s, +s, +s}, // G 14
+        {+s, -s, +s}, // F 15
+        {-s, -s, -s}, // A 16
+        {+s, -s, -s}, // B 17
+        {+s, -s, +s}, // F 18
+        {-s, -s, +s}, // E 19
+        {+s, +s, -s}, // C 20
+        {-s, +s, -s}, // D 21
+        {-s, +s, +s}, // H 22
+        {+s, +s, +s}, // G 23
+    };
+    std::vector<float2> uv0s{
+        {uvmin, uvmin},  // A 0
+        {uvmax, uvmin},  // B 1
+        {uvmax, uvmax},  // C 2
+        {uvmin, uvmax},  // D 3
+        {uvmin, uvmin},  // E 4
+        {uvmax, uvmin},  // F 5
+        {uvmax, uvmax},  // G 6
+        {uvmin, uvmax},  // H 7
+        {uvmin, uvmin},  // D 8
+        {uvmax, uvmin},  // A 9
+        {uvmax, uvmax},  // E 10
+        {uvmin, uvmax},  // H 11
+        {uvmin, uvmin},  // B 12
+        {uvmax, uvmin},  // C 13
+        {uvmax, uvmax},  // G 14
+        {uvmin, uvmax},  // F 15
+        {uvmin, uvmin},  // A 16
+        {uvmax, uvmin},  // B 17
+        {uvmax, uvmax},  // F 18
+        {uvmin, uvmax},  // E 19
+        {uvmin, uvmin},  // C 20
+        {uvmax, uvmin},  // D 21
+        {uvmax, uvmax},  // H 22
+        {uvmin, uvmax},  // G 23
     };
     std::vector<uint32_t> indices{
         // front and back
@@ -409,25 +453,20 @@ Mesh createCube(id <MTLDevice> device)
         22, 23, 20
     };
 
-    return createMeshIndexed(device, &vertices, &indices, MTLPrimitiveTypeTriangle);
+    MeshDeinterleavedDescriptor descriptor{
+        .positions = &positions,
+        .uv0s = &uv0s,
+        .indices = &indices,
+        .primitiveType = MTLPrimitiveTypeTriangle
+    };
+    return createMeshDeinterleaved(device, &descriptor);
 }
 
 //-------------------------------
 // plane
 //-------------------------------
 
-Mesh createPlane(id <MTLDevice> device, RectMinMaxf extents)
-{
-    std::vector<VertexData> vertices{
-        {.position{extents.minX, 0, extents.minY, 1}, .uv0{0, 1}},
-        {.position{extents.minX, 0, extents.maxY, 1}, .uv0{0, 0}},
-        {.position{extents.maxX, 0, extents.minY, 1}, .uv0{1, 1}},
-        {.position{extents.maxX, 0, extents.maxY, 1}, .uv0{1, 0}},
-    };
-    return createMesh(device, &vertices, MTLPrimitiveTypeTriangleStrip);
-}
-
-MeshDeinterleaved createPlaneDeinterleaved(id <MTLDevice> device, RectMinMaxf extents)
+MeshDeinterleaved createPlane(id <MTLDevice> device, RectMinMaxf extents)
 {
     std::vector<float3> positions{
         {extents.minX, 0, extents.minY},
@@ -441,45 +480,66 @@ MeshDeinterleaved createPlaneDeinterleaved(id <MTLDevice> device, RectMinMaxf ex
         {1, 1},
         {1, 0}
     };
-    return createMeshDeinterleaved(
-        device, &positions, nullptr, nullptr, &uv0s, nullptr,
-        MTLPrimitiveTypeTriangleStrip);
+    MeshDeinterleavedDescriptor descriptor{
+        .positions = &positions,
+        .uv0s = &uv0s,
+        .primitiveType = MTLPrimitiveTypeTriangleStrip
+    };
+    return createMeshDeinterleaved(device, &descriptor);
 }
 
 //-------------------------------
 // tree
 //-------------------------------
 
-Mesh createTree(id <MTLDevice> device, float width, float height)
+MeshDeinterleaved createTree(id <MTLDevice> device, float width, float height)
 {
-    std::vector<VertexData> vertices{
-        {.position{-width / 2, 0, 0, 1}, .uv0{0, 1}},
-        {.position{-width / 2, +height, 0, 1}, .uv0{0, 0}},
-        {.position{+width / 2, 0, 0, 1}, .uv0{1, 1}},
-        {.position{+width / 2, +height, 0, 1}, .uv0{1, 0}},
-        {.position{0, 0, -width / 2, 1}, .uv0{0, 1}},
-        {.position{0, +height, -width / 2, 1}, .uv0{0, 0}},
-        {.position{0, 0, +width / 2, 1}, .uv0{1, 1}},
-        {.position{0, +height, +width / 2, 1}, .uv0{1, 0}},
+    std::vector<float3> positions{
+        {-width / 2, 0, 0},
+        {-width / 2, +height, 0},
+        {+width / 2, 0, 0},
+        {+width / 2, +height, 0},
+        {0, 0, -width / 2},
+        {0, +height, -width / 2},
+        {0, 0, +width / 2},
+        {0, +height, +width / 2},
+    };
+    std::vector<float2> uv0s{
+        {0, 1},
+        {0, 0},
+        {1, 1},
+        {1, 0},
+        {0, 1},
+        {0, 0},
+        {1, 1},
+        {1, 0}
     };
     std::vector<uint32_t> indices{
         0, 1, 2, 3, invalidMeshIndex, 4, 5, 6, 7
     };
-    return createMeshIndexed(device, &vertices, &indices, MTLPrimitiveTypeTriangleStrip);
+    MeshDeinterleavedDescriptor descriptor{
+        .positions = &positions,
+        .uv0s = &uv0s,
+        .indices = &indices,
+        .primitiveType = MTLPrimitiveTypeTriangleStrip
+    };
+    return createMeshDeinterleaved(device, &descriptor);
 }
 
 //-------------------------------
 // terrain
 //-------------------------------
 
-void createTerrain(RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdivisions,
-                   std::vector<VertexData>* outVertices, std::vector<uint32_t>* outIndices, MTLPrimitiveType* outPrimitiveType)
+void createTerrain(
+    RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdivisions,
+    std::vector<float3>* outPositions, std::vector<uint32_t>* outIndices, MTLPrimitiveType* outPrimitiveType)
 {
     float xSize = extents.maxX - extents.minX;
     float zSize = extents.maxY - extents.minY;
     uint32_t xCount = xSubdivisions + 1; // amount of vertices is subdivisions + 1
     uint32_t zCount = zSubdivisions + 1;
-    outVertices->resize(xCount * zCount);
+
+    outPositions->resize(xCount * zCount);
 
     float xStep = xSize / (float)xSubdivisions;
     float zStep = zSize / (float)zSubdivisions;
@@ -493,9 +553,7 @@ void createTerrain(RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdiv
 
             float y = 0.1f * perlin(x * 8, z * 8) + 2.0f * perlin(x / 2, z / 2) + 10.0f * perlin(x / 9, z / 12);
 
-            outVertices->at(zIndex * xCount + xIndex) = VertexData{
-                .position{x, y, z, 1}, .color{0, 1, 0, 1}
-            };
+            outPositions->at(zIndex * xCount + xIndex) = float3{x, y, z};
         }
     }
 
@@ -519,9 +577,8 @@ void createTerrain(RectMinMaxf extents, uint32_t xSubdivisions, uint32_t zSubdiv
 // axes
 //-------------------------------
 
-Mesh createAxes(id <MTLDevice> device)
+MeshDeinterleaved createAxes(id <MTLDevice> device)
 {
-    std::vector<VertexData> vertices;
     std::vector<uint32_t> indices;
     std::vector<uint32_t> indicesTemplate{
         0, 1, 2, 1, 3, 2
@@ -530,29 +587,34 @@ Mesh createAxes(id <MTLDevice> device)
     float w = 0.01f; // width
     float l = 0.75f; // length
 
-    simd_float4 red = {1, 0, 0, 1};
-    simd_float4 green = {0, 1, 0, 1};
-    simd_float4 blue = {0, 0, 1, 1};
+    float4 red = {1, 0, 0, 1};
+    float4 green = {0, 1, 0, 1};
+    float4 blue = {0, 0, 1, 1};
 
     // positions
-    vertices = {
+    std::vector<float3> positions{
         // x
-        {.position = {l, -w, 0, 1}, .color = red},
-        {.position = {l, +w, 0, 1}, .color = red},
-        {.position = {0, -w, 0, 1}, .color = red},
-        {.position = {0, +w, 0, 1}, .color = red},
+        {l, -w, 0},
+        {l, +w, 0},
+        {0, -w, 0},
+        {0, +w, 0},
 
         // y
-        {.position = {-w, l, 0, 1}, .color = green},
-        {.position = {+w, l, 0, 1}, .color = green},
-        {.position = {-w, 0, 0, 1}, .color = green},
-        {.position = {+w, 0, 0, 1}, .color = green},
+        {-w, l, 0},
+        {+w, l, 0},
+        {-w, 0, 0},
+        {+w, 0, 0},
 
         // z
-        {.position = {0, -w, l, 1}, .color = blue},
-        {.position = {0, +w, l, 1}, .color = blue},
-        {.position = {0, -w, 0, 1}, .color = blue},
-        {.position = {0, +w, 0, 1}, .color = blue},
+        {0, -w, l},
+        {0, +w, l},
+        {0, -w, 0},
+        {0, +w, 0}
+    };
+    std::vector<float4> colors{
+        red, red, red, red, // x
+        green, green, green, green, // y
+        blue, blue, blue, blue // z
     };
 
     for (int i = 0; i <= 2; i++)
@@ -564,5 +626,11 @@ Mesh createAxes(id <MTLDevice> device)
         }
     }
 
-    return createMeshIndexed(device, &vertices, &indices, MTLPrimitiveTypeTriangle);
+    MeshDeinterleavedDescriptor descriptor{
+        .positions = &positions,
+        .colors = &colors,
+        .indices = &indices,
+        .primitiveType = MTLPrimitiveTypeTriangle
+    };
+    return createMeshDeinterleaved(device, &descriptor);
 }

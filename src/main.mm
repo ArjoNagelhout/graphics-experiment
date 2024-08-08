@@ -90,10 +90,6 @@ void onSliderValueChanged(App*, int index, float value);
 }
 @end
 
-@interface TextViewDelegate : NSObject <NSTextViewDelegate>
-@property(unsafe_unretained, nonatomic) App* app;
-@end
-
 @interface SliderDelegate : NSObject
 @property(unsafe_unretained, nonatomic) App* app;
 
@@ -295,6 +291,12 @@ struct Font
     TextureAtlas* atlas;
 };
 
+struct Image2dVertexData
+{
+    simd_float4 position;
+    simd_float2 uv0;
+};
+
 // texture coordinates: (top left = 0, 0) (bottom right = 1, 1)
 RectMinMaxf spriteToTextureCoords(id <MTLTexture> texture, Sprite* sprite)
 {
@@ -364,8 +366,6 @@ struct App
     NSSplitView* splitView;
     MetalView* view;
     MetalViewDelegate* viewDelegate;
-    NSView* sidepanel;
-    TextViewDelegate* textViewDelegate;
     SliderDelegate* sliderDelegate;
 
     // metal objects
@@ -377,14 +377,13 @@ struct App
     // shaders
     id <MTLRenderPipelineState> shaderClearDepth;
     id <MTLRenderPipelineState> shaderShadow;
-    id <MTLRenderPipelineState> shaderUI;
+    id <MTLRenderPipelineState> shaderImage2d;
     id <MTLRenderPipelineState> shaderLit;
     id <MTLRenderPipelineState> shaderLitAlphaBlend;
     id <MTLRenderPipelineState> shaderUnlit; // textured
     id <MTLRenderPipelineState> shaderUnlitAlphaBlend;
     id <MTLRenderPipelineState> shaderUnlitColored; // simplest shader possible, only uses the color
     id <MTLRenderPipelineState> shaderPbr; // OpenPbr Surface implementation from https://academysoftwarefoundation.github.io/OpenPbr/
-    id <MTLRenderPipelineState> shaderDeinterleavedPbr; // pbr shader with deinterleaved vertex data
 
     // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
     id <MTLDepthStencilState> depthStencilStateClear;
@@ -424,27 +423,25 @@ struct App
     float currentRoughness = 0.0f;
 
     // primitives
-    Mesh meshCube;
-    Mesh meshCubeWithoutUV;
-    Mesh meshRoundedCube;
-    Mesh meshSphere;
-    Mesh meshPlane;
-    MeshDeinterleaved meshPlaneDeinterleaved;
+    MeshDeinterleaved meshCube;
+    MeshDeinterleaved meshCubeWithoutUV;
+    MeshDeinterleaved meshRoundedCube;
+    MeshDeinterleaved meshSphere;
+    MeshDeinterleaved meshPlane;
 
     // axes
-    Mesh meshAxes;
+    MeshDeinterleaved meshAxes;
 
     // terrain
-    Mesh meshTerrain;
+    MeshDeinterleaved meshTerrain;
     id <MTLRenderPipelineState> shaderTerrain;
     id <MTLRenderPipelineState> shaderWater;
-    id <MTLRenderPipelineState> shaderWaterDeinterleaved;
     id <MTLTexture> textureTerrainGreen;
     id <MTLTexture> textureTerrainYellow;
     id <MTLTexture> textureWater;
 
     // tree
-    Mesh meshTree;
+    MeshDeinterleaved meshTree;
     id <MTLTexture> textureTree;
     std::vector<InstanceData> treeInstances;
 
@@ -462,8 +459,6 @@ struct App
 
     // silly periodic timer
     float time = 0.0f;
-
-    std::string currentText;
 
     // icons
     id <MTLTexture> textureIconSun;
@@ -492,15 +487,6 @@ struct App
     {
         _app->currentRoughness = value;
     }
-}
-@end
-
-@implementation TextViewDelegate
-- (void)textDidChange:(NSNotification*)obj {
-    // https://developer.apple.com/documentation/appkit/nstextdidchangenotification
-    auto* v = (NSTextView*)(obj.object);
-    NSString* aa = [[v textStorage] string];
-    _app->currentText = [aa cStringUsingEncoding:NSUTF8StringEncoding];
 }
 @end
 
@@ -926,17 +912,6 @@ void onLaunch(App* app)
 
     // create UI / text view sidepanel
     {
-        TextViewDelegate* textViewDelegate = [[TextViewDelegate alloc] init];
-        app->textViewDelegate = textViewDelegate;
-        textViewDelegate.app = app;
-
-//        NSTextView* textView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, app->config->sidepanelWidth, app->splitView.frame.size.height)];
-//        [textView setDelegate:app->textViewDelegate];
-//        [textView setAutomaticTextCompletionEnabled:NO];
-//        [textView setString:[[NSString alloc] initWithCString:app->currentText.c_str() encoding:NSUTF8StringEncoding]];
-//        [app->splitView addSubview:textView];
-//        app->sidepanel = textView;
-
         // create sliders
 
         app->sliderDelegate = [[SliderDelegate alloc] init];
@@ -1006,14 +981,15 @@ void onLaunch(App* app)
         std::filesystem::path shadersPath = app->config->assetsPath / "shaders";
         std::vector<std::filesystem::path> paths{
             shadersPath / "shader_bindings.h",
-            shadersPath / "shader_common.h",
+
+            shadersPath / "shader_common.metal",
 
             // utility
             shadersPath / "shader_clear_depth.metal",
             shadersPath / "shader_shadow.metal",
 
             // UI and 2D
-            shadersPath / "shader_ui.metal",
+            shadersPath / "shader_image_2d.metal",
 
             // special
             shadersPath / "shader_terrain.metal",
@@ -1023,7 +999,6 @@ void onLaunch(App* app)
             shadersPath / "shader_lit.metal",
             shadersPath / "shader_unlit.metal",
             shadersPath / "shader_pbr.metal",
-            shadersPath / "shader_deinterleaved_pbr.metal",
 
             // compute shaders
             shadersPath / "shader_pbr_lookup_textures.metal"
@@ -1060,12 +1035,11 @@ void onLaunch(App* app)
         app->shaderShadow = createShader(app, @"shadow_vertex", @"shadow_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         // 2D / UI
-        app->shaderUI = createShader(app, @"ui_vertex", @"ui_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->shaderImage2d = createShader(app, @"image_2d_vertex", @"image_2d_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         // special
         app->shaderTerrain = createShader(app, @"terrain_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_None);
         app->shaderWater = createShader(app, @"terrain_vertex", @"lit_fragment", nullptr, lit, ShaderFeatureFlags_AlphaBlend);
-        app->shaderWaterDeinterleaved = createShader(app, @"vertex_terrain_deinterleaved", @"lit_fragment", nullptr, lit, ShaderFeatureFlags_None);
         app->shaderSkybox = createShader(app, @"skybox_vertex", @"skybox_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         // 3D
@@ -1076,7 +1050,6 @@ void onLaunch(App* app)
         app->shaderUnlitColored = createShader(app, @"unlit_vertex", @"unlit_colored_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         app->shaderPbr = createShader(app, @"pbr_vertex", @"pbr_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
-        app->shaderDeinterleavedPbr = createShader(app, @"deinterleaved_pbr_vertex", @"pbr_with_maps_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
     }
 
     // create depth clear pipeline state and depth stencil state
@@ -1161,22 +1134,26 @@ void onLaunch(App* app)
         app->meshRoundedCube = createRoundedCube(app->device, simd_float3{2.0f, 4.0f, 10.0f}, 0.5f, 3);
         app->meshSphere = createUVSphere(app->device, 60, 60);
         app->meshPlane = createPlane(app->device, RectMinMaxf{-30, -30, 30, 30});
-        app->meshPlaneDeinterleaved = createPlaneDeinterleaved(app->device, RectMinMaxf{-30, -30, 30, 30});
         app->meshAxes = createAxes(app->device);
     }
 
     // create terrain and trees on terrain
     if (1)
     {
-        std::vector<VertexData> vertices{};
+        std::vector<float3> positions{};
         std::vector<uint32_t> indices{};
         MTLPrimitiveType primitiveType;
-        createTerrain(RectMinMaxf{-30, -30, 30, 30}, 2000, 2000, &vertices, &indices, &primitiveType);
-        app->meshTerrain = createMeshIndexed(app->device, &vertices, &indices, primitiveType);
+        createTerrain(RectMinMaxf{-30, -30, 30, 30}, 2000, 2000, &positions, &indices, &primitiveType);
+        MeshDeinterleavedDescriptor descriptor{
+            .positions = &positions,
+            .indices = &indices,
+            .primitiveType = primitiveType
+        };
+        app->meshTerrain = createMeshDeinterleaved(app->device, &descriptor);
 
         app->meshTree = createTree(app->device, 2.0f, 2.0f);
 
-        int maxIndex = (int)vertices.size();
+        int maxIndex = (int)positions.size();
         // create tree instances at random positions from vertex data of the terrain
         int treeCount = 100;
         app->treeInstances.resize(treeCount);
@@ -1184,9 +1161,9 @@ void onLaunch(App* app)
         {
             // get random vertex from vertices
             int index = randomInt(0, maxIndex);
-            VertexData& v = vertices[index];
+            float3 position = positions[index];
             app->treeInstances[i] = InstanceData{
-                .localToWorld = glm::scale(glm::translate(glm::vec3(v.position.x, v.position.y, v.position.z)), glm::vec3(randomFloatMinMax(0.5f, 1.0f)))
+                .localToWorld = glm::scale(glm::translate(glm::vec3(position.x, position.y, position.z)), glm::vec3(randomFloatMinMax(0.5f, 1.0f)))
             };
         }
 
@@ -1197,9 +1174,9 @@ void onLaunch(App* app)
         {
             // get random vertex from vertices
             int index = randomInt(0, maxIndex);
-            VertexData& v = vertices[index];
+            float3& position = positions[index];
             app->shrubInstances[i] = InstanceData{
-                .localToWorld = glm::scale(glm::translate(glm::vec3(v.position.x, v.position.y, v.position.z)), glm::vec3(randomFloatMinMax(0.2f, 0.8f)))
+                .localToWorld = glm::scale(glm::translate(glm::vec3(position.x, position.y, position.z)), glm::vec3(randomFloatMinMax(0.2f, 0.8f)))
             };
         }
 
@@ -1208,7 +1185,7 @@ void onLaunch(App* app)
     }
 
     // import gltfs
-    if (0)
+    if (1)
     {
         bool success;
 
@@ -1275,12 +1252,12 @@ void onTerminate(App* app)
 
 }
 
-void addQuad(std::vector<VertexData>* vertices, RectMinMaxf position, RectMinMaxf uv)
+void addQuad(std::vector<Image2dVertexData>* vertices, RectMinMaxf position, RectMinMaxf uv)
 {
-    VertexData topLeft{.position = {position.minX, position.minY, 0.0f, 1.0f}, .uv0 = {uv.minX, uv.minY}};
-    VertexData topRight{.position = {position.maxX, position.minY, 0.0f, 1.0f}, .uv0 = {uv.maxX, uv.minY}};
-    VertexData bottomLeft{.position = {position.minX, position.maxY, 0.0f, 1.0f}, .uv0 = {uv.minX, uv.maxY}};
-    VertexData bottomRight{.position = {position.maxX, position.maxY, 0.0f, 1.0f}, .uv0 = {uv.maxX, uv.maxY}};
+    Image2dVertexData topLeft{.position = {position.minX, position.minY, 0.0f, 1.0f}, .uv0 = {uv.minX, uv.minY}};
+    Image2dVertexData topRight{.position = {position.maxX, position.minY, 0.0f, 1.0f}, .uv0 = {uv.maxX, uv.minY}};
+    Image2dVertexData bottomLeft{.position = {position.minX, position.maxY, 0.0f, 1.0f}, .uv0 = {uv.minX, uv.maxY}};
+    Image2dVertexData bottomRight{.position = {position.maxX, position.maxY, 0.0f, 1.0f}, .uv0 = {uv.maxX, uv.maxY}};
     vertices->emplace_back(topLeft);
     vertices->emplace_back(topRight);
     vertices->emplace_back(bottomRight);
@@ -1303,7 +1280,7 @@ RectMinMaxf pixelCoordsToNDC(App* app, RectMinMaxi rect)
     };
 }
 
-void addText(App* app, std::string const& text, std::vector<VertexData>* vertices, uint32_t x, uint32_t y, uint32_t characterSize)
+void addText(App* app, std::string const& text, std::vector<Image2dVertexData>* vertices, uint32_t x, uint32_t y, uint32_t characterSize)
 {
     vertices->reserve(vertices->size() + text.size() * 6);
 
@@ -1356,32 +1333,8 @@ void clearDepthBuffer(App* app, id <MTLRenderCommandEncoder> encoder)
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
-void drawMesh(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, InstanceData* instance)
+void bindMeshDeinterleavedAttributes(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh)
 {
-    [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:bindings::instanceData];
-    [encoder setVertexBuffer:mesh->vertexBuffer offset:0 atIndex:bindings::vertexData];
-    if (mesh->indexed)
-    {
-        [encoder
-            drawIndexedPrimitives:mesh->primitiveType
-            indexCount:mesh->indexCount
-            indexType:mesh->indexType
-            indexBuffer:mesh->indexBuffer
-            indexBufferOffset:0];
-    }
-    else
-    {
-        [encoder
-            drawPrimitives:mesh->primitiveType
-            vertexStart:0
-            vertexCount:mesh->vertexCount];
-    }
-}
-
-void drawMeshDeinterleaved(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, InstanceData* instance)
-{
-    [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:bindings::instanceData];
-
     // bind vertex attributes
     size_t offset = 0;
     for (auto& attribute: mesh->attributes)
@@ -1391,10 +1344,10 @@ void drawMeshDeinterleaved(id <MTLRenderCommandEncoder> encoder, MeshDeinterleav
         switch (attribute.type)
         {
             case VertexAttributeType::Position: index = bindings::positions; break;
-            case VertexAttributeType::Normal: continue; index = bindings::normals; break;
-            case VertexAttributeType::Tangent: continue; index = bindings::tangents; break;
-            case VertexAttributeType::TextureCoordinate: continue; index = bindings::uv0s; break;
-            case VertexAttributeType::Color: continue; index = bindings::colors; break;
+            case VertexAttributeType::Normal: index = bindings::normals; break;
+            case VertexAttributeType::Tangent: index = bindings::tangents; break;
+            case VertexAttributeType::TextureCoordinate: index = bindings::uv0s; break;
+            case VertexAttributeType::Color: index = bindings::colors; break;
             case VertexAttributeType::Joints: assert(false);
             case VertexAttributeType::Weights: assert(false);
         }
@@ -1403,28 +1356,12 @@ void drawMeshDeinterleaved(id <MTLRenderCommandEncoder> encoder, MeshDeinterleav
         continue;
         offset += attribute.size;
     }
-    if (mesh->indexed)
-    {
-        [encoder
-            drawIndexedPrimitives:mesh->primitiveType
-            indexCount:mesh->indexCount
-            indexType:mesh->indexType
-            indexBuffer:mesh->indexBuffer
-            indexBufferOffset:0];
-    }
-    else
-    {
-        [encoder
-            drawPrimitives:mesh->primitiveType
-            vertexStart:0
-            vertexCount:mesh->vertexCount];
-    }
 }
 
-void drawMeshInstanced(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, std::vector<InstanceData>* instances)
+void drawMeshDeinterleavedInstanced(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, std::vector<InstanceData>* instances)
 {
-    [encoder setVertexBytes:instances->data() length:instances->size() * sizeof(InstanceData) atIndex:bindings::instanceData];
-    [encoder setVertexBuffer:mesh->vertexBuffer offset:0 atIndex:bindings::vertexData];
+    [encoder setVertexBytes:instances->data() length:sizeof(InstanceData) * instances->size() atIndex:bindings::instanceData];
+    bindMeshDeinterleavedAttributes(encoder, mesh);
     if (mesh->indexed)
     {
         [encoder
@@ -1445,6 +1382,28 @@ void drawMeshInstanced(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, std::ve
             vertexCount:mesh->vertexCount
             instanceCount:instances->size()
             baseInstance:0];
+    }
+}
+
+void drawMeshDeinterleaved(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, InstanceData* instance)
+{
+    [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:bindings::instanceData];
+    bindMeshDeinterleavedAttributes(encoder, mesh);
+    if (mesh->indexed)
+    {
+        [encoder
+            drawIndexedPrimitives:mesh->primitiveType
+            indexCount:mesh->indexCount
+            indexType:mesh->indexType
+            indexBuffer:mesh->indexBuffer
+            indexBufferOffset:0];
+    }
+    else
+    {
+        [encoder
+            drawPrimitives:mesh->primitiveType
+            vertexStart:0
+            vertexCount:mesh->vertexCount];
     }
 }
 
@@ -1498,6 +1457,7 @@ struct GltfPbrInstanceData
 void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, GltfPrimitive* primitive)
 {
     // bind vertex attributes
+//    bindMeshDeinterleavedAttributes(encoder, &primitive->mesh);
     size_t offset = 0;
     for (auto& attribute: primitive->mesh.attributes)
     {
@@ -1571,7 +1531,7 @@ void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel
 {
     [encoder setCullMode:MTLCullModeBack];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-    [encoder setRenderPipelineState:app->shaderDeinterleavedPbr];
+    [encoder setRenderPipelineState:app->shaderPbr];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
     // traverse scene
@@ -1637,35 +1597,21 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
 //            {.localToWorld = glm::translate(glm::vec3(9, 0, 9))},
 //            {.localToWorld = glm::translate(glm::vec3(9, 0, 0))},
         };
-        drawMeshInstanced(encoder, &app->meshTerrain, &instances);
+        drawMeshDeinterleavedInstanced(encoder, &app->meshTerrain, &instances);
     }
 
     // draw water
-    if (0)
-    {
-        [encoder setCullMode:MTLCullModeBack];
-        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shaderShadow : app->shaderWater];
-        [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->textureWater atIndex:bindings::texture];
-        InstanceData instance{
-            .localToWorld = glm::mat4(1)
-        };
-        drawMesh(encoder, &app->meshPlane, &instance);
-    }
-
-    // draw deinterleaved mesh
     if (1)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->shaderWaterDeinterleaved];
+        [encoder setRenderPipelineState:app->shaderWater];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->textureWater atIndex:bindings::texture];
         InstanceData instance{
             .localToWorld = glm::mat4(1)
         };
-        drawMeshDeinterleaved(encoder, &app->meshPlaneDeinterleaved, &instance);
+        drawMeshDeinterleaved(encoder, &app->meshPlane, &instance);
     }
 
     // draw trees
@@ -1676,7 +1622,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         [encoder setRenderPipelineState:app->shaderLit];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->textureTree atIndex:bindings::texture];
-        drawMeshInstanced(encoder, &app->meshTree, &app->treeInstances);
+        drawMeshDeinterleavedInstanced(encoder, &app->meshTree, &app->treeInstances);
     }
 
     // draw shrubs
@@ -1684,30 +1630,14 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     {
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->shaderLitAlphaBlend];
+        [encoder setRenderPipelineState:app->shaderLit];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
         [encoder setFragmentTexture:app->textureShrub atIndex:bindings::texture];
-        drawMeshInstanced(encoder, &app->meshTree, &app->shrubInstances);
-
-        std::vector<InstanceData>* instances = &app->shrubInstances;
-        Mesh* mesh = &app->meshTree;
-
-        [encoder setVertexBytes:instances->data() length:instances->size() * sizeof(InstanceData) atIndex:bindings::instanceData];
-        [encoder setVertexBuffer:mesh->vertexBuffer offset:0 atIndex:bindings::vertexData];
-
-        [encoder
-            drawIndexedPrimitives:mesh->primitiveType
-            indexCount:mesh->indexCount
-            indexType:mesh->indexType
-            indexBuffer:mesh->indexBuffer
-            indexBufferOffset:0
-            instanceCount:instances->size()
-            baseVertex:0
-            baseInstance:0];
+        drawMeshDeinterleavedInstanced(encoder, &app->meshTree, &app->shrubInstances);
     }
 
     // draw gltfs
-    if (0)
+    if (1)
     {
         drawGltfPbr(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(10, 10, 10)));
         drawGltfPbr(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
@@ -1748,7 +1678,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                 [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:bindings::prefilteredEnvironmentMap];
                 [encoder setFragmentTexture:app->brdfLookupTexture atIndex:bindings::brdfLookupTexture];
                 [encoder setFragmentTexture:app->irradianceMap atIndex:bindings::irradianceMap];
-                drawMesh(encoder, &app->meshRoundedCube, &instance);
+                drawMeshDeinterleaved(encoder, &app->meshRoundedCube, &instance);
             }
         }
     }
@@ -1761,20 +1691,20 @@ void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transfor
     [encoder setDepthStencilState:app->depthStencilStateDefault];
     [encoder setRenderPipelineState:app->shaderUnlitColored];
     InstanceData instance{.localToWorld = transform};
-    drawMesh(encoder, &app->meshAxes, &instance);
+    drawMeshDeinterleaved(encoder, &app->meshAxes, &instance);
 }
 
 void drawTexture(App* app, id <MTLRenderCommandEncoder> encoder, id <MTLTexture> texture, RectMinMaxi pixelCoords)
 {
     [encoder setCullMode:MTLCullModeBack];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-    [encoder setRenderPipelineState:app->shaderUI];
+    [encoder setRenderPipelineState:app->shaderImage2d];
     [encoder setFragmentTexture:texture atIndex:bindings::texture];
 
     RectMinMaxf extents = pixelCoordsToNDC(app, pixelCoords);
-    std::vector<VertexData> vertices;
+    std::vector<Image2dVertexData> vertices;
     addQuad(&vertices, extents, /*uv*/ RectMinMaxf{0, 0, 1, 1});
-    [encoder setVertexBytes:vertices.data() length:vertices.size() * sizeof(VertexData) atIndex:bindings::vertexData];
+    [encoder setVertexBytes:vertices.data() length:vertices.size() * sizeof(Image2dVertexData) atIndex:bindings::vertexData];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
 }
 
@@ -1907,7 +1837,7 @@ void onDraw(App* app)
             InstanceData instance{
                 .localToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(10))
             };
-            drawMesh(encoder, &app->meshCube, &instance);
+            drawMeshDeinterleaved(encoder, &app->meshCube, &instance);
         }
 
         // clear depth buffer (sets vertex bytes at index 0)
@@ -1926,7 +1856,7 @@ void onDraw(App* app)
             InstanceData instance{
                 .localToWorld = glm::scale(transformToMatrix(&app->sunTransform), glm::vec3(0.25f))
             };
-            drawMesh(encoder, &app->meshCube, &instance);
+            drawMeshDeinterleaved(encoder, &app->meshCube, &instance);
         }
 
         // draw axes at sun position
@@ -1980,9 +1910,9 @@ void onDraw(App* app)
         {
             [encoder setCullMode:MTLCullModeBack];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-            [encoder setRenderPipelineState:app->shaderUI];
+            [encoder setRenderPipelineState:app->shaderImage2d];
             [encoder setFragmentTexture:app->fontAtlas.texture atIndex:bindings::texture];
-            std::vector<VertexData> vertices;
+            std::vector<Image2dVertexData> vertices;
 
             glm::vec3* pos = &app->cameraTransform.position;
             std::string a = fmt::format("camera ({0:+.3f}, {1:+.3f}, {2:+.3f})", pos->x, pos->y, pos->z);
@@ -1996,7 +1926,7 @@ void onDraw(App* app)
             addText(app, c, &vertices, 0, 200, 20);
 
             MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-            id <MTLBuffer> buffer = [app->device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(VertexData) options:options];
+            id <MTLBuffer> buffer = [app->device newBufferWithBytes:vertices.data() length:vertices.size() * sizeof(Image2dVertexData) options:options];
 
             [encoder setVertexBuffer:buffer offset:0 atIndex:bindings::vertexData];
             [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
@@ -2039,16 +1969,8 @@ int main(int argc, char const* argv[])
         .shadowMapSize = 4096
     };
 
-    // load text
-    std::stringstream buffer;
-    std::filesystem::path path(config.assetsPath / "shaders" / "shader_common.h");
-    assert(std::filesystem::exists(path));
-    std::ifstream file(path);
-    buffer << file.rdbuf();
-
     App app{
-        .config = &config,
-        .currentText = buffer.str()
+        .config = &config
     };
 
     AppDelegate* appDelegate = [[AppDelegate alloc] init];
