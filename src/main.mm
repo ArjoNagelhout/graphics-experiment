@@ -1353,7 +1353,6 @@ void bindMeshDeinterleavedAttributes(id <MTLRenderCommandEncoder> encoder, MeshD
         }
         //@formatter:on
         [encoder setVertexBuffer:mesh->vertexBuffer offset:offset atIndex:index];
-        continue;
         offset += attribute.size;
     }
 }
@@ -1457,26 +1456,7 @@ struct GltfPbrInstanceData
 void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, GltfPrimitive* primitive)
 {
     // bind vertex attributes
-//    bindMeshDeinterleavedAttributes(encoder, &primitive->mesh);
-    size_t offset = 0;
-    for (auto& attribute: primitive->mesh.attributes)
-    {
-        int index = 0;
-        //@formatter:off
-        switch (attribute.type)
-        {
-            case VertexAttributeType::Position: index = bindings::positions; break;
-            case VertexAttributeType::Normal: index = bindings::normals; break;
-            case VertexAttributeType::Tangent: index = bindings::tangents; break;
-            case VertexAttributeType::TextureCoordinate: index = bindings::uv0s; break;
-            case VertexAttributeType::Color: index = bindings::colors; break;
-            case VertexAttributeType::Joints: assert(false);
-            case VertexAttributeType::Weights: assert(false);
-        }
-        //@formatter:on
-        [encoder setVertexBuffer:primitive->mesh.vertexBuffer offset:offset atIndex:index];
-        offset += attribute.size;
-    }
+    bindMeshDeinterleavedAttributes(encoder, &primitive->mesh);
 
     // set material
     {
