@@ -4,7 +4,7 @@
 
 [[nodiscard]] PrimitiveDeinterleaved createMeshDeinterleaved(
     id <MTLDevice> device,
-    MeshDeinterleavedDescriptor* descriptor)
+    PrimitiveDeinterleavedDescriptor* descriptor)
 {
     assert(descriptor->positions && !descriptor->positions->empty());
 

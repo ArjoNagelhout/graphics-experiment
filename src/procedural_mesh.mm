@@ -274,7 +274,7 @@ PrimitiveDeinterleaved createRoundedCube(id <MTLDevice> device, simd_float3 size
         t = roundedCubeCreateBottomFace(&data, t, ring);
     }
 
-    MeshDeinterleavedDescriptor descriptor{
+    PrimitiveDeinterleavedDescriptor descriptor{
         .positions = &data.positions,
         .normals = &data.normals,
         .indices = &data.indices,
@@ -333,7 +333,7 @@ PrimitiveDeinterleaved createUVSphere(id <MTLDevice> device, int horizontalDivis
         }
     }
 
-    MeshDeinterleavedDescriptor descriptor{
+    PrimitiveDeinterleavedDescriptor descriptor{
         .positions = &positions,
         .uv0s = &uv0s,
         .indices = &indices,
@@ -366,7 +366,7 @@ PrimitiveDeinterleaved createCubeWithoutUV(id <MTLDevice> device)
         4, 0, 5, 1, 7, 3, 6, 2, 4, 0,
     };
 
-    MeshDeinterleavedDescriptor descriptor{
+    PrimitiveDeinterleavedDescriptor descriptor{
         .positions = &positions,
         .indices = &indices,
         .primitiveType = MTLPrimitiveTypeTriangleStrip
@@ -453,7 +453,7 @@ PrimitiveDeinterleaved createCube(id <MTLDevice> device)
         22, 23, 20
     };
 
-    MeshDeinterleavedDescriptor descriptor{
+    PrimitiveDeinterleavedDescriptor descriptor{
         .positions = &positions,
         .uv0s = &uv0s,
         .indices = &indices,
@@ -480,7 +480,7 @@ PrimitiveDeinterleaved createPlane(id <MTLDevice> device, RectMinMaxf extents)
         {1, 1},
         {1, 0}
     };
-    MeshDeinterleavedDescriptor descriptor{
+    PrimitiveDeinterleavedDescriptor descriptor{
         .positions = &positions,
         .uv0s = &uv0s,
         .primitiveType = MTLPrimitiveTypeTriangleStrip
@@ -517,7 +517,7 @@ PrimitiveDeinterleaved createTree(id <MTLDevice> device, float width, float heig
     std::vector<uint32_t> indices{
         0, 1, 2, 3, invalidMeshIndex, 4, 5, 6, 7
     };
-    MeshDeinterleavedDescriptor descriptor{
+    PrimitiveDeinterleavedDescriptor descriptor{
         .positions = &positions,
         .uv0s = &uv0s,
         .indices = &indices,
@@ -626,7 +626,7 @@ PrimitiveDeinterleaved createAxes(id <MTLDevice> device)
         }
     }
 
-    MeshDeinterleavedDescriptor descriptor{
+    PrimitiveDeinterleavedDescriptor descriptor{
         .positions = &positions,
         .colors = &colors,
         .indices = &indices,

@@ -1161,7 +1161,7 @@ void onLaunch(App* app)
         std::vector<uint32_t> indices{};
         MTLPrimitiveType primitiveType;
         createTerrain(RectMinMaxf{-30, -30, 30, 30}, 2000, 2000, &positions, &indices, &primitiveType);
-        MeshDeinterleavedDescriptor descriptor{
+        PrimitiveDeinterleavedDescriptor descriptor{
             .positions = &positions,
             .indices = &indices,
             .primitiveType = primitiveType
@@ -1545,7 +1545,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     assert(encoder != nullptr);
 
     // draw terrain
-    if (0)
+    if (1)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1559,7 +1559,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw water
-    if (0)
+    if (1)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1573,7 +1573,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw trees
-    if (0)
+    if (1)
     {
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
@@ -1584,7 +1584,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw shrubs
-    if (0)
+    if (1)
     {
         [encoder setCullMode:MTLCullModeNone];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];

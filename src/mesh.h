@@ -72,7 +72,7 @@ struct float4
 };
 
 // to avoid having to specify all parameters each time in a function
-struct MeshDeinterleavedDescriptor
+struct PrimitiveDeinterleavedDescriptor
 {
     std::vector<float3>* positions = nullptr;
     std::vector<float3>* normals = nullptr;
@@ -84,6 +84,6 @@ struct MeshDeinterleavedDescriptor
 
 [[nodiscard]] PrimitiveDeinterleaved createMeshDeinterleaved(
     id <MTLDevice> device,
-    MeshDeinterleavedDescriptor* descriptor);
+    PrimitiveDeinterleavedDescriptor* descriptor);
 
 #endif //METAL_EXPERIMENT_MESH_H
