@@ -384,7 +384,7 @@ struct App
     id <MTLRenderPipelineState> shaderUnlitAlphaBlend;
     id <MTLRenderPipelineState> shaderUnlitColored; // simplest shader possible, only uses the color
     id <MTLRenderPipelineState> shaderPbr; // OpenPbr Surface implementation from https://academysoftwarefoundation.github.io/OpenPbr/
-    id <MTLRenderPipelineState> shaderGltfPbr; // combined gltf and pbr shader
+    id <MTLRenderPipelineState> shaderDeinterleavedPbr; // pbr shader with deinterleaved vertex data
 
     // for clearing the depth buffer (https://stackoverflow.com/questions/58964035/in-metal-how-to-clear-the-depth-buffer-or-the-stencil-buffer)
     id <MTLDepthStencilState> depthStencilStateClear;
@@ -404,11 +404,11 @@ struct App
     float cameraRoll;
 
     // skybox
-    id <MTLRenderPipelineState> skyboxShader;
-    id <MTLTexture> skyboxTexture;
-    id <MTLTexture> skybox2Texture;
-    id <MTLTexture> skybox3Texture;
-    id <MTLTexture> skybox4Texture;
+    id <MTLRenderPipelineState> shaderSkybox;
+    id <MTLTexture> textureSkybox;
+    id <MTLTexture> textureSkybox2;
+    id <MTLTexture> textureSkybox3;
+    id <MTLTexture> textureSkybox4;
 
     // active skybox
     id <MTLTexture> currentSkybox;
@@ -424,29 +424,31 @@ struct App
     float currentRoughness = 0.0f;
 
     // primitives
-    Mesh cube;
-    Mesh cubeWithoutUV;
-    Mesh roundedCube;
-    Mesh sphere;
-    Mesh plane;
+    Mesh meshCube;
+    Mesh meshCubeWithoutUV;
+    Mesh meshRoundedCube;
+    Mesh meshSphere;
+    Mesh meshPlane;
+    MeshDeinterleaved meshPlaneDeinterleaved;
 
     // axes
-    Mesh axes;
+    Mesh meshAxes;
 
     // terrain
-    Mesh terrain;
-    id <MTLRenderPipelineState> terrainShader;
-    id <MTLRenderPipelineState> waterShader;
-    id <MTLTexture> terrainGreenTexture;
-    id <MTLTexture> terrainYellowTexture;
-    id <MTLTexture> waterTexture;
+    Mesh meshTerrain;
+    id <MTLRenderPipelineState> shaderTerrain;
+    id <MTLRenderPipelineState> shaderWater;
+    id <MTLRenderPipelineState> shaderWaterDeinterleaved;
+    id <MTLTexture> textureTerrainGreen;
+    id <MTLTexture> textureTerrainYellow;
+    id <MTLTexture> textureWater;
 
     // tree
-    Mesh tree;
-    id <MTLTexture> treeTexture;
+    Mesh meshTree;
+    id <MTLTexture> textureTree;
     std::vector<InstanceData> treeInstances;
 
-    id <MTLTexture> shrubTexture;
+    id <MTLTexture> textureShrub;
     std::vector<InstanceData> shrubInstances;
 
     // gltf model
@@ -464,7 +466,7 @@ struct App
     std::string currentText;
 
     // icons
-    id <MTLTexture> iconSunTexture;
+    id <MTLTexture> textureIconSun;
 
     // input
     std::bitset<static_cast<size_t>(CocoaKeyCode::Last)> keys;
@@ -534,22 +536,22 @@ void onKeyPressed(App* app, CocoaKeyCode keyCode)
     // switch skybox, set skybox, change skybox
     if (keyCode == CocoaKeyCode::kVK_ANSI_1)
     {
-        app->currentSkybox = app->skyboxTexture;
+        app->currentSkybox = app->textureSkybox;
         onSkyboxChanged(app);
     }
     else if (keyCode == CocoaKeyCode::kVK_ANSI_2)
     {
-        app->currentSkybox = app->skybox2Texture;
+        app->currentSkybox = app->textureSkybox2;
         onSkyboxChanged(app);
     }
     else if (keyCode == CocoaKeyCode::kVK_ANSI_3)
     {
-        app->currentSkybox = app->skybox3Texture;
+        app->currentSkybox = app->textureSkybox3;
         onSkyboxChanged(app);
     }
     else if (keyCode == CocoaKeyCode::kVK_ANSI_4)
     {
-        app->currentSkybox = app->skybox4Texture;
+        app->currentSkybox = app->textureSkybox4;
         onSkyboxChanged(app);
     }
 
@@ -1021,7 +1023,7 @@ void onLaunch(App* app)
             shadersPath / "shader_lit.metal",
             shadersPath / "shader_unlit.metal",
             shadersPath / "shader_pbr.metal",
-            shadersPath / "shader_gltf_pbr.metal",
+            shadersPath / "shader_deinterleaved_pbr.metal",
 
             // compute shaders
             shadersPath / "shader_pbr_lookup_textures.metal"
@@ -1061,9 +1063,10 @@ void onLaunch(App* app)
         app->shaderUI = createShader(app, @"ui_vertex", @"ui_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         // special
-        app->terrainShader = createShader(app, @"terrain_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_None);
-        app->waterShader = createShader(app, @"terrain_vertex", @"lit_fragment", nullptr, lit, ShaderFeatureFlags_AlphaBlend);
-        app->skyboxShader = createShader(app, @"skybox_vertex", @"skybox_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->shaderTerrain = createShader(app, @"terrain_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_None);
+        app->shaderWater = createShader(app, @"terrain_vertex", @"lit_fragment", nullptr, lit, ShaderFeatureFlags_AlphaBlend);
+        app->shaderWaterDeinterleaved = createShader(app, @"vertex_terrain_deinterleaved", @"lit_fragment", nullptr, lit, ShaderFeatureFlags_None);
+        app->shaderSkybox = createShader(app, @"skybox_vertex", @"skybox_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         // 3D
         app->shaderLit = createShader(app, @"lit_vertex", @"lit_fragment", nullptr, litCutout, ShaderFeatureFlags_None);
@@ -1073,7 +1076,7 @@ void onLaunch(App* app)
         app->shaderUnlitColored = createShader(app, @"unlit_vertex", @"unlit_colored_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
 
         app->shaderPbr = createShader(app, @"pbr_vertex", @"pbr_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
-        app->shaderGltfPbr = createShader(app, @"gltf_pbr_vertex", @"gltf_pbr_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
+        app->shaderDeinterleavedPbr = createShader(app, @"deinterleaved_pbr_vertex", @"pbr_with_maps_fragment", nullptr, nullptr, ShaderFeatureFlags_None);
     }
 
     // create depth clear pipeline state and depth stencil state
@@ -1111,15 +1114,15 @@ void onLaunch(App* app)
     {
         // for now the skybox texture is a regular texture (using equirectangular projection) instead of a cubemap texture
         // this is less performant, change later.
-        app->skyboxTexture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox.png");
-        app->skybox2Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_2.png");
-        app->skybox3Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_3.png");
-        app->skybox4Texture = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_4.png");
+        app->textureSkybox = importTexture(app->device, app->config->assetsPath / "textures" / "skybox.png");
+        app->textureSkybox2 = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_2.png");
+        app->textureSkybox3 = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_3.png");
+        app->textureSkybox4 = importTexture(app->device, app->config->assetsPath / "textures" / "skybox_4.png");
 
-        app->iconSunTexture = importTexture(app->device, app->config->assetsPath / "textures" / "sun.png");
-        app->terrainGreenTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain_green.png");
-        app->terrainYellowTexture = importTexture(app->device, app->config->assetsPath / "textures" / "terrain.png");
-        app->waterTexture = importTexture(app->device, app->config->assetsPath / "textures" / "water.png");
+        app->textureIconSun = importTexture(app->device, app->config->assetsPath / "textures" / "sun.png");
+        app->textureTerrainGreen = importTexture(app->device, app->config->assetsPath / "textures" / "terrain_green.png");
+        app->textureTerrainYellow = importTexture(app->device, app->config->assetsPath / "textures" / "terrain.png");
+        app->textureWater = importTexture(app->device, app->config->assetsPath / "textures" / "water.png");
     }
 
     // import font
@@ -1153,12 +1156,13 @@ void onLaunch(App* app)
 
     // create primitive shapes
     {
-        app->cubeWithoutUV = createCubeWithoutUV(app->device);
-        app->cube = createCube(app->device);
-        app->roundedCube = createRoundedCube(app->device, simd_float3{2.0f, 4.0f, 10.0f}, 0.5f, 3);
-        app->sphere = createUVSphere(app->device, 60, 60);
-        app->plane = createPlane(app->device, RectMinMaxf{-30, -30, 30, 30});
-        app->axes = createAxes(app->device);
+        app->meshCubeWithoutUV = createCubeWithoutUV(app->device);
+        app->meshCube = createCube(app->device);
+        app->meshRoundedCube = createRoundedCube(app->device, simd_float3{2.0f, 4.0f, 10.0f}, 0.5f, 3);
+        app->meshSphere = createUVSphere(app->device, 60, 60);
+        app->meshPlane = createPlane(app->device, RectMinMaxf{-30, -30, 30, 30});
+        app->meshPlaneDeinterleaved = createPlaneDeinterleaved(app->device, RectMinMaxf{-30, -30, 30, 30});
+        app->meshAxes = createAxes(app->device);
     }
 
     // create terrain and trees on terrain
@@ -1168,9 +1172,9 @@ void onLaunch(App* app)
         std::vector<uint32_t> indices{};
         MTLPrimitiveType primitiveType;
         createTerrain(RectMinMaxf{-30, -30, 30, 30}, 2000, 2000, &vertices, &indices, &primitiveType);
-        app->terrain = createMeshIndexed(app->device, &vertices, &indices, primitiveType);
+        app->meshTerrain = createMeshIndexed(app->device, &vertices, &indices, primitiveType);
 
-        app->tree = createTree(app->device, 2.0f, 2.0f);
+        app->meshTree = createTree(app->device, 2.0f, 2.0f);
 
         int maxIndex = (int)vertices.size();
         // create tree instances at random positions from vertex data of the terrain
@@ -1199,12 +1203,12 @@ void onLaunch(App* app)
             };
         }
 
-        app->treeTexture = importTexture(app->device, app->config->assetsPath / "textures" / "tree.png");
-        app->shrubTexture = importTexture(app->device, app->config->assetsPath / "textures" / "shrub.png");
+        app->textureTree = importTexture(app->device, app->config->assetsPath / "textures" / "tree.png");
+        app->textureShrub = importTexture(app->device, app->config->assetsPath / "textures" / "shrub.png");
     }
 
     // import gltfs
-    if (1)
+    if (0)
     {
         bool success;
 
@@ -1258,7 +1262,7 @@ void onLaunch(App* app)
 
     }
 
-    app->currentSkybox = app->skyboxTexture;
+    app->currentSkybox = app->textureSkybox;
     onSkyboxChanged(
         app); // creates prefiltered environment map and irradiance map for the currently active skybox (should be cached, but not important for now)
 
@@ -1356,6 +1360,49 @@ void drawMesh(id <MTLRenderCommandEncoder> encoder, Mesh* mesh, InstanceData* in
 {
     [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:bindings::instanceData];
     [encoder setVertexBuffer:mesh->vertexBuffer offset:0 atIndex:bindings::vertexData];
+    if (mesh->indexed)
+    {
+        [encoder
+            drawIndexedPrimitives:mesh->primitiveType
+            indexCount:mesh->indexCount
+            indexType:mesh->indexType
+            indexBuffer:mesh->indexBuffer
+            indexBufferOffset:0];
+    }
+    else
+    {
+        [encoder
+            drawPrimitives:mesh->primitiveType
+            vertexStart:0
+            vertexCount:mesh->vertexCount];
+    }
+}
+
+void drawMeshDeinterleaved(id <MTLRenderCommandEncoder> encoder, MeshDeinterleaved* mesh, InstanceData* instance)
+{
+    [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:bindings::instanceData];
+
+    // bind vertex attributes
+    size_t offset = 0;
+    for (auto& attribute: mesh->attributes)
+    {
+        int index = 0;
+        //@formatter:off
+        switch (attribute.type)
+        {
+            case VertexAttributeType::Position: index = bindings::positions; break;
+            case VertexAttributeType::Normal: continue; index = bindings::normals; break;
+            case VertexAttributeType::Tangent: continue; index = bindings::tangents; break;
+            case VertexAttributeType::TextureCoordinate: continue; index = bindings::uv0s; break;
+            case VertexAttributeType::Color: continue; index = bindings::colors; break;
+            case VertexAttributeType::Joints: assert(false);
+            case VertexAttributeType::Weights: assert(false);
+        }
+        //@formatter:on
+        [encoder setVertexBuffer:mesh->vertexBuffer offset:offset atIndex:index];
+        continue;
+        offset += attribute.size;
+    }
     if (mesh->indexed)
     {
         [encoder
@@ -1524,7 +1571,7 @@ void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel
 {
     [encoder setCullMode:MTLCullModeBack];
     [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-    [encoder setRenderPipelineState:app->shaderGltfPbr];
+    [encoder setRenderPipelineState:app->shaderDeinterleavedPbr];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
     // traverse scene
@@ -1581,30 +1628,44 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shaderShadow : app->terrainShader];
+        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shaderShadow : app->shaderTerrain];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->terrainGreenTexture atIndex:bindings::texture];
+        [encoder setFragmentTexture:app->textureTerrainGreen atIndex:bindings::texture];
         std::vector<InstanceData> instances{
             {.localToWorld = glm::mat4(1)}//glm::rotate(app->time, glm::vec3(0, 1, 0))},
 //            {.localToWorld = glm::scale(glm::translate(glm::vec3(0, 0, 9)), glm::vec3(0.5f))},
 //            {.localToWorld = glm::translate(glm::vec3(9, 0, 9))},
 //            {.localToWorld = glm::translate(glm::vec3(9, 0, 0))},
         };
-        drawMeshInstanced(encoder, &app->terrain, &instances);
+        drawMeshInstanced(encoder, &app->meshTerrain, &instances);
     }
 
     // draw water
+    if (0)
+    {
+        [encoder setCullMode:MTLCullModeBack];
+        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shaderShadow : app->shaderWater];
+        [encoder setDepthStencilState:app->depthStencilStateDefault];
+        [encoder setFragmentTexture:app->textureWater atIndex:bindings::texture];
+        InstanceData instance{
+            .localToWorld = glm::mat4(1)
+        };
+        drawMesh(encoder, &app->meshPlane, &instance);
+    }
+
+    // draw deinterleaved mesh
     if (1)
     {
         [encoder setCullMode:MTLCullModeBack];
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shaderShadow : app->waterShader];
+        [encoder setRenderPipelineState:app->shaderWaterDeinterleaved];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->waterTexture atIndex:bindings::texture];
+        [encoder setFragmentTexture:app->textureWater atIndex:bindings::texture];
         InstanceData instance{
             .localToWorld = glm::mat4(1)
         };
-        drawMesh(encoder, &app->plane, &instance);
+        drawMeshDeinterleaved(encoder, &app->meshPlaneDeinterleaved, &instance);
     }
 
     // draw trees
@@ -1614,8 +1675,8 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:app->shaderLit];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->treeTexture atIndex:bindings::texture];
-        drawMeshInstanced(encoder, &app->tree, &app->treeInstances);
+        [encoder setFragmentTexture:app->textureTree atIndex:bindings::texture];
+        drawMeshInstanced(encoder, &app->meshTree, &app->treeInstances);
     }
 
     // draw shrubs
@@ -1625,11 +1686,11 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         [encoder setTriangleFillMode:MTLTriangleFillModeFill];
         [encoder setRenderPipelineState:app->shaderLitAlphaBlend];
         [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->shrubTexture atIndex:bindings::texture];
-        drawMeshInstanced(encoder, &app->tree, &app->shrubInstances);
+        [encoder setFragmentTexture:app->textureShrub atIndex:bindings::texture];
+        drawMeshInstanced(encoder, &app->meshTree, &app->shrubInstances);
 
         std::vector<InstanceData>* instances = &app->shrubInstances;
-        Mesh* mesh = &app->tree;
+        Mesh* mesh = &app->meshTree;
 
         [encoder setVertexBytes:instances->data() length:instances->size() * sizeof(InstanceData) atIndex:bindings::instanceData];
         [encoder setVertexBuffer:mesh->vertexBuffer offset:0 atIndex:bindings::vertexData];
@@ -1646,7 +1707,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw gltfs
-    if (1)
+    if (0)
     {
         drawGltfPbr(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(10, 10, 10)));
         drawGltfPbr(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
@@ -1687,7 +1748,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                 [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:bindings::prefilteredEnvironmentMap];
                 [encoder setFragmentTexture:app->brdfLookupTexture atIndex:bindings::brdfLookupTexture];
                 [encoder setFragmentTexture:app->irradianceMap atIndex:bindings::irradianceMap];
-                drawMesh(encoder, &app->roundedCube, &instance);
+                drawMesh(encoder, &app->meshRoundedCube, &instance);
             }
         }
     }
@@ -1700,7 +1761,7 @@ void drawAxes(App* app, id <MTLRenderCommandEncoder> encoder, glm::mat4 transfor
     [encoder setDepthStencilState:app->depthStencilStateDefault];
     [encoder setRenderPipelineState:app->shaderUnlitColored];
     InstanceData instance{.localToWorld = transform};
-    drawMesh(encoder, &app->axes, &instance);
+    drawMesh(encoder, &app->meshAxes, &instance);
 }
 
 void drawTexture(App* app, id <MTLRenderCommandEncoder> encoder, id <MTLTexture> texture, RectMinMaxi pixelCoords)
@@ -1841,12 +1902,12 @@ void onDraw(App* app)
             [encoder setCullMode:MTLCullModeNone];
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
-            [encoder setRenderPipelineState:app->skyboxShader];
+            [encoder setRenderPipelineState:app->shaderSkybox];
             [encoder setFragmentTexture:app->currentSkybox atIndex:bindings::texture];
             InstanceData instance{
                 .localToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(10))
             };
-            drawMesh(encoder, &app->cube, &instance);
+            drawMesh(encoder, &app->meshCube, &instance);
         }
 
         // clear depth buffer (sets vertex bytes at index 0)
@@ -1861,11 +1922,11 @@ void onDraw(App* app)
             [encoder setTriangleFillMode:MTLTriangleFillModeFill];
             [encoder setDepthStencilState:app->depthStencilStateDefault];
             [encoder setRenderPipelineState:app->shaderUnlitAlphaBlend];
-            [encoder setFragmentTexture:app->iconSunTexture atIndex:bindings::texture];
+            [encoder setFragmentTexture:app->textureIconSun atIndex:bindings::texture];
             InstanceData instance{
                 .localToWorld = glm::scale(transformToMatrix(&app->sunTransform), glm::vec3(0.25f))
             };
-            drawMesh(encoder, &app->cube, &instance);
+            drawMesh(encoder, &app->meshCube, &instance);
         }
 
         // draw axes at sun position

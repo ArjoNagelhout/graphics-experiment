@@ -21,17 +21,20 @@ struct GltfPbrInstanceData
     float4x4 localToWorldTransposedInverse;
 };
 
-vertex GltfPbrRasterizerData gltf_pbr_vertex(
+vertex GltfPbrRasterizerData deinterleaved_pbr_vertex(
     uint vertexId [[vertex_id]],
     uint instanceId [[instance_id]],
     device CameraData const& camera [[buffer(bindings::cameraData)]],
     device GltfPbrInstanceData const* instances [[buffer(bindings::instanceData)]],
+
+    // vertex attributes
     device packed_float3 const* positions [[buffer(bindings::positions)]],
     device packed_float3 const* normals [[buffer(bindings::normals)]],
     device packed_float2 const* uv0s [[buffer(bindings::uv0s)]],
-    device packed_float3 const* colors [[buffer(bindings::colors)]],
+    device packed_float4 const* colors [[buffer(bindings::colors)]],
     device packed_float2 const* lightMapUvs [[buffer(bindings::lightMapUvs)]],
-    device packed_float3 const* tangents [[buffer(bindings::tangents)]])
+    device packed_float3 const* tangents [[buffer(bindings::tangents)]]
+)
 {
     GltfPbrRasterizerData out;
     device GltfPbrInstanceData const& instance = instances[instanceId];
@@ -63,13 +66,17 @@ struct GltfPbrFragmentData
     uint mipLevels;
 };
 
-fragment half4 gltf_pbr_fragment(
+fragment half4 pbr_with_maps_fragment(
     GltfPbrRasterizerData in [[stage_in]],
     device GltfPbrFragmentData const& data [[buffer(bindings::globalFragmentData)]],
+
+    // texture maps
     texture2d<float, access::sample> baseColorMap [[texture(bindings::baseColorMap)]],
     texture2d<float, access::sample> normalMap [[texture(bindings::normalMap)]],
     texture2d<float, access::sample> metallicRoughnessMap [[texture(bindings::metallicRoughnessMap)]],
     texture2d<float, access::sample> emissionMap [[texture(bindings::emissionMap)]],
+
+    // lookup textures for solving the microfacet brdf
     texture2d<float, access::sample> prefilteredEnvironmentMap [[texture(bindings::prefilteredEnvironmentMap)]],
     texture2d<float, access::sample> brdfLookupTexture [[texture(bindings::brdfLookupTexture)]],
     texture2d<float, access::sample> irradianceMap [[texture(bindings::irradianceMap)]]

@@ -237,7 +237,7 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                     outAttribute->type = convertGltfAttributeType(attribute->type);
                     std::cout << "attribute: " << (attribute->name ? attribute->name : "") << std::endl;
 
-                    assert(outPrimitive->vertexCount == std::numeric_limits<size_t>::max() || outPrimitive->vertexCount == attribute->data->count);
+                    assert(outPrimitive->mesh.vertexCount == std::numeric_limits<size_t>::max() || outPrimitive->mesh.vertexCount == attribute->data->count);
                     outPrimitive->mesh.vertexCount = attribute->data->count;
                     assert(attribute->data->component_type == cgltf_component_type_r_32f && "only float component type is implemented");
 
@@ -287,7 +287,7 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
 
                     std::vector<unsigned char> indexBuffer(componentSize * outPrimitive->mesh.indexCount);
                     size_t unpackedIndices = cgltf_accessor_unpack_indices(primitive->indices, indexBuffer.data(), componentSize, outPrimitive->mesh.indexCount);
-                    assert(unpackedIndices == outPrimitive->indexCount);
+                    assert(unpackedIndices == outPrimitive->mesh.indexCount);
 
                     MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
                     outPrimitive->mesh.indexBuffer = [device

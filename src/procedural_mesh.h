@@ -22,6 +22,8 @@ class RectMinMaxf;
 
 [[nodiscard]] Mesh createPlane(id <MTLDevice> device, RectMinMaxf extents);
 
+[[nodiscard]] MeshDeinterleaved createPlaneDeinterleaved(id <MTLDevice> device, RectMinMaxf extents);
+
 // creates two vertical planes that cross each other
 [[nodiscard]] Mesh createTree(id <MTLDevice> device, float width, float height);
 

@@ -50,12 +50,33 @@ struct MeshDeinterleaved
     std::vector<VertexAttribute> attributes;
 };
 
+struct float2
+{
+    float x;
+    float y;
+};
+
+struct float3
+{
+    float x;
+    float y;
+    float z;
+};
+
+struct float4
+{
+    float x;
+    float y;
+    float z;
+    float w;
+};
+
 [[nodiscard]] MeshDeinterleaved createMeshDeinterleaved(
     id <MTLDevice> device,
-    std::vector<simd_float4>* positions,
-    std::vector<simd_float4>* normals,
-    std::vector<simd_float4>* colors,
-    std::vector<simd_float2>* uv0s,
+    std::vector<float3>* positions,
+    std::vector<float3>* normals,
+    std::vector<float4>* colors,
+    std::vector<float2>* uv0s,
     std::vector<uint32_t>* indices, // if nullptr, this mesh is not indexed
     MTLPrimitiveType primitiveType);
 

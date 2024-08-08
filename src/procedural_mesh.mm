@@ -427,6 +427,25 @@ Mesh createPlane(id <MTLDevice> device, RectMinMaxf extents)
     return createMesh(device, &vertices, MTLPrimitiveTypeTriangleStrip);
 }
 
+MeshDeinterleaved createPlaneDeinterleaved(id <MTLDevice> device, RectMinMaxf extents)
+{
+    std::vector<float3> positions{
+        {extents.minX, 0, extents.minY},
+        {extents.minX, 0, extents.maxY},
+        {extents.maxX, 0, extents.minY},
+        {extents.maxX, 0, extents.maxY}
+    };
+    std::vector<float2> uv0s{
+        {0, 1},
+        {0, 0},
+        {1, 1},
+        {1, 0}
+    };
+    return createMeshDeinterleaved(
+        device, &positions, nullptr, nullptr, &uv0s, nullptr,
+        MTLPrimitiveTypeTriangleStrip);
+}
+
 //-------------------------------
 // tree
 //-------------------------------
