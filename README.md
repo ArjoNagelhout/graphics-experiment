@@ -27,7 +27,7 @@ to an external program.
 ### Graphics API and supported platforms
 The application is written for Cocoa (macOS) and the Metal API, but for VR should be ported to Vulkan. Metal is 
 a cleaner API, so we might want to write a Vulkan backend for the Metal API (or a subset of the Metal API we use) 
-but porting is easier than implementing the features, so that is where the focus is initially.
+but porting is easier than implementing the features, focus is on implementing features first. 
 
 ### Experiments
 
