@@ -1455,9 +1455,6 @@ struct GltfPbrInstanceData
 
 void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, GltfPrimitive* primitive)
 {
-    // bind vertex attributes
-    bindMeshDeinterleavedAttributes(encoder, &primitive->mesh);
-
     // set material
     {
         assert(primitive->material != invalidIndex);
@@ -1482,6 +1479,9 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
     [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:bindings::prefilteredEnvironmentMap];
     [encoder setFragmentTexture:app->brdfLookupTexture atIndex:bindings::brdfLookupTexture];
     [encoder setFragmentTexture:app->irradianceMap atIndex:bindings::irradianceMap];
+
+    // draw mesh
+    bindMeshDeinterleavedAttributes(encoder, &primitive->mesh);
     [encoder
         drawIndexedPrimitives:primitive->mesh.primitiveType
         indexCount:primitive->mesh.indexCount
