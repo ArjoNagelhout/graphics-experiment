@@ -72,3 +72,34 @@ set_target_properties(libjpeg-turbo PROPERTIES
         IMPORTED_LOCATION ${LIBJPEG_TURBO_LIB}
 )
 target_include_directories(libjpeg-turbo INTERFACE ${LIBJPEG_TURBO_DIR})
+
+# ifcopenshell
+# these arguments are highly specific to the way these libraries are installed on my computer
+# so this should be changed into cmake arguments for the top level application too
+ExternalProject_Add(
+        build_ifcopenshell
+        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/ifcOpenShell/cmake
+        CMAKE_ARGS
+            -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/ifcopenshell/install
+            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+
+            -DBUILD_IFCGEOM=ON
+            -DBUILD_CONVERT=ON
+            -DBUILD_GEOMSERVER=OFF
+            -DBUILD_IFCPYTHON=OFF
+
+            -DGLTF_SUPPORT=OFF
+            -DCITYJSON_SUPPORT=OFF
+            -DCOLLADA_SUPPORT=OFF
+            -DHDF5_SUPPORT=OFF
+
+            -DWITH_CGAL=OFF
+
+            -DOCC_INCLUDE_DIR=/opt/homebrew/include/opencascade
+            -DEIGEN_DIR=/opt/homebrew/include/eigen3
+        BUILD_IN_SOURCE 0
+        INSTALL_COMMAND ""
+)
+
+add_library(ifcopenshell INTERFACE)
+add_dependencies(ifcopenshell build_ifcopenshell)
