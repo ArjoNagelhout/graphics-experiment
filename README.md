@@ -33,6 +33,7 @@ List of features to implement or techniques to experiment with. This list is nei
 
 #### Data
 - [ ] CAD or BIM data (e.g. Revit, IFC using ifcOpenShell)
+- [ ] OpenCascade or another CAD kernel for generating geometry from certain representations such as BReps or Nurbs. 
 - [ ] 3D city data (Open Street Maps), Cesium (https://cesium.com/why-cesium/3d-tiles/)
 - [X] Gltf import
 - [ ] Gltf import with stride of 16 bytes instead of 12 for vector3, this is better for alignment. packed_float3 is not ideal.
@@ -54,6 +55,8 @@ List of features to implement or techniques to experiment with. This list is nei
   - [ ] transmission
   - [ ] coat
   - [ ] glass
+- [ ] Shadow volumes (https://en.wikipedia.org/wiki/Shadow_volume)
+- [ ] Megatextures (https://en.wikipedia.org/wiki/Clipmap)
 - [ ] Deferred rendering (gbuffer etc., support many non-image based lights)
 - [ ] Point lights, area lights, spot lights, directional lights
 - [ ] Animation / rigging of a mesh, skinning

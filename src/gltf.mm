@@ -29,6 +29,7 @@
         case cgltf_attribute_type_weights: return VertexAttributeType::Weights;
         case cgltf_attribute_type_custom: assert(false);
         case cgltf_attribute_type_max_enum: assert(false);
+        default: assert(false);
     }
 }
 
