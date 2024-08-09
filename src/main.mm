@@ -618,7 +618,6 @@ id <MTLRenderPipelineState> createShader(
     return renderPipelineState;
 }
 
-
 id <MTLTexture> importTexture(id <MTLDevice> device, std::filesystem::path const& path)
 {
     assert(std::filesystem::exists(path));
