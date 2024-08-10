@@ -76,15 +76,19 @@ target_include_directories(libjpeg-turbo INTERFACE ${LIBJPEG_TURBO_DIR})
 # ifcopenshell
 # these arguments are highly specific to the way these libraries are installed on my computer
 # so this should be changed into cmake arguments for the top level application too
+set(IFCOPENSHELL_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/ifcopenshell)
 ExternalProject_Add(
         build_ifcopenshell
+        PREFIX ${IFCOPENSHELL_BINARY_DIR}
+        BINARY_DIR ${IFCOPENSHELL_BINARY_DIR}
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/ifcOpenShell/cmake
         CMAKE_ARGS
             -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/ifcopenshell/install
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
 
             -DBUILD_IFCGEOM=ON
-            -DBUILD_CONVERT=ON
+            -DBUILD_CONVERT=OFF
+            -DBUILD_EXAMPLES=OFF
             -DBUILD_GEOMSERVER=OFF
             -DBUILD_IFCPYTHON=OFF
 
@@ -92,14 +96,20 @@ ExternalProject_Add(
             -DCITYJSON_SUPPORT=OFF
             -DCOLLADA_SUPPORT=OFF
             -DHDF5_SUPPORT=OFF
-
             -DWITH_CGAL=OFF
 
             -DOCC_INCLUDE_DIR=/opt/homebrew/include/opencascade
             -DEIGEN_DIR=/opt/homebrew/include/eigen3
         BUILD_IN_SOURCE 0
         INSTALL_COMMAND ""
+        BUILD_BYPRODUCTS ${IFCOPENSHELL_BINARY_DIR}/libIfcParse.a # required for ninja
 )
 
-add_library(ifcopenshell INTERFACE)
+add_library(ifcopenshell STATIC IMPORTED GLOBAL)
 add_dependencies(ifcopenshell build_ifcopenshell)
+set_target_properties(ifcopenshell PROPERTIES
+    IMPORTED_LOCATION ${IFCOPENSHELL_BINARY_DIR}/libIfcParse.a
+)
+
+target_include_directories(ifcopenshell INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/ifcopenshell/src)
+target_include_directories(ifcopenshell INTERFACE /opt/homebrew/include/) # very hacky, required for boost include paths
