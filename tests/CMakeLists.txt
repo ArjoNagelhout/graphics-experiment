@@ -21,3 +21,10 @@ set(IFC_SOURCES
 
 add_executable(ifc ${IFC_SOURCES})
 target_link_libraries(ifc PUBLIC ifcopenshell)
+
+# parser
+set(PARSER_SOURCES
+        parser.cpp
+)
+
+add_executable(parser ${PARSER_SOURCES})

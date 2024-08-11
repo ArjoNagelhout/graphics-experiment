@@ -2,7 +2,7 @@
 
 #include <vector>
 
-[[nodiscard]] PrimitiveDeinterleaved createMeshDeinterleaved(
+[[nodiscard]] PrimitiveDeinterleaved createPrimitiveDeinterleaved(
     id <MTLDevice> device,
     PrimitiveDeinterleavedDescriptor* descriptor)
 {

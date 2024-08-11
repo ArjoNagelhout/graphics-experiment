@@ -73,43 +73,34 @@ set_target_properties(libjpeg-turbo PROPERTIES
 )
 target_include_directories(libjpeg-turbo INTERFACE ${LIBJPEG_TURBO_DIR})
 
-# ifcopenshell
-# these arguments are highly specific to the way these libraries are installed on my computer
-# so this should be changed into cmake arguments for the top level application too
-set(IFCOPENSHELL_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/ifcopenshell)
-ExternalProject_Add(
-        build_ifcopenshell
-        PREFIX ${IFCOPENSHELL_BINARY_DIR}
-        BINARY_DIR ${IFCOPENSHELL_BINARY_DIR}
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/ifcOpenShell/cmake
-        CMAKE_ARGS
-            -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/ifcopenshell/install
-            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+#ifcopenshell
+# opencascade and eigen should be installed and their install paths should be specified as cmake arguments:
+# -DOCC_INCLUDE_DIR=/opt/homebrew/include/opencascade
+# -DEIGEN_DIR=/opt/homebrew/include/eigen3
+# see https://docs.ifcopenshell.org/ifcopenshell/installation.html
 
-            -DBUILD_IFCGEOM=ON
-            -DBUILD_CONVERT=OFF
-            -DBUILD_EXAMPLES=OFF
-            -DBUILD_GEOMSERVER=OFF
-            -DBUILD_IFCPYTHON=OFF
+# default options:
+option(BUILD_IFCGEOM "" ON)
+option(BUILD_IFCPYTHON "" OFF)
+option(BUILD_CONVERT "" OFF)
+option(BUILD_DOCUMENTATION "" OFF)
+option(BUILD_EXAMPLES "" OFF)
+option(BUILD_GEOMSERVER "" OFF)
+option(BUILD_IFCMAX "" OFF)
+option(BUILD_QTVIEWER "" OFF)
+option(BUILD_PACKAGE "" OFF)
+option(GLTF_SUPPORT "" OFF)
+option(CITYJSON_SUPPORT "" OFF)
+option(COLLADA_SUPPORT "" OFF)
+option(HDF5_SUPPORT "" OFF)
+option(WITH_CGAL "" OFF)
+add_subdirectory(IfcOpenShell/cmake)
 
-            -DGLTF_SUPPORT=OFF
-            -DCITYJSON_SUPPORT=OFF
-            -DCOLLADA_SUPPORT=OFF
-            -DHDF5_SUPPORT=OFF
-            -DWITH_CGAL=OFF
+add_library(ifcopenshell INTERFACE)
+target_link_libraries(ifcopenshell INTERFACE IfcParse IfcGeom)
+target_include_directories(ifcopenshell INTERFACE IfcOpenShell/src)
 
-            -DOCC_INCLUDE_DIR=/opt/homebrew/include/opencascade
-            -DEIGEN_DIR=/opt/homebrew/include/eigen3
-        BUILD_IN_SOURCE 0
-        INSTALL_COMMAND ""
-        BUILD_BYPRODUCTS ${IFCOPENSHELL_BINARY_DIR}/libIfcParse.a # required for ninja
-)
-
-add_library(ifcopenshell STATIC IMPORTED GLOBAL)
-add_dependencies(ifcopenshell build_ifcopenshell)
-set_target_properties(ifcopenshell PROPERTIES
-    IMPORTED_LOCATION ${IFCOPENSHELL_BINARY_DIR}/libIfcParse.a
-)
-
-target_include_directories(ifcopenshell INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/ifcopenshell/src)
-target_include_directories(ifcopenshell INTERFACE /opt/homebrew/include/) # very hacky, required for boost include paths
+# eigen include dirs are required, but as IfcOpenShell uses include_directories rather than target_include_directories,
+# the include_directories do not get propagated outside ifcOpenShell/cmake/CMakeLists.txt
+find_package (Eigen3 3.3 REQUIRED NO_MODULE)
+target_link_libraries(ifcopenshell INTERFACE Eigen3::Eigen)

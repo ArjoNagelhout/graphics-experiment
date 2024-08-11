@@ -4,7 +4,7 @@
 
 #include "gtest/gtest.h"
 
-#include "gltf.h"
+#include "import/gltf.h"
 
 #include "test_args.h"
 

@@ -82,7 +82,7 @@ struct PrimitiveDeinterleavedDescriptor
     MTLPrimitiveType primitiveType = MTLPrimitiveTypeTriangle;
 };
 
-[[nodiscard]] PrimitiveDeinterleaved createMeshDeinterleaved(
+[[nodiscard]] PrimitiveDeinterleaved createPrimitiveDeinterleaved(
     id <MTLDevice> device,
     PrimitiveDeinterleavedDescriptor* descriptor);
 

@@ -13,7 +13,7 @@
 #include <cassert>
 #include <iostream>
 
-#include <glm/gtc/type_ptr.hpp>
+#include "glm/gtc/type_ptr.hpp"
 
 [[nodiscard]] VertexAttributeType convertGltfAttributeType(cgltf_attribute_type type)
 {
@@ -272,6 +272,7 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                 // populate index buffer and upload to GPU
                 {
                     outPrimitive->mesh.indexCount = primitive->indices->count;
+                    outPrimitive->mesh.indexed = true;
                     size_t componentSize = cgltf_component_size(primitive->indices->component_type);
                     if (componentSize == 4) // 32 bits
                     {

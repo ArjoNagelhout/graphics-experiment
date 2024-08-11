@@ -280,7 +280,7 @@ PrimitiveDeinterleaved createRoundedCube(id <MTLDevice> device, simd_float3 size
         .indices = &data.indices,
         .primitiveType = MTLPrimitiveTypeTriangle
     };
-    return createMeshDeinterleaved(device, &descriptor);
+    return createPrimitiveDeinterleaved(device, &descriptor);
 }
 
 //-------------------------------
@@ -339,7 +339,7 @@ PrimitiveDeinterleaved createUVSphere(id <MTLDevice> device, int horizontalDivis
         .indices = &indices,
         .primitiveType = MTLPrimitiveTypeTriangle
     };
-    return createMeshDeinterleaved(device, &descriptor);
+    return createPrimitiveDeinterleaved(device, &descriptor);
 }
 
 //-------------------------------
@@ -371,7 +371,7 @@ PrimitiveDeinterleaved createCubeWithoutUV(id <MTLDevice> device)
         .indices = &indices,
         .primitiveType = MTLPrimitiveTypeTriangleStrip
     };
-    return createMeshDeinterleaved(device, &descriptor);
+    return createPrimitiveDeinterleaved(device, &descriptor);
 }
 
 //-------------------------------
@@ -459,7 +459,7 @@ PrimitiveDeinterleaved createCube(id <MTLDevice> device)
         .indices = &indices,
         .primitiveType = MTLPrimitiveTypeTriangle
     };
-    return createMeshDeinterleaved(device, &descriptor);
+    return createPrimitiveDeinterleaved(device, &descriptor);
 }
 
 //-------------------------------
@@ -485,7 +485,7 @@ PrimitiveDeinterleaved createPlane(id <MTLDevice> device, RectMinMaxf extents)
         .uv0s = &uv0s,
         .primitiveType = MTLPrimitiveTypeTriangleStrip
     };
-    return createMeshDeinterleaved(device, &descriptor);
+    return createPrimitiveDeinterleaved(device, &descriptor);
 }
 
 //-------------------------------
@@ -523,7 +523,7 @@ PrimitiveDeinterleaved createTree(id <MTLDevice> device, float width, float heig
         .indices = &indices,
         .primitiveType = MTLPrimitiveTypeTriangleStrip
     };
-    return createMeshDeinterleaved(device, &descriptor);
+    return createPrimitiveDeinterleaved(device, &descriptor);
 }
 
 //-------------------------------
@@ -632,5 +632,5 @@ PrimitiveDeinterleaved createAxes(id <MTLDevice> device)
         .indices = &indices,
         .primitiveType = MTLPrimitiveTypeTriangle
     };
-    return createMeshDeinterleaved(device, &descriptor);
+    return createPrimitiveDeinterleaved(device, &descriptor);
 }

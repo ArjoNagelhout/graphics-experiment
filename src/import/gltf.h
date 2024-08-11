@@ -61,6 +61,6 @@ struct GltfModel
 };
 
 // returns true when successful
-bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfModel* outModel);
+[[nodiscard]] bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfModel* outModel);
 
 #endif //METAL_EXPERIMENT_GLTF_H

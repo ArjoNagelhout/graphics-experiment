@@ -14,8 +14,10 @@ set(SOURCES
         src/mesh.mm
         src/procedural_mesh.h
         src/procedural_mesh.mm
-        src/gltf.h
-        src/gltf.mm
+        src/import/gltf.h
+        src/import/gltf.mm
+        src/import/ifc.h
+        src/import/ifc.mm
 )
 
 add_library(metal_experiment_lib ${SOURCES})

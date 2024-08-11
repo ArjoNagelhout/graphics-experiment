@@ -21,7 +21,8 @@
 #include "rect.h"
 #include "mesh.h"
 #include "procedural_mesh.h"
-#include "gltf.h"
+#include "import/gltf.h"
+#include "import/ifc.h"
 
 #define SHADER_BINDINGS_MAIN
 
@@ -252,6 +253,12 @@ struct AppConfig
     float cameraNear;
     float cameraFar;
     uint32_t shadowMapSize;
+
+    // experiments
+    bool terrain;
+    bool gltf;
+    bool pbrCubes;
+    bool ifc;
 };
 
 struct CameraData
@@ -449,14 +456,17 @@ struct App
     id <MTLTexture> textureShrub;
     std::vector<InstanceData> shrubInstances;
 
-    // gltf model
+    // shadow and lighting
+    Transform sunTransform;
+    id <MTLTexture> shadowMap;
+
+    // gltf models
     GltfModel gltfCathedral{};
     GltfModel gltfVrLoftLivingRoomBaked{};
     GltfModel gltfUgv{}; // https://sketchfab.com/3d-models/the-d-21-multi-missions-ugv-ebe40dc504a145d0909310e124334420
 
-    // shadow and lighting
-    Transform sunTransform;
-    id <MTLTexture> shadowMap;
+    // ifc models
+    IfcModel ifcFzkHaus{};
 
     // silly periodic timer
     float time = 0.0f;
@@ -1154,7 +1164,7 @@ void onLaunch(App* app)
     }
 
     // create terrain and trees on terrain
-    if (0)
+    if (app->config->terrain)
     {
         std::vector<float3> positions{};
         std::vector<uint32_t> indices{};
@@ -1165,7 +1175,7 @@ void onLaunch(App* app)
             .indices = &indices,
             .primitiveType = primitiveType
         };
-        app->meshTerrain = createMeshDeinterleaved(app->device, &descriptor);
+        app->meshTerrain = createPrimitiveDeinterleaved(app->device, &descriptor);
 
         app->meshTree = createTree(app->device, 2.0f, 2.0f);
 
@@ -1201,7 +1211,7 @@ void onLaunch(App* app)
     }
 
     // import gltfs
-    if (0)
+    if (app->config->gltf)
     {
         bool success;
 
@@ -1212,6 +1222,15 @@ void onLaunch(App* app)
         assert(success);
 
         success = importGltf(app->device, app->config->privateAssetsPath / "gltf" / "vr_loft__living_room__baked.glb", &app->gltfVrLoftLivingRoomBaked);
+        assert(success);
+    }
+
+    // import ifc files, if ifc
+    if (app->config->ifc)
+    {
+        bool success;
+
+        success = importIfc(app->device, app->config->assetsPath / "ifc" / "AC20-FZK-Haus.ifc", &app->ifcFzkHaus);
         assert(success);
     }
 
@@ -1435,7 +1454,7 @@ enum DrawSceneFlags_
     return glm::normalize(directionVector);
 }
 
-struct GltfDFSData
+struct GltfDfsData
 {
     GltfNode* node;
     glm::mat4 localToWorld; // calculated
@@ -1443,7 +1462,7 @@ struct GltfDFSData
 
 [[nodiscard]] bool isValidTexture(GltfModel* model, size_t index)
 {
-    return index != invalidIndex && model->textures.size() > index;
+    return index != invalidIndex && index < model->textures.size();
 }
 
 void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, GltfPrimitive* primitive)
@@ -1474,16 +1493,7 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
     [encoder setFragmentTexture:app->irradianceMap atIndex:binding_fragment::irradianceMap];
 
     // draw mesh
-    bindPrimitiveAttributes(encoder, &primitive->mesh);
-    [encoder
-        drawIndexedPrimitives:primitive->mesh.primitiveType
-        indexCount:primitive->mesh.indexCount
-        indexType:primitive->mesh.indexType
-        indexBuffer:primitive->mesh.indexBuffer
-        indexBufferOffset:0
-        instanceCount:1
-        baseVertex:0
-        baseInstance:0];
+    drawPrimitive(encoder, &primitive->mesh, 1);
 }
 
 void drawGltfMeshPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 localToWorld, GltfMesh* mesh)
@@ -1511,31 +1521,39 @@ void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel
     GltfScene* scene = &model->scenes[0];
 
     // dfs
-    std::stack<GltfDFSData> stack;
+    std::stack<GltfDfsData> stack;
     GltfNode* rootNode = &model->nodes[scene->rootNode];
     stack.push({.node = rootNode, .localToWorld = transform});
     while (!stack.empty())
     {
-        GltfDFSData d = stack.top();
+        GltfDfsData data = stack.top();
         stack.pop();
 
         // draw mesh at transform
-        if (d.node->meshIndex != invalidIndex)
+        if (data.node->meshIndex != invalidIndex)
         {
-            drawGltfMeshPbr(app, encoder, model, d.localToWorld, &model->meshes[d.node->meshIndex]);
+            drawGltfMeshPbr(app, encoder, model, data.localToWorld, &model->meshes[data.node->meshIndex]);
         }
 
         // iterate over children
-        for (int i = 0; i < d.node->childNodes.size(); i++)
+        for (int i = 0; i < data.node->childNodes.size(); i++)
         {
-            size_t childIndex = d.node->childNodes[i];
+            size_t childIndex = data.node->childNodes[i];
             GltfNode* child = &model->nodes[childIndex];
 
             // calculate localToWorld
-            glm::mat4 localToWorld = d.localToWorld * child->localTransform;
+            glm::mat4 localToWorld = data.localToWorld * child->localTransform;
 
             stack.push({.node = child, .localToWorld = localToWorld});
         }
+    }
+}
+
+void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* model, glm::mat4 transform)
+{
+    for (auto& mesh: model->meshes)
+    {
+        //drawprimi
     }
 }
 
@@ -1544,57 +1562,57 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     assert(encoder != nullptr);
 
     // draw terrain
-    if (0)
+    if (app->config->terrain)
     {
-        [encoder setCullMode:MTLCullModeBack];
-        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shaderShadow : app->shaderTerrain];
-        [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->textureTerrainGreen atIndex:binding_fragment::texture];
-        InstanceData instance{
-            .localToWorld = glm::mat4(1)
-        };
-        drawPrimitiveInstance(encoder, &app->meshTerrain, &instance);
-    }
+        // draw terrain
+        {
+            [encoder setCullMode:MTLCullModeBack];
+            [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+            [encoder setRenderPipelineState:(flags & DrawSceneFlags_IsShadowPass) ? app->shaderShadow : app->shaderTerrain];
+            [encoder setDepthStencilState:app->depthStencilStateDefault];
+            [encoder setFragmentTexture:app->textureTerrainGreen atIndex:binding_fragment::texture];
+            InstanceData instance{
+                .localToWorld = glm::mat4(1)
+            };
+            drawPrimitiveInstance(encoder, &app->meshTerrain, &instance);
+        }
 
-    // draw water
-    if (0)
-    {
-        [encoder setCullMode:MTLCullModeBack];
-        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->shaderWater];
-        [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->textureWater atIndex:binding_fragment::texture];
-        InstanceData instance{
-            .localToWorld = glm::mat4(1)
-        };
-        drawPrimitiveInstance(encoder, &app->meshPlane, &instance);
-    }
+        // draw water
+        {
+            [encoder setCullMode:MTLCullModeBack];
+            [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+            [encoder setRenderPipelineState:app->shaderWater];
+            [encoder setDepthStencilState:app->depthStencilStateDefault];
+            [encoder setFragmentTexture:app->textureWater atIndex:binding_fragment::texture];
+            InstanceData instance{
+                .localToWorld = glm::mat4(1)
+            };
+            drawPrimitiveInstance(encoder, &app->meshPlane, &instance);
+        }
 
-    // draw trees
-    if (0)
-    {
-        [encoder setCullMode:MTLCullModeNone];
-        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->shaderLit];
-        [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->textureTree atIndex:binding_fragment::texture];
-        drawPrimitiveInstances(encoder, &app->meshTree, &app->treeInstances);
-    }
+        // draw trees
+        {
+            [encoder setCullMode:MTLCullModeNone];
+            [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+            [encoder setRenderPipelineState:app->shaderLit];
+            [encoder setDepthStencilState:app->depthStencilStateDefault];
+            [encoder setFragmentTexture:app->textureTree atIndex:binding_fragment::texture];
+            drawPrimitiveInstances(encoder, &app->meshTree, &app->treeInstances);
+        }
 
-    // draw shrubs
-    if (0)
-    {
-        [encoder setCullMode:MTLCullModeNone];
-        [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-        [encoder setRenderPipelineState:app->shaderLit];
-        [encoder setDepthStencilState:app->depthStencilStateDefault];
-        [encoder setFragmentTexture:app->textureShrub atIndex:binding_fragment::texture];
-        drawPrimitiveInstances(encoder, &app->meshTree, &app->shrubInstances);
+        // draw shrubs
+        {
+            [encoder setCullMode:MTLCullModeNone];
+            [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+            [encoder setRenderPipelineState:app->shaderLit];
+            [encoder setDepthStencilState:app->depthStencilStateDefault];
+            [encoder setFragmentTexture:app->textureShrub atIndex:binding_fragment::texture];
+            drawPrimitiveInstances(encoder, &app->meshTree, &app->shrubInstances);
+        }
     }
 
     // draw gltfs
-    if (0)
+    if (app->config->gltf)
     {
         drawGltfPbr(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(10, 10, 10)));
         drawGltfPbr(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
@@ -1602,7 +1620,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     }
 
     // draw pbr, not textured, rounded cubes
-    if (1)
+    if (app->config->pbrCubes)
     {
         // for now, we store all material settings inside the fragment bytes, so that we don't have to create a separate buffer for all different material settings
         for (int x = 0; x < 10; x++)
@@ -1641,6 +1659,11 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                 drawPrimitive(encoder, &app->meshRoundedCube, 1);
             }
         }
+    }
+
+    if (app->config->ifc)
+    {
+        drawIfc(app, encoder, &app->ifcFzkHaus, glm::mat4(1));
     }
 }
 
@@ -1926,7 +1949,13 @@ int main(int argc, char const* argv[])
         .cameraFov = 90.0f,
         .cameraNear = 0.1f,
         .cameraFar = 1000.0f,
-        .shadowMapSize = 4096
+        .shadowMapSize = 4096,
+
+        // experiments, can be conditionally turned on or off
+        .terrain = false,
+        .gltf = true,
+        .pbrCubes = false,
+        .ifc = false,
     };
 
     App app{
