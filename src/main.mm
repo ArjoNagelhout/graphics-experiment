@@ -467,6 +467,7 @@ struct App
 
     // ifc models
     IfcModel ifcFzkHaus{};
+    IfcModel ifcAiscSculptureBrep{};
 
     // silly periodic timer
     float time = 0.0f;
@@ -1230,7 +1231,14 @@ void onLaunch(App* app)
     {
         bool success;
 
-        success = importIfc(app->device, app->config->assetsPath / "ifc" / "AC20-FZK-Haus.ifc", &app->ifcFzkHaus);
+        IfcImportSettings settings{
+            .flipYAndZAxes = true
+        };
+
+        success = importIfc(app->device, app->config->assetsPath / "ifc" / "AC20-FZK-Haus.ifc", &app->ifcFzkHaus, settings);
+        assert(success);
+
+        success = importIfc(app->device, app->config->assetsPath / "ifc" / "aisc_sculpture_brep.ifc", &app->ifcAiscSculptureBrep, settings);
         assert(success);
     }
 
@@ -1465,13 +1473,12 @@ struct GltfDfsData
     return index != invalidIndex && index < model->textures.size();
 }
 
-void setPbrFragmentData(App const* app, id <MTLRenderCommandEncoder> encoder)
+void setPbrFragmentData(App const* app, id <MTLRenderCommandEncoder> encoder, PbrFragmentData data)
 {
-    PbrFragmentData fragmentData{
-        .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
-        .mipLevels = app->mipLevels
-    };
-    [encoder setFragmentBytes:&fragmentData length:sizeof(PbrFragmentData) atIndex:binding_fragment::fragmentData];
+    data.cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position);
+    data.mipLevels = app->mipLevels;
+
+    [encoder setFragmentBytes:&data length:sizeof(PbrFragmentData) atIndex:binding_fragment::fragmentData];
     [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:binding_fragment::prefilteredEnvironmentMap];
     [encoder setFragmentTexture:app->brdfLookupTexture atIndex:binding_fragment::brdfLookupTexture];
     [encoder setFragmentTexture:app->irradianceMap atIndex:binding_fragment::irradianceMap];
@@ -1527,7 +1534,7 @@ void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
     // same for all meshes
-    setPbrFragmentData(app, encoder);
+    setPbrFragmentData(app, encoder, PbrFragmentData{});
 
     // traverse scene using depth-first search (dfs)
     GltfScene* scene = &model->scenes[0];
@@ -1567,7 +1574,7 @@ void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* mod
     [encoder setRenderPipelineState:app->shaderPbr];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
-    setPbrFragmentData(app, encoder);
+    setPbrFragmentData(app, encoder, PbrFragmentData{.metalness = 1.0f, .roughness = 0.0f, .baseColor = app->currentColor});
 
     for (auto& mesh: model->meshes)
     {
@@ -1683,9 +1690,11 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
         }
     }
 
+    // draw ifc
     if (app->config->ifc)
     {
         drawIfc(app, encoder, &app->ifcFzkHaus, glm::mat4(1));
+        drawIfc(app, encoder, &app->ifcAiscSculptureBrep, glm::mat4(1));
     }
 }
 

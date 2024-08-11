@@ -3,12 +3,13 @@
 //
 
 #include "ifc.h"
+#import "glm/detail/type_mat3x3.hpp"
 
 #include <ifcgeom/Iterator.h>
 #include <ifcgeom/ConversionSettings.h>
 #include <ifcparse/IfcFile.h>
 
-bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcModel* outModel)
+bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcModel* outModel, IfcImportSettings settings)
 {
     assert(exists(path));
     assert(outModel != nullptr);
@@ -29,12 +30,12 @@ bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcMode
     }
     assert(ifcFile.good() && "parsing failed");
 
-    ifcopenshell::geometry::Settings settings;
-    settings.get<ifcopenshell::geometry::UseWorldCoords>().value = false;
-    settings.get<ifcopenshell::geometry::WeldVertices>().value = false;
-    settings.get<ifcopenshell::geometry::ApplyDefaultMaterials>().value = false;
-    settings.get<ifcopenshell::geometry::IteratorOutput>().value = ifcopenshell::geometry::IteratorOutputOptions::TRIANGULATED; // NATIVE = BRep
-    IfcGeom::Iterator iterator{settings, &ifcFile};
+    ifcopenshell::geometry::Settings geometrySettings;
+    geometrySettings.get<ifcopenshell::geometry::UseWorldCoords>().value = false;
+    geometrySettings.get<ifcopenshell::geometry::WeldVertices>().value = false;
+    geometrySettings.get<ifcopenshell::geometry::ApplyDefaultMaterials>().value = false;
+    geometrySettings.get<ifcopenshell::geometry::IteratorOutput>().value = ifcopenshell::geometry::IteratorOutputOptions::TRIANGULATED; // NATIVE = BRep
+    IfcGeom::Iterator iterator{geometrySettings, &ifcFile};
     bool result = iterator.initialize();
     assert(result && "initializing iterator failed");
 
@@ -58,8 +59,8 @@ bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcMode
         {
             positionsOut[i] = float3{
                 static_cast<float>(verticesIn[i * 3]),
-                static_cast<float>(verticesIn[i * 3 + 1]),
-                static_cast<float>(verticesIn[i * 3 + 2])
+                static_cast<float>(verticesIn[i * 3 + (settings.flipYAndZAxes ? 2 : 1)]),
+                static_cast<float>(verticesIn[i * 3 + (settings.flipYAndZAxes ? 1 : 2)])
             };
         }
 
@@ -67,22 +68,38 @@ bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcMode
         std::vector<double> const& normalsIn = triangulation.normals();
         assert(normalsIn.size() == verticesIn.size());
         std::vector<float3> normalsOut(vertexCount);
+
         for (size_t i = 0; i < vertexCount; i++)
         {
             normalsOut[i] = float3{
                 static_cast<float>(normalsIn[i * 3]),
-                static_cast<float>(normalsIn[i * 3 + 1]),
-                static_cast<float>(normalsIn[i * 3 + 2])
+                static_cast<float>(normalsIn[i * 3 + (settings.flipYAndZAxes ? 2 : 1)]),
+                static_cast<float>(normalsIn[i * 3 + (settings.flipYAndZAxes ? 1 : 2)])
             };
         }
 
         // indices
         std::vector<int> const& indicesIn = triangulation.faces();
         size_t indexCount = indicesIn.size();
+        assert(indexCount % 3 == 0);
         std::vector<uint32_t> indicesOut(indexCount);
-        for (size_t i = 0; i < indexCount; i++)
+        if (settings.flipYAndZAxes)
         {
-            indicesOut[i] = static_cast<uint32_t>(indicesIn[i]);
+            // invert winding order
+            size_t triangleCount = indexCount / 3;
+            for (size_t i = 0; i < triangleCount; i++)
+            {
+                indicesOut[i * 3 + 0] = indicesIn[i * 3 + 2];
+                indicesOut[i * 3 + 1] = indicesIn[i * 3 + 1];
+                indicesOut[i * 3 + 2] = indicesIn[i * 3 + 0];
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i < indexCount; i++)
+            {
+                indicesOut[i] = static_cast<uint32_t>(indicesIn[i]);
+            }
         }
 
         PrimitiveDeinterleavedDescriptor descriptor{

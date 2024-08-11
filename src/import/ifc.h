@@ -12,12 +12,17 @@
 
 #include "../mesh.h"
 
+struct IfcImportSettings
+{
+    bool flipYAndZAxes;
+};
+
 struct IfcModel
 {
     std::vector<PrimitiveDeinterleaved> meshes;
 };
 
 // returns true when successful
-[[nodiscard]] bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcModel* outModel);
+[[nodiscard]] bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcModel* outModel, IfcImportSettings settings);
 
 #endif //METAL_EXPERIMENT_IFC_H
