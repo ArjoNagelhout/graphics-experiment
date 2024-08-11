@@ -1465,6 +1465,25 @@ struct GltfDfsData
     return index != invalidIndex && index < model->textures.size();
 }
 
+void setPbrFragmentData(App const* app, id <MTLRenderCommandEncoder> encoder)
+{
+    PbrFragmentData fragmentData{
+        .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
+        .mipLevels = app->mipLevels
+    };
+    [encoder setFragmentBytes:&fragmentData length:sizeof(PbrFragmentData) atIndex:binding_fragment::fragmentData];
+    [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:binding_fragment::prefilteredEnvironmentMap];
+    [encoder setFragmentTexture:app->brdfLookupTexture atIndex:binding_fragment::brdfLookupTexture];
+    [encoder setFragmentTexture:app->irradianceMap atIndex:binding_fragment::irradianceMap];
+}
+
+// calculates the localToWorldTransposedInverse from the provided localToWorld
+void setPbrInstanceData(App const* app, id <MTLRenderCommandEncoder> encoder, PbrInstanceData data)
+{
+    data.localToWorldTransposedInverse = glm::transpose(glm::inverse(data.localToWorld));
+    [encoder setVertexBytes:&data length:sizeof(PbrInstanceData) atIndex:binding_vertex::instanceData];
+}
+
 void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, GltfPrimitive* primitive)
 {
     // set material
@@ -1483,15 +1502,6 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
         [encoder setFragmentTexture:emission atIndex:binding_fragment::emissionMap];
     }
 
-    PbrFragmentData fragmentData{
-        .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
-        .mipLevels = app->mipLevels
-    };
-    [encoder setFragmentBytes:&fragmentData length:sizeof(PbrFragmentData) atIndex:binding_fragment::fragmentData];
-    [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:binding_fragment::prefilteredEnvironmentMap];
-    [encoder setFragmentTexture:app->brdfLookupTexture atIndex:binding_fragment::brdfLookupTexture];
-    [encoder setFragmentTexture:app->irradianceMap atIndex:binding_fragment::irradianceMap];
-
     // draw mesh
     drawPrimitive(encoder, &primitive->mesh, 1);
 }
@@ -1499,10 +1509,9 @@ void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, 
 void drawGltfMeshPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 localToWorld, GltfMesh* mesh)
 {
     PbrInstanceData instance{
-        .localToWorld = localToWorld,
-        .localToWorldTransposedInverse = glm::transpose(glm::inverse(localToWorld))
+        .localToWorld = localToWorld
     };
-    [encoder setVertexBytes:&instance length:sizeof(PbrInstanceData) atIndex:binding_vertex::instanceData];
+    setPbrInstanceData(app, encoder, instance);
 
     for (auto& primitive: mesh->primitives)
     {
@@ -1517,10 +1526,12 @@ void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel
     [encoder setRenderPipelineState:app->shaderPbrWithMaps];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
-    // traverse scene
+    // same for all meshes
+    setPbrFragmentData(app, encoder);
+
+    // traverse scene using depth-first search (dfs)
     GltfScene* scene = &model->scenes[0];
 
-    // dfs
     std::stack<GltfDfsData> stack;
     GltfNode* rootNode = &model->nodes[scene->rootNode];
     stack.push({.node = rootNode, .localToWorld = transform});
@@ -1551,9 +1562,20 @@ void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel
 
 void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* model, glm::mat4 transform)
 {
+    [encoder setCullMode:MTLCullModeBack];
+    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+    [encoder setRenderPipelineState:app->shaderPbr];
+    [encoder setDepthStencilState:app->depthStencilStateDefault];
+
+    setPbrFragmentData(app, encoder);
+
     for (auto& mesh: model->meshes)
     {
-        //drawprimi
+        PbrInstanceData instance{
+            .localToWorld = glm::mat4(1)
+        };
+        setPbrInstanceData(app, encoder, instance);
+        drawPrimitive(encoder, &mesh, 1);
     }
 }
 
@@ -1953,9 +1975,9 @@ int main(int argc, char const* argv[])
 
         // experiments, can be conditionally turned on or off
         .terrain = false,
-        .gltf = true,
+        .gltf = false,
         .pbrCubes = false,
-        .ifc = false,
+        .ifc = true,
     };
 
     App app{
