@@ -6,6 +6,8 @@
 #define METAL_EXPERIMENT_IFC_H
 
 #include <filesystem>
+#include <vector>
+#include <unordered_map>
 
 #import <Metal/MTLDevice.h>
 #import <Metal/MTLTexture.h>
@@ -33,10 +35,19 @@ struct IfcMesh
     PrimitiveDeinterleaved primitive;
 };
 
+struct IfcScene
+{
+    size_t rootNode = invalidIndex;
+};
+
 struct IfcModel
 {
+    // data
     std::vector<IfcMesh> meshes;
+
+    // scenes
     std::vector<IfcNode> nodes;
+    std::vector<IfcScene> scenes;
 };
 
 // returns true when successful

@@ -10,6 +10,13 @@
 
 #include "glm/gtc/type_ptr.hpp"
 
+// data that only gets used during import (to fix up ids and parent-child relationships)
+struct IfcNodeImportData
+{
+    size_t parentId;
+    size_t id;
+};
+
 bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcModel* outModel, IfcImportSettings settings)
 {
     assert(exists(path));
@@ -20,13 +27,12 @@ bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcMode
     {
         switch (ifcFile.good().value())
         {
-            case IfcParse::file_open_status::READ_ERROR:std::cout << "ifc parse error: read error" << std::endl;
-                break;
-            case IfcParse::file_open_status::NO_HEADER:std::cout << "ifc parse error: no header" << std::endl;
-                break;
-            case IfcParse::file_open_status::UNSUPPORTED_SCHEMA:std::cout << "ifc parse error: unsupported schema" << std::endl;
-                break;
+            //@formatter:off
+            case IfcParse::file_open_status::READ_ERROR:std::cout << "ifc parse error: read error" << std::endl;break;
+            case IfcParse::file_open_status::NO_HEADER:std::cout << "ifc parse error: no header" << std::endl;break;
+            case IfcParse::file_open_status::UNSUPPORTED_SCHEMA:std::cout << "ifc parse error: unsupported schema" << std::endl;break;
             default:break;
+            //@formatter:on
         }
     }
     assert(ifcFile.good() && "parsing failed");
@@ -40,17 +46,17 @@ bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcMode
     bool result = iterator.initialize();
     assert(result && "initializing iterator failed");
 
+    std::vector<IfcNodeImportData> nodesImportData; // for fixing up ids and parent-child relationships
+    std::vector<size_t> rootNodes; // nodes that do not have a parent, we create one root node that contains these nodes as their children
+
     do
     {
         IfcGeom::Element* element = iterator.get();
         auto const* triangulationElement = dynamic_cast<IfcGeom::TriangulationElement const*>(element);
         IfcGeom::Representation::Triangulation const& triangulation = triangulationElement->geometry();
 
-        // for brep:
-        //IfcGeom::BRepElement const* bRepElement = static_cast<IfcGeom::BRepElement const*>(element);
-        //IfcGeom::Representation::BRep const& bRep = bRepElement->geometry();
+        size_t meshIndex = invalidIndex;
 
-        size_t meshIndex = invalidMeshIndex;
         // create mesh
         {
             IfcMesh* outMesh = &outModel->meshes.emplace_back();
@@ -120,27 +126,93 @@ bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcMode
             outMesh->primitive = createPrimitiveDeinterleaved(device, &descriptor);
         }
 
-        // get transform and create node
+        // create node
         {
             IfcNode* outNode = &outModel->nodes.emplace_back();
+            IfcNodeImportData* outNodeImportData = &nodesImportData.emplace_back();
 
+            // get transform
             ifcopenshell::geometry::taxonomy::matrix4::ptr const& transform = triangulationElement->transformation().data();
             Eigen::Matrix<double, 4, 4>& matrix = transform->components();
-
-            glm::mat4 outMatrix{};
             for (int i = 0; i < 4 * 4; i++)
             {
                 auto a = static_cast<float>(matrix(i));
-                outMatrix[i / 4][i % 4] = a;
+                outNode->localTransform[i / 4][i % 4] = a;
             }
 
+            assert(meshIndex != invalidIndex);
             outNode->meshIndex = meshIndex;
-            outNode->localTransform = outMatrix;
+
+            // for fixing the node hierarchy later:
+            outNodeImportData->id = static_cast<size_t>(triangulationElement->id());
+            outNodeImportData->parentId = static_cast<size_t>(triangulationElement->parent_id());
         }
 
-        std::cout << element->name() << std::endl;
+        std::cout << "ifc: imported triangulation for " << element->name() << std::endl;
     }
     while (iterator.next());
+
+    // create scene
+    size_t sceneIndex = invalidIndex;
+    {
+        outModel->scenes.emplace_back();
+        sceneIndex = outModel->scenes.size() - 1;
+    }
+
+    // fix node hierarchy
+    {
+        assert(nodesImportData.size() == outModel->nodes.size());
+        size_t nodeCount = outModel->nodes.size();
+        for (size_t i = 0; i < nodeCount; i++)
+        {
+            IfcNode* node = &outModel->nodes[i];
+            IfcNodeImportData* importData = &nodesImportData[i];
+
+            // for each node, we want to set its child nodes
+            // we do this by checking if this current node has a valid parent id
+
+            bool foundParent = false;
+            for (size_t j = 0; j < nodeCount; j++)
+            {
+                if (nodesImportData[j].id == importData->parentId)
+                {
+                    // this means we have to add this node id to the parent
+                    outModel->nodes[j].childNodes.emplace_back(i);
+                    foundParent = true;
+                    break;
+                }
+            }
+
+            // if it has no parent, we store it as a root node
+            if (!foundParent)
+            {
+                rootNodes.emplace_back(i);
+            }
+        }
+
+        assert(sceneIndex != invalidIndex);
+        IfcScene* scene = &outModel->scenes[sceneIndex];
+
+        // if there is only one root node, we can simply set the scene's root node to that
+        if (rootNodes.size() == 1)
+        {
+            scene->rootNode = rootNodes[0];
+        }
+        else
+        {
+            // otherwise, we create one final node, the root node
+            // which should contain the list of root nodes
+            // this makes iterating easier using a tree-traversal algorithm
+            outModel->nodes.emplace_back(IfcNode{
+                .meshIndex = invalidIndex,
+                .localTransform = glm::mat4(1),
+                .childNodes = rootNodes
+            });
+            scene->rootNode = outModel->nodes.size() - 1;
+        }
+    }
+
+    std::cout << "fixed hierarchy" << std::endl;
 
     return true;
 }

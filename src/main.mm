@@ -1462,12 +1462,6 @@ enum DrawSceneFlags_
     return glm::normalize(directionVector);
 }
 
-struct GltfDfsData
-{
-    GltfNode* node;
-    glm::mat4 localToWorld; // calculated
-};
-
 [[nodiscard]] bool isValidTexture(GltfModel* model, size_t index)
 {
     return index != invalidIndex && index < model->textures.size();
@@ -1526,6 +1520,12 @@ void drawGltfMeshPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfM
     }
 }
 
+struct GltfDfsData
+{
+    GltfNode* node;
+    glm::mat4 localToWorld; // calculated
+};
+
 void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 transform)
 {
     [encoder setCullMode:MTLCullModeBack];
@@ -1567,6 +1567,12 @@ void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel
     }
 }
 
+struct IfcDfsData
+{
+    IfcNode* node;
+    glm::mat4 localToWorld; // calculated
+};
+
 void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* model, glm::mat4 transform)
 {
     [encoder setCullMode:MTLCullModeBack];
@@ -1576,16 +1582,39 @@ void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* mod
 
     setPbrFragmentData(app, encoder, PbrFragmentData{.metalness = 1.0f, .roughness = 0.0f, .baseColor = app->currentColor});
 
-    for (auto& node: model->nodes)
-    {
-        PbrInstanceData instance{
-            .localToWorld = node.localTransform
-        };
-        setPbrInstanceData(app, encoder, instance);
+    // traverse scene using depth-first search (dfs)
+    IfcScene* scene = &model->scenes[0];
 
-        assert(node.meshIndex != invalidIndex);
-        IfcMesh* mesh = &model->meshes[node.meshIndex];
-        drawPrimitive(encoder, &mesh->primitive, 1);
+    std::stack<IfcDfsData> stack;
+    IfcNode* rootNode = &model->nodes[scene->rootNode];
+    stack.push({.node = rootNode, .localToWorld = transform});
+    while (!stack.empty())
+    {
+        IfcDfsData data = stack.top();
+        stack.pop();
+
+        // draw mesh at transform
+        if (data.node->meshIndex != invalidIndex)
+        {
+            PbrInstanceData instance{
+                .localToWorld = data.localToWorld
+            };
+            setPbrInstanceData(app, encoder, instance);
+
+            drawPrimitive(encoder, &model->meshes[data.node->meshIndex].primitive, 1);
+        }
+
+        // iterate over children
+        for (int i = 0; i < data.node->childNodes.size(); i++)
+        {
+            size_t childIndex = data.node->childNodes[i];
+            IfcNode* child = &model->nodes[childIndex];
+
+            // calculate localToWorld
+            glm::mat4 localToWorld = data.localToWorld * child->localTransform;
+
+            stack.push({.node = child, .localToWorld = localToWorld});
+        }
     }
 }
 
