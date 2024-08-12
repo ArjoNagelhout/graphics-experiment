@@ -55,6 +55,7 @@ List of features to implement or techniques to experiment with. This list is nei
   - [ ] transmission
   - [ ] coat
   - [ ] glass
+- [ ] Batch rendering primitives by material (to avoid constantly switching fragment shader buffers etc.)
 - [ ] Shadow volumes (https://en.wikipedia.org/wiki/Shadow_volume)
 - [ ] Megatextures (https://en.wikipedia.org/wiki/Clipmap)
 - [ ] Deferred rendering (gbuffer etc., support many non-image based lights)

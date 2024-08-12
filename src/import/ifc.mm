@@ -3,11 +3,12 @@
 //
 
 #include "ifc.h"
-#import "glm/detail/type_mat3x3.hpp"
 
 #include <ifcgeom/Iterator.h>
 #include <ifcgeom/ConversionSettings.h>
 #include <ifcparse/IfcFile.h>
+
+#include "glm/gtc/type_ptr.hpp"
 
 bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcModel* outModel, IfcImportSettings settings)
 {
@@ -49,66 +50,93 @@ bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcMode
         //IfcGeom::BRepElement const* bRepElement = static_cast<IfcGeom::BRepElement const*>(element);
         //IfcGeom::Representation::BRep const& bRep = bRepElement->geometry();
 
-        // positions
-        std::vector<double> const& verticesIn = triangulation.verts();
-        assert(!verticesIn.empty());
-        assert(verticesIn.size() % 3 == 0);
-        size_t vertexCount = verticesIn.size() / 3;
-        std::vector<float3> positionsOut(vertexCount);
-        for (size_t i = 0; i < vertexCount; i++)
+        size_t meshIndex = invalidMeshIndex;
+        // create mesh
         {
-            positionsOut[i] = float3{
-                static_cast<float>(verticesIn[i * 3]),
-                static_cast<float>(verticesIn[i * 3 + (settings.flipYAndZAxes ? 2 : 1)]),
-                static_cast<float>(verticesIn[i * 3 + (settings.flipYAndZAxes ? 1 : 2)])
-            };
-        }
+            IfcMesh* outMesh = &outModel->meshes.emplace_back();
+            meshIndex = outModel->meshes.size() - 1;
 
-        // normals
-        std::vector<double> const& normalsIn = triangulation.normals();
-        assert(normalsIn.size() == verticesIn.size());
-        std::vector<float3> normalsOut(vertexCount);
-
-        for (size_t i = 0; i < vertexCount; i++)
-        {
-            normalsOut[i] = float3{
-                static_cast<float>(normalsIn[i * 3]),
-                static_cast<float>(normalsIn[i * 3 + (settings.flipYAndZAxes ? 2 : 1)]),
-                static_cast<float>(normalsIn[i * 3 + (settings.flipYAndZAxes ? 1 : 2)])
-            };
-        }
-
-        // indices
-        std::vector<int> const& indicesIn = triangulation.faces();
-        size_t indexCount = indicesIn.size();
-        assert(indexCount % 3 == 0);
-        std::vector<uint32_t> indicesOut(indexCount);
-        if (settings.flipYAndZAxes)
-        {
-            // invert winding order
-            size_t triangleCount = indexCount / 3;
-            for (size_t i = 0; i < triangleCount; i++)
+            // positions
+            std::vector<double> const& verticesIn = triangulation.verts();
+            assert(!verticesIn.empty());
+            assert(verticesIn.size() % 3 == 0);
+            size_t vertexCount = verticesIn.size() / 3;
+            std::vector<float3> positionsOut(vertexCount);
+            for (size_t i = 0; i < vertexCount; i++)
             {
-                indicesOut[i * 3 + 0] = indicesIn[i * 3 + 2];
-                indicesOut[i * 3 + 1] = indicesIn[i * 3 + 1];
-                indicesOut[i * 3 + 2] = indicesIn[i * 3 + 0];
+                positionsOut[i] = float3{
+                    static_cast<float>(verticesIn[i * 3]),
+                    static_cast<float>(verticesIn[i * 3 + (settings.flipYAndZAxes ? 2 : 1)]),
+                    static_cast<float>(verticesIn[i * 3 + (settings.flipYAndZAxes ? 1 : 2)])
+                };
             }
-        }
-        else
-        {
-            for (size_t i = 0; i < indexCount; i++)
+
+            // normals
+            std::vector<double> const& normalsIn = triangulation.normals();
+            assert(normalsIn.size() == verticesIn.size());
+            std::vector<float3> normalsOut(vertexCount);
+
+            for (size_t i = 0; i < vertexCount; i++)
             {
-                indicesOut[i] = static_cast<uint32_t>(indicesIn[i]);
+                normalsOut[i] = float3{
+                    static_cast<float>(normalsIn[i * 3]),
+                    static_cast<float>(normalsIn[i * 3 + (settings.flipYAndZAxes ? 2 : 1)]),
+                    static_cast<float>(normalsIn[i * 3 + (settings.flipYAndZAxes ? 1 : 2)])
+                };
             }
+
+            // indices
+            std::vector<int> const& indicesIn = triangulation.faces();
+            size_t indexCount = indicesIn.size();
+            assert(indexCount % 3 == 0);
+            std::vector<uint32_t> indicesOut(indexCount);
+            if (settings.flipYAndZAxes)
+            {
+                // invert winding order
+                size_t triangleCount = indexCount / 3;
+                for (size_t i = 0; i < triangleCount; i++)
+                {
+                    indicesOut[i * 3 + 0] = indicesIn[i * 3 + 2];
+                    indicesOut[i * 3 + 1] = indicesIn[i * 3 + 1];
+                    indicesOut[i * 3 + 2] = indicesIn[i * 3 + 0];
+                }
+            }
+            else
+            {
+                for (size_t i = 0; i < indexCount; i++)
+                {
+                    indicesOut[i] = static_cast<uint32_t>(indicesIn[i]);
+                }
+            }
+
+            // create primitive
+            // todo: split primitives on material
+            PrimitiveDeinterleavedDescriptor descriptor{
+                .positions = &positionsOut,
+                .normals = &normalsOut,
+                .indices = &indicesOut,
+                .primitiveType = MTLPrimitiveTypeTriangle,
+            };
+            outMesh->primitive = createPrimitiveDeinterleaved(device, &descriptor);
         }
 
-        PrimitiveDeinterleavedDescriptor descriptor{
-            .positions = &positionsOut,
-            .normals = &normalsOut,
-            .indices = &indicesOut,
-            .primitiveType = MTLPrimitiveTypeTriangle,
-        };
-        outModel->meshes.emplace_back(createPrimitiveDeinterleaved(device, &descriptor));
+        // get transform and create node
+        {
+            IfcNode* outNode = &outModel->nodes.emplace_back();
+
+            ifcopenshell::geometry::taxonomy::matrix4::ptr const& transform = triangulationElement->transformation().data();
+            Eigen::Matrix<double, 4, 4>& matrix = transform->components();
+
+            glm::mat4 outMatrix{};
+            for (int i = 0; i < 4 * 4; i++)
+            {
+                auto a = static_cast<float>(matrix(i));
+                outMatrix[i / 4][i % 4] = a;
+            }
+
+            outNode->meshIndex = meshIndex;
+            outNode->localTransform = outMatrix;
+        }
 
         std::cout << element->name() << std::endl;
     }

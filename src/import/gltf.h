@@ -7,12 +7,11 @@
 #import <Metal/MTLTexture.h>
 
 #include "mesh.h"
+#include "common.h"
 
 #include "cgltf.h"
 
 #import "glm/detail/type_mat4x4.hpp"
-
-static constexpr size_t invalidIndex = std::numeric_limits<size_t>::max();
 
 struct GltfMaterialPbr
 {

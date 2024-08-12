@@ -1238,8 +1238,8 @@ void onLaunch(App* app)
         success = importIfc(app->device, app->config->assetsPath / "ifc" / "AC20-FZK-Haus.ifc", &app->ifcFzkHaus, settings);
         assert(success);
 
-        success = importIfc(app->device, app->config->assetsPath / "ifc" / "aisc_sculpture_brep.ifc", &app->ifcAiscSculptureBrep, settings);
-        assert(success);
+//        success = importIfc(app->device, app->config->assetsPath / "ifc" / "aisc_sculpture_brep.ifc", &app->ifcAiscSculptureBrep, settings);
+//        assert(success);
     }
 
     // create brdf lookup texture (same for all skyboxes)
@@ -1576,13 +1576,16 @@ void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* mod
 
     setPbrFragmentData(app, encoder, PbrFragmentData{.metalness = 1.0f, .roughness = 0.0f, .baseColor = app->currentColor});
 
-    for (auto& mesh: model->meshes)
+    for (auto& node: model->nodes)
     {
         PbrInstanceData instance{
-            .localToWorld = glm::mat4(1)
+            .localToWorld = node.localTransform
         };
         setPbrInstanceData(app, encoder, instance);
-        drawPrimitive(encoder, &mesh, 1);
+
+        assert(node.meshIndex != invalidIndex);
+        IfcMesh* mesh = &model->meshes[node.meshIndex];
+        drawPrimitive(encoder, &mesh->primitive, 1);
     }
 }
 
@@ -1694,7 +1697,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     if (app->config->ifc)
     {
         drawIfc(app, encoder, &app->ifcFzkHaus, glm::mat4(1));
-        drawIfc(app, encoder, &app->ifcAiscSculptureBrep, glm::mat4(1));
+//        drawIfc(app, encoder, &app->ifcAiscSculptureBrep, glm::mat4(1));
     }
 }
 
