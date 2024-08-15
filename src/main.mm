@@ -17,7 +17,7 @@
 
 #include "lodepng.h"
 
-#include "common.h"
+#include "constants.h"
 #include "rect.h"
 #include "mesh.h"
 #include "procedural_mesh.h"
@@ -1376,7 +1376,7 @@ void clearDepthBuffer(App* app, id <MTLRenderCommandEncoder> encoder)
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
-void bindPrimitiveAttributes(id <MTLRenderCommandEncoder> encoder, PrimitiveDeinterleaved* mesh)
+void bindPrimitiveAttributes(id <MTLRenderCommandEncoder> encoder, PrimitiveDeinterleaved const* mesh)
 {
     // bind vertex attributes
     size_t offset = 0;
@@ -1400,7 +1400,7 @@ void bindPrimitiveAttributes(id <MTLRenderCommandEncoder> encoder, PrimitiveDein
     }
 }
 
-void drawPrimitive(id <MTLRenderCommandEncoder> encoder, PrimitiveDeinterleaved* mesh, uint32_t instanceCount)
+void drawPrimitive(id <MTLRenderCommandEncoder> encoder, PrimitiveDeinterleaved const* mesh, uint32_t instanceCount)
 {
     bindPrimitiveAttributes(encoder, mesh);
     if (mesh->indexed)
@@ -1426,7 +1426,7 @@ void drawPrimitive(id <MTLRenderCommandEncoder> encoder, PrimitiveDeinterleaved*
     }
 }
 
-void drawPrimitiveInstance(id <MTLRenderCommandEncoder> encoder, PrimitiveDeinterleaved* mesh, InstanceData* instance)
+void drawPrimitiveInstance(id <MTLRenderCommandEncoder> encoder, PrimitiveDeinterleaved const* mesh, InstanceData* instance)
 {
     [encoder setVertexBytes:instance length:sizeof(InstanceData) atIndex:binding_vertex::instanceData];
     drawPrimitive(encoder, mesh, 1);
@@ -1576,11 +1576,15 @@ struct IfcDfsData
 void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* model, glm::mat4 transform)
 {
     [encoder setCullMode:MTLCullModeBack];
-    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+    [encoder setTriangleFillMode:MTLTriangleFillModeLines];
     [encoder setRenderPipelineState:app->shaderPbr];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
-    setPbrFragmentData(app, encoder, PbrFragmentData{.metalness = 1.0f, .roughness = 0.0f, .baseColor = app->currentColor});
+    setPbrFragmentData(app, encoder, PbrFragmentData{
+        .metalness = 0.0f,
+        .roughness = app->currentRoughness,
+        .baseColor = app->currentColor
+    });
 
     // traverse scene using depth-first search (dfs)
     IfcScene* scene = &model->scenes[0];
@@ -1596,12 +1600,46 @@ void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* mod
         // draw mesh at transform
         if (data.node->meshIndex != invalidIndex)
         {
+
+
             PbrInstanceData instance{
                 .localToWorld = data.localToWorld
             };
             setPbrInstanceData(app, encoder, instance);
 
             drawPrimitive(encoder, &model->meshes[data.node->meshIndex].primitive, 1);
+        }
+
+        // iterate over children
+        for (int i = 0; i < data.node->childNodes.size(); i++)
+        {
+            size_t childIndex = data.node->childNodes[i];
+            IfcNode* child = &model->nodes[childIndex];
+
+            // calculate localToWorld
+            glm::mat4 localToWorld = data.localToWorld * child->localTransform;
+
+            stack.push({.node = child, .localToWorld = localToWorld});
+        }
+    }
+
+    // draw axes
+    [encoder setCullMode:MTLCullModeNone];
+    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
+    [encoder setDepthStencilState:app->depthStencilStateDefault];
+    [encoder setRenderPipelineState:app->shaderUnlitColored];
+
+    stack.push({.node = rootNode, .localToWorld = transform});
+    while (!stack.empty())
+    {
+        IfcDfsData data = stack.top();
+        stack.pop();
+
+        // draw mesh at transform
+        if (data.node->meshIndex != invalidIndex)
+        {
+            InstanceData instance{.localToWorld = glm::scale(data.localToWorld, glm::vec3(0.5, 0.5, 0.5))};
+            drawPrimitiveInstance(encoder, &app->meshAxes, &instance);
         }
 
         // iterate over children
@@ -1725,7 +1763,7 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     // draw ifc
     if (app->config->ifc)
     {
-        drawIfc(app, encoder, &app->ifcFzkHaus, glm::mat4(1));
+        drawIfc(app, encoder, &app->ifcFzkHaus, glm::translate(glm::mat4(1), glm::vec3(0.2f * sin(app->time), 0.2f, 0.2f * cos(app->time))));
 //        drawIfc(app, encoder, &app->ifcAiscSculptureBrep, glm::mat4(1));
     }
 }

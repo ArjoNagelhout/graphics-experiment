@@ -7,7 +7,7 @@
 #import <Metal/MTLTexture.h>
 
 #include "mesh.h"
-#include "common.h"
+#include "constants.h"
 
 #include "cgltf.h"
 

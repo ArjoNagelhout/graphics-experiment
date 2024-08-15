@@ -4,7 +4,7 @@
 
 #include "mesh.h"
 
-#include "common.h"
+#include "constants.h"
 #include "rect.h"
 #include "perlin.h"
 

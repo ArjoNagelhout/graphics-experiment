@@ -15,7 +15,7 @@
 #include "glm/mat4x4.hpp"
 
 #include "../mesh.h"
-#include "../common.h"
+#include "../constants.h"
 
 struct IfcImportSettings
 {
