@@ -1,5 +1,6 @@
 # metal-experiment 
 
+![Screenshot](https://github.com/user-attachments/assets/4aa20f8c-a332-4e51-a25f-05f76f6c4b79)
 ![Latest](https://github.com/user-attachments/assets/c26fc56a-c00a-4ecd-a050-3c2b78fa6ea0)
 
 This open-ended experiment is intended to experiment with real-time graphics techniques and AEC data.
