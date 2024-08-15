@@ -140,7 +140,6 @@ bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcMode
                 };
                 outMatrix = flipMatrix * outMatrix * flipMatrix;
             }
-            // we have a
             outNode->localTransform = outMatrix;
 
             assert(meshIndex != invalidIndex);
@@ -157,7 +156,8 @@ bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcMode
         outModel->scenes.emplace_back();
         sceneIndex = outModel->scenes.size() - 1;
     }
-    // fix node hierarchy
+
+    // create root node
     {
         assert(sceneIndex != invalidIndex);
         IfcScene* scene = &outModel->scenes[sceneIndex];

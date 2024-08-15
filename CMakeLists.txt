@@ -21,7 +21,7 @@ set(SOURCES
 )
 
 add_library(metal_experiment_lib ${SOURCES})
-target_link_libraries(metal_experiment_lib PUBLIC lodepng glm fmt cgltf libjpeg-turbo ifcopenshell)
+target_link_libraries(metal_experiment_lib PUBLIC lodepng glm fmt cgltf libjpeg-turbo ifcopenshell imgui)
 target_include_directories(metal_experiment_lib PUBLIC src)
 target_include_directories(metal_experiment_lib PUBLIC assets/shaders)
 
@@ -32,6 +32,8 @@ target_link_libraries(metal_experiment_lib PUBLIC
         "-framework Metal"
         "-framework MetalKit"
 )
+
+target_link_libraries(imgui PUBLIC "-framework GameController")
 
 add_executable(metal_experiment src/main.mm)
 

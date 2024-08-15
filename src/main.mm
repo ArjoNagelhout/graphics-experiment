@@ -15,7 +15,11 @@
 #import "Metal/MTLDrawable.h"
 #import "simd/simd.h"
 
+#include "fmt/format.h"
 #include "lodepng.h"
+#include "imgui.h"
+#include "backends/imgui_impl_metal.h"
+#include "backends/imgui_impl_osx.h"
 
 #include "constants.h"
 #include "rect.h"
@@ -33,7 +37,7 @@
 #include "glm/gtx/transform.hpp"
 #include "glm/gtx/quaternion.hpp"
 
-#include "fmt/format.h"
+
 
 #include <stack>
 
@@ -1322,6 +1326,17 @@ void onLaunch(App* app)
     onSkyboxChanged(
         app); // creates prefiltered environment map and irradiance map for the currently active skybox (should be cached, but not important for now)
 
+    // create imgui context
+    {
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO(); (void)io;
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+        ImGui::StyleColorsLight();
+
+        ImGui_ImplMetal_Init(app->device);
+        ImGui_ImplOSX_Init(app->view);
+    }
+
     // make window active
     [app->window makeKeyAndOrderFront:NSApp];
 }
@@ -2052,6 +2067,30 @@ void onDraw(App* app)
 
             [encoder setVertexBuffer:buffer offset:0 atIndex:binding_vertex::vertexData];
             [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
+        }
+
+        // draw imgui / draw ui (2D, on-screen)
+        {
+            ImGuiIO& io = ImGui::GetIO();
+            io.DisplaySize.x = static_cast<float>(app->view.bounds.size.width);
+            io.DisplaySize.y = static_cast<float>(app->view.bounds.size.height);
+
+            auto framebufferScale = static_cast<float>(app->view.window.screen.backingScaleFactor);
+            io.DisplayFramebufferScale = ImVec2(framebufferScale, framebufferScale);
+
+            // new frame
+            ImGui_ImplMetal_NewFrame(renderPass);
+            ImGui_ImplOSX_NewFrame(app->view);
+            ImGui::NewFrame();
+
+            // draw ui
+            static bool open = true;
+            ImGui::ShowDemoWindow(&open);
+
+            // render
+            ImGui::Render();
+            ImDrawData* drawData = ImGui::GetDrawData();
+            ImGui_ImplMetal_RenderDrawData(drawData, cmd, encoder);
         }
 
         [encoder endEncoding];
