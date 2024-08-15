@@ -429,6 +429,8 @@ struct App
     id <MTLTexture> brdfLookupTexture; // R16G16, maps roughness and cos theta v to a scale and F0 bias.
     simd_float3 currentColor = simd_float3{1.0f, 1.0f, 1.0f};
     float currentRoughness = 0.0f;
+    float currentMetalness = 0.0f;
+    float showLines = 0.0f;
 
     // primitives
     PrimitiveDeinterleaved meshCube;
@@ -467,7 +469,9 @@ struct App
 
     // ifc models
     IfcModel ifcFzkHaus{};
+    IfcModel ifcInstituteVar2{};
     IfcModel ifcAiscSculptureBrep{};
+    IfcModel ifcTableChairs{};
 
     // silly periodic timer
     float time = 0.0f;
@@ -498,6 +502,14 @@ struct App
     else if (index == 3)
     {
         _app->currentRoughness = value;
+    }
+    else if (index == 4)
+    {
+        _app->currentMetalness = value;
+    }
+    else if (index == 5)
+    {
+        _app->showLines = value;
     }
 }
 @end
@@ -963,10 +975,28 @@ void onLaunch(App* app)
         [slider4 setTarget:app->sliderDelegate];
         [slider4 setAction:@selector(sliderValueChanged:)];
 
+        NSSlider* slider5 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 240, 100, 20)];
+        slider5.minValue = 0.0f;
+        slider5.maxValue = 1.0f;
+        slider5.tag = 4;
+        slider5.floatValue = app->currentMetalness;
+        [slider5 setTarget:app->sliderDelegate];
+        [slider5 setAction:@selector(sliderValueChanged:)];
+
+        NSSlider* slider6 = [[NSSlider alloc] initWithFrame:NSMakeRect(50, 280, 100, 20)];
+        slider6.minValue = 0.0f;
+        slider6.maxValue = 1.0f;
+        slider6.tag = 5;
+        slider6.floatValue = app->showLines;
+        [slider6 setTarget:app->sliderDelegate];
+        [slider6 setAction:@selector(sliderValueChanged:)];
+
         [containerView addSubview:slider1];
         [containerView addSubview:slider2];
         [containerView addSubview:slider3];
         [containerView addSubview:slider4];
+        [containerView addSubview:slider5];
+        [containerView addSubview:slider6];
     }
 
     [app->splitView adjustSubviews];
@@ -1238,7 +1268,13 @@ void onLaunch(App* app)
         success = importIfc(app->device, app->config->assetsPath / "ifc" / "AC20-FZK-Haus.ifc", &app->ifcFzkHaus, settings);
         assert(success);
 
-//        success = importIfc(app->device, app->config->assetsPath / "ifc" / "aisc_sculpture_brep.ifc", &app->ifcAiscSculptureBrep, settings);
+        success = importIfc(app->device, app->config->assetsPath / "ifc" / "AC20-Institute-Var-2.ifc", &app->ifcInstituteVar2, settings);
+        assert(success);
+
+        success = importIfc(app->device, app->config->assetsPath / "ifc" / "aisc_sculpture_brep.ifc", &app->ifcAiscSculptureBrep, settings);
+        assert(success);
+
+//        success = importIfc(app->device, app->config->assetsPath / "ifc" / "Tabel_Chairs.ifc", &app->ifcTableChairs, settings);
 //        assert(success);
     }
 
@@ -1576,12 +1612,12 @@ struct IfcDfsData
 void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* model, glm::mat4 transform)
 {
     [encoder setCullMode:MTLCullModeBack];
-    [encoder setTriangleFillMode:MTLTriangleFillModeLines];
+    [encoder setTriangleFillMode:app->showLines > 0.5f ? MTLTriangleFillModeLines : MTLTriangleFillModeFill];
     [encoder setRenderPipelineState:app->shaderPbr];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
     setPbrFragmentData(app, encoder, PbrFragmentData{
-        .metalness = 0.0f,
+        .metalness = app->currentMetalness,
         .roughness = app->currentRoughness,
         .baseColor = app->currentColor
     });
@@ -1600,8 +1636,6 @@ void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* mod
         // draw mesh at transform
         if (data.node->meshIndex != invalidIndex)
         {
-
-
             PbrInstanceData instance{
                 .localToWorld = data.localToWorld
             };
@@ -1622,6 +1656,8 @@ void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* mod
             stack.push({.node = child, .localToWorld = localToWorld});
         }
     }
+
+    return;
 
     // draw axes
     [encoder setCullMode:MTLCullModeNone];
@@ -1764,7 +1800,9 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     if (app->config->ifc)
     {
         drawIfc(app, encoder, &app->ifcFzkHaus, glm::translate(glm::mat4(1), glm::vec3(0.2f * sin(app->time), 0.2f, 0.2f * cos(app->time))));
-//        drawIfc(app, encoder, &app->ifcAiscSculptureBrep, glm::mat4(1));
+        drawIfc(app, encoder, &app->ifcAiscSculptureBrep, glm::translate(glm::scale(glm::vec3(3, 3, 3)), glm::vec3(7, 0, 0)));
+        drawIfc(app, encoder, &app->ifcInstituteVar2, glm::translate(glm::scale(glm::vec3(1, 1, 1)), glm::vec3(0, 0, 25)));
+//        drawIfc(app, encoder, &app->ifcTableChairs, glm::translate(glm::vec3(0, 0, -7)));
     }
 }
 
