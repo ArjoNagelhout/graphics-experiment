@@ -8,58 +8,9 @@
 
 #include "mesh.h"
 #include "constants.h"
-
-#include "cgltf.h"
-
-#import "glm/detail/type_mat4x4.hpp"
-
-struct GltfMaterialPbr
-{
-    size_t baseColorMap = invalidIndex; // texture index
-    size_t metallicRoughnessMap = invalidIndex; // texture index
-    size_t normalMap = invalidIndex; // texture index
-    size_t emissionMap = invalidIndex; // texture index
-};
-
-struct GltfPrimitive
-{
-    PrimitiveDeinterleaved mesh;
-
-    // material reference
-    size_t material = invalidIndex;
-};
-
-// contains multiple materials
-struct GltfMesh
-{
-    std::vector<GltfPrimitive> primitives;
-};
-
-struct GltfScene
-{
-    size_t rootNode;
-};
-
-struct GltfNode
-{
-    size_t meshIndex = invalidIndex;
-    glm::mat4 localTransform;
-    std::vector<size_t> childNodes;
-};
-
-struct GltfModel
-{
-    // data
-    std::vector<GltfMesh> meshes;
-    std::vector<id <MTLTexture>> textures;
-    std::vector<GltfMaterialPbr> materials;
-
-    // scenes
-    std::vector<GltfScene> scenes;
-    std::vector<GltfNode> nodes;
-};
+#include "model.h"
 
 // returns true when successful
-[[nodiscard]] bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfModel* outModel);
+[[nodiscard]] bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, model::Model* outModel);
 
 #endif //METAL_EXPERIMENT_GLTF_H

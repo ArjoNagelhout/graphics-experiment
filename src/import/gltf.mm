@@ -33,7 +33,7 @@
     }
 }
 
-bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfModel* outModel)
+bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, model::Model* outModel)
 {
     assert(exists(path));
     assert(outModel != nullptr);
@@ -198,14 +198,14 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
 
         for (int i = 0; i < cgltfData->meshes_count; i++)
         {
-            GltfMesh* outMesh = &outModel->meshes.emplace_back();
+            model::Mesh* outMesh = &outModel->meshes.emplace_back();
 
             cgltf_mesh* mesh = &cgltfData->meshes[i];
             std::cout << "mesh name: " << (mesh->name ? mesh->name : "") << std::endl;
 
             for (int j = 0; j < mesh->primitives_count; j++)
             {
-                GltfPrimitive* outPrimitive = &outMesh->primitives.emplace_back();
+                model::Primitive* outPrimitive = &outMesh->primitives.emplace_back();
                 cgltf_primitive* primitive = &mesh->primitives[j];
 
                 // set primitive type
@@ -225,25 +225,25 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                         case cgltf_primitive_type_max_enum:assert(false); break;
                     }
                     //@formatter:on
-                    outPrimitive->mesh.primitiveType = t;
+                    outPrimitive->primitive.primitiveType = t;
                 }
 
                 // get data for each attribute
-                outPrimitive->mesh.vertexCount = std::numeric_limits<size_t>::max();
+                outPrimitive->primitive.vertexCount = std::numeric_limits<size_t>::max();
                 size_t totalVertexBufferSize = 0;
                 for (int k = 0; k < primitive->attributes_count; k++)
                 {
-                    VertexAttribute* outAttribute = &outPrimitive->mesh.attributes.emplace_back();
+                    VertexAttribute* outAttribute = &outPrimitive->primitive.attributes.emplace_back();
                     cgltf_attribute* attribute = &primitive->attributes[k];
                     outAttribute->type = convertGltfAttributeType(attribute->type);
                     std::cout << "attribute: " << (attribute->name ? attribute->name : "") << std::endl;
 
-                    assert(outPrimitive->mesh.vertexCount == std::numeric_limits<size_t>::max() || outPrimitive->mesh.vertexCount == attribute->data->count);
-                    outPrimitive->mesh.vertexCount = attribute->data->count;
+                    assert(outPrimitive->primitive.vertexCount == std::numeric_limits<size_t>::max() || outPrimitive->primitive.vertexCount == attribute->data->count);
+                    outPrimitive->primitive.vertexCount = attribute->data->count;
                     assert(attribute->data->component_type == cgltf_component_type_r_32f && "only float component type is implemented");
 
                     outAttribute->componentCount = cgltf_num_components(attribute->data->type);
-                    outAttribute->size = outAttribute->componentCount * sizeof(float) * outPrimitive->mesh.vertexCount;
+                    outAttribute->size = outAttribute->componentCount * sizeof(float) * outPrimitive->primitive.vertexCount;
                     totalVertexBufferSize += outAttribute->size;
                 }
 
@@ -252,11 +252,11 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                 size_t offset = 0;
                 for (int k = 0; k < primitive->attributes_count; k++)
                 {
-                    VertexAttribute* outAttribute = &outPrimitive->mesh.attributes[k];
+                    VertexAttribute* outAttribute = &outPrimitive->primitive.attributes[k];
                     cgltf_attribute* attribute = &primitive->attributes[k];
 
                     auto* begin = (float*)&values[offset];
-                    size_t floatCount = outAttribute->componentCount * outPrimitive->mesh.vertexCount;
+                    size_t floatCount = outAttribute->componentCount * outPrimitive->primitive.vertexCount;
                     size_t floatsUnpacked = cgltf_accessor_unpack_floats(attribute->data, begin, floatCount);
                     assert(floatsUnpacked == floatCount);
 
@@ -266,33 +266,33 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                 // upload vertex buffer to GPU
                 {
                     MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-                    outPrimitive->mesh.vertexBuffer = [device newBufferWithBytes:values.data() length:values.size() * sizeof(unsigned char) options:options];
+                    outPrimitive->primitive.vertexBuffer = [device newBufferWithBytes:values.data() length:values.size() * sizeof(unsigned char) options:options];
                 }
 
                 // populate index buffer and upload to GPU
                 {
-                    outPrimitive->mesh.indexCount = primitive->indices->count;
-                    outPrimitive->mesh.indexed = true;
+                    outPrimitive->primitive.indexCount = primitive->indices->count;
+                    outPrimitive->primitive.indexed = true;
                     size_t componentSize = cgltf_component_size(primitive->indices->component_type);
                     if (componentSize == 4) // 32 bits
                     {
-                        outPrimitive->mesh.indexType = MTLIndexTypeUInt32;
+                        outPrimitive->primitive.indexType = MTLIndexTypeUInt32;
                     }
                     else if (componentSize == 2) // 16 bits
                     {
-                        outPrimitive->mesh.indexType = MTLIndexTypeUInt16;
+                        outPrimitive->primitive.indexType = MTLIndexTypeUInt16;
                     }
                     else
                     {
                         assert(false && "invalid index component type");
                     }
 
-                    std::vector<unsigned char> indexBuffer(componentSize * outPrimitive->mesh.indexCount);
-                    size_t unpackedIndices = cgltf_accessor_unpack_indices(primitive->indices, indexBuffer.data(), componentSize, outPrimitive->mesh.indexCount);
-                    assert(unpackedIndices == outPrimitive->mesh.indexCount);
+                    std::vector<unsigned char> indexBuffer(componentSize * outPrimitive->primitive.indexCount);
+                    size_t unpackedIndices = cgltf_accessor_unpack_indices(primitive->indices, indexBuffer.data(), componentSize, outPrimitive->primitive.indexCount);
+                    assert(unpackedIndices == outPrimitive->primitive.indexCount);
 
                     MTLResourceOptions options = MTLResourceCPUCacheModeDefaultCache | MTLResourceStorageModeShared;
-                    outPrimitive->mesh.indexBuffer = [device
+                    outPrimitive->primitive.indexBuffer = [device
                         newBufferWithBytes:indexBuffer.data()
                         length:indexBuffer.size() * sizeof(unsigned char) options:options];
                 }
@@ -301,7 +301,7 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
                 {
                     if (primitive->material != nullptr)
                     {
-                        outPrimitive->material = cgltf_material_index(cgltfData, primitive->material);
+                        outPrimitive->materialIndex = cgltf_material_index(cgltfData, primitive->material);
                     }
                 }
             }
@@ -312,7 +312,7 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
     {
         for (int i = 0; i < cgltfData->materials_count; i++)
         {
-            GltfMaterialPbr* outMaterial = &outModel->materials.emplace_back(GltfMaterialPbr{});
+            model::Material* outMaterial = &outModel->materials.emplace_back();
             cgltf_material* material = &cgltfData->materials[i];
             assert(material->has_pbr_metallic_roughness);
             cgltf_pbr_metallic_roughness mat = material->pbr_metallic_roughness;
@@ -348,7 +348,7 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
         for (int i = 0; i < cgltfData->nodes_count; i++)
         {
             cgltf_node* node = &cgltfData->nodes[i];
-            GltfNode* outNode = &outModel->nodes.emplace_back();
+            model::Node* outNode = &outModel->nodes.emplace_back();
 
             float* a = glm::value_ptr(outNode->localTransform);
             cgltf_node_transform_local(node, a);
@@ -370,11 +370,11 @@ bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, GltfMo
         for (int i = 0; i < cgltfData->scenes_count; i++)
         {
             cgltf_scene* scene = &cgltfData->scenes[i];
-            GltfScene* outScene = &outModel->scenes.emplace_back();
+            model::Scene* outScene = &outModel->scenes.emplace_back();
 
             // create root node that contains scene root nodes as children
             // makes traversal easier
-            GltfNode* rootNode = &outModel->nodes.emplace_back();
+            model::Node* rootNode = &outModel->nodes.emplace_back();
             size_t rootNodeIndex = outModel->nodes.size() - 1;
             outScene->rootNode = rootNodeIndex;
 

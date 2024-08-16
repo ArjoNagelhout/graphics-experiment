@@ -8,9 +8,37 @@
 #include <ifcgeom/ConversionSettings.h>
 #include <ifcparse/IfcFile.h>
 
+#include <unordered_set>
+
 #include "glm/gtc/type_ptr.hpp"
 
-bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcModel* outModel, IfcImportSettings settings)
+[[nodiscard]] bool grouped(std::vector<size_t>* indices)
+{
+    assert(!indices->empty());
+    size_t currentIndex = indices->at(0);
+
+    std::unordered_set<size_t> foundIndices;
+
+    for (auto& index: *indices)
+    {
+        if (index != currentIndex)
+        {
+            if (foundIndices.contains(index))
+            {
+                return false;
+            }
+            else
+            {
+                foundIndices.emplace(index);
+            }
+        }
+        currentIndex = index;
+    }
+
+    return true;
+}
+
+bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, model::Model* outModel, IfcImportSettings settings)
 {
     assert(exists(path));
     assert(outModel != nullptr);
@@ -45,11 +73,13 @@ bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcMode
         auto const* triangulationElement = dynamic_cast<IfcGeom::TriangulationElement const*>(element);
         IfcGeom::Representation::Triangulation const& triangulation = triangulationElement->geometry();
 
+        //triangulation.materials()
+
         size_t meshIndex = invalidIndex;
 
         // create mesh
         {
-            IfcMesh* outMesh = &outModel->meshes.emplace_back();
+            model::Mesh* outMesh = &outModel->meshes.emplace_back();
             meshIndex = outModel->meshes.size() - 1;
 
             // positions
@@ -105,6 +135,26 @@ bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcMode
                 }
             }
 
+            // split based on materials
+            {
+                std::vector<size_t> materialIndices(triangulation.material_ids().size());
+                for (int i = 0; i < materialIndices.size(); i++)
+                {
+                    materialIndices[i] = triangulation.material_ids()[i];
+                }
+                assert(grouped(&materialIndices));
+
+                // we want to go from:
+                // vertices [x0, y0, z0, x1, y1, z1, x2, y2, z2]
+                // indices [v0_0, v0_1, v0_2, v1_0, v1_1, v1_2]
+
+                // to vertices and indices that are split based on materials
+                // material_ids [f0, f1, f2, f3]
+
+                // having the same vertex buffer would be easier, but for now let's keep it separate
+
+            }
+
             // create primitive
             // todo: split primitives on material
             PrimitiveDeinterleavedDescriptor descriptor{
@@ -113,12 +163,15 @@ bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcMode
                 .indices = &indicesOut,
                 .primitiveType = MTLPrimitiveTypeTriangle,
             };
-            outMesh->primitive = createPrimitiveDeinterleaved(device, &descriptor);
+            outMesh->primitives.emplace_back(model::Primitive{
+                .primitive = createPrimitiveDeinterleaved(device, &descriptor),
+                .materialIndex = invalidIndex
+            });
         }
 
         // create node
         {
-            IfcNode* outNode = &outModel->nodes.emplace_back();
+            model::Node* outNode = &outModel->nodes.emplace_back();
 
             // get transform
             ifcopenshell::geometry::taxonomy::matrix4::ptr const& transform = triangulationElement->transformation().data();
@@ -160,14 +213,14 @@ bool importIfc(id <MTLDevice> device, std::filesystem::path const& path, IfcMode
     // create root node
     {
         assert(sceneIndex != invalidIndex);
-        IfcScene* scene = &outModel->scenes[sceneIndex];
+        model::Scene* scene = &outModel->scenes[sceneIndex];
 
         std::vector<size_t> nodeIndices(outModel->nodes.size());
         std::iota(nodeIndices.begin(), nodeIndices.end(), 0);
 
         // create the root node
         // this makes iterating easier using a tree-traversal algorithm
-        outModel->nodes.emplace_back(IfcNode{
+        outModel->nodes.emplace_back(model::Node{
             .meshIndex = invalidIndex,
             .localTransform = glm::mat4(1),
             .childNodes = nodeIndices

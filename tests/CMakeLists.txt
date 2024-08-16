@@ -5,6 +5,7 @@ set(TESTS_SOURCES
         websockets.cpp
         gltf.mm
         json.cpp
+        tests.cpp
 )
 
 add_executable(tests ${TESTS_SOURCES})

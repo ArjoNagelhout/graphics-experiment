@@ -16,13 +16,15 @@ int main(int argc, char** argv)
 {
     ::testing::InitGoogleTest(&argc, argv);
 
-    assert(argc == 3);
-    for (int i = 1; i < argc; ++i)
+    if (argc >= 3)
     {
-        printf("arg %2d = %s\n", i, argv[i]);
+        for (int i = 1; i < argc; ++i)
+        {
+            printf("arg %2d = %s\n", i, argv[i]);
+        }
+        assetsPath = argv[1];
+        privateAssetsPath = argv[2];
     }
-    assetsPath = argv[1];
-    privateAssetsPath = argv[2];
 
     return RUN_ALL_TESTS();
 }

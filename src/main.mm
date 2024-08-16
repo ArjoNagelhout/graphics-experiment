@@ -467,15 +467,15 @@ struct App
     id <MTLTexture> shadowMap;
 
     // gltf models
-    GltfModel gltfCathedral{};
-    GltfModel gltfVrLoftLivingRoomBaked{};
-    GltfModel gltfUgv{}; // https://sketchfab.com/3d-models/the-d-21-multi-missions-ugv-ebe40dc504a145d0909310e124334420
+    model::Model gltfCathedral{};
+    model::Model gltfVrLoftLivingRoomBaked{};
+    model::Model gltfUgv{}; // https://sketchfab.com/3d-models/the-d-21-multi-missions-ugv-ebe40dc504a145d0909310e124334420
 
     // ifc models
-    IfcModel ifcFzkHaus{};
-    IfcModel ifcInstituteVar2{};
-    IfcModel ifcAiscSculptureBrep{};
-    IfcModel ifcTableChairs{};
+    model::Model ifcFzkHaus{};
+    model::Model ifcInstituteVar2{};
+    model::Model ifcAiscSculptureBrep{};
+    model::Model ifcTableChairs{};
 
     // silly periodic timer
     float time = 0.0f;
@@ -1278,8 +1278,8 @@ void onLaunch(App* app)
         success = importIfc(app->device, app->config->assetsPath / "ifc" / "aisc_sculpture_brep.ifc", &app->ifcAiscSculptureBrep, settings);
         assert(success);
 
-//        success = importIfc(app->device, app->config->assetsPath / "ifc" / "Tabel_Chairs.ifc", &app->ifcTableChairs, settings);
-//        assert(success);
+        success = importIfc(app->device, app->config->assetsPath / "ifc" / "Tabel_Chairs.ifc", &app->ifcTableChairs, settings);
+        assert(success);
     }
 
     // create brdf lookup texture (same for all skyboxes)
@@ -1506,14 +1506,7 @@ enum DrawSceneFlags_
     return simd_float3{in.x, in.y, in.z}; // could also simply reinterpret cast as the struct layout should be the same
 }
 
-[[nodiscard]] glm::vec3 quaternionToDirectionVector(glm::quat in)
-{
-    glm::mat4 rotationMatrix = glm::toMat4(in);
-    auto directionVector = glm::vec3(rotationMatrix[2]); // Z-axis for forward direction
-    return glm::normalize(directionVector);
-}
-
-[[nodiscard]] bool isValidTexture(GltfModel* model, size_t index)
+[[nodiscard]] bool isValidTexture(model::Model* model, size_t index)
 {
     return index != invalidIndex && index < model->textures.size();
 }
@@ -1536,101 +1529,48 @@ void setPbrInstanceData(App const* app, id <MTLRenderCommandEncoder> encoder, Pb
     [encoder setVertexBytes:&data length:sizeof(PbrInstanceData) atIndex:binding_vertex::instanceData];
 }
 
-void drawGltfPrimitivePbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, GltfPrimitive* primitive)
+struct ModelDfsData
 {
-    // set material
-    {
-        assert(primitive->material != invalidIndex);
-        GltfMaterialPbr pbr = model->materials[primitive->material];
-
-        id <MTLTexture> baseColor = isValidTexture(model, pbr.baseColorMap) ? model->textures[pbr.baseColorMap] : nullptr;
-        id <MTLTexture> normal = isValidTexture(model, pbr.normalMap) ? model->textures[pbr.normalMap] : nullptr;
-        id <MTLTexture> metallicRoughness = isValidTexture(model, pbr.metallicRoughnessMap) ? model->textures[pbr.metallicRoughnessMap] : nullptr;
-        id <MTLTexture> emission = isValidTexture(model, pbr.emissionMap) ? model->textures[pbr.emissionMap] : nullptr;
-
-        [encoder setFragmentTexture:baseColor atIndex:binding_fragment::baseColorMap];
-        [encoder setFragmentTexture:normal atIndex:binding_fragment::normalMap];
-        [encoder setFragmentTexture:metallicRoughness atIndex:binding_fragment::metallicRoughnessMap];
-        [encoder setFragmentTexture:emission atIndex:binding_fragment::emissionMap];
-    }
-
-    // draw mesh
-    drawPrimitive(encoder, &primitive->mesh, 1);
-}
-
-void drawGltfMeshPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 localToWorld, GltfMesh* mesh)
-{
-    PbrInstanceData instance{
-        .localToWorld = localToWorld
-    };
-    setPbrInstanceData(app, encoder, instance);
-
-    for (auto& primitive: mesh->primitives)
-    {
-        drawGltfPrimitivePbr(app, encoder, model, &primitive);
-    }
-}
-
-struct GltfDfsData
-{
-    GltfNode* node;
+    model::Node* node;
     glm::mat4 localToWorld; // calculated
 };
 
-void drawGltfPbr(App const* app, id <MTLRenderCommandEncoder> encoder, GltfModel* model, glm::mat4 transform)
+id <MTLTexture> getPbrTexture(model::Model* model, size_t textureIndex)
 {
-    [encoder setCullMode:MTLCullModeBack];
-    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-    [encoder setRenderPipelineState:app->shaderPbrWithMaps];
-    [encoder setDepthStencilState:app->depthStencilStateDefault];
-
-    // same for all meshes
-    setPbrFragmentData(app, encoder, PbrFragmentData{});
-
-    // traverse scene using depth-first search (dfs)
-    GltfScene* scene = &model->scenes[0];
-
-    std::stack<GltfDfsData> stack;
-    GltfNode* rootNode = &model->nodes[scene->rootNode];
-    stack.push({.node = rootNode, .localToWorld = transform});
-    while (!stack.empty())
+    if (textureIndex != invalidIndex && textureIndex < model->textures.size())
     {
-        GltfDfsData data = stack.top();
-        stack.pop();
-
-        // draw mesh at transform
-        if (data.node->meshIndex != invalidIndex)
-        {
-            drawGltfMeshPbr(app, encoder, model, data.localToWorld, &model->meshes[data.node->meshIndex]);
-        }
-
-        // iterate over children
-        for (int i = 0; i < data.node->childNodes.size(); i++)
-        {
-            size_t childIndex = data.node->childNodes[i];
-            GltfNode* child = &model->nodes[childIndex];
-
-            // calculate localToWorld
-            glm::mat4 localToWorld = data.localToWorld * child->localTransform;
-
-            stack.push({.node = child, .localToWorld = localToWorld});
-        }
+        return model->textures[textureIndex];
+    }
+    else
+    {
+        return nullptr;
     }
 }
 
-struct IfcDfsData
+void setPbrMaterial(id <MTLRenderCommandEncoder> encoder, model::Model* model, size_t materialIndex)
 {
-    IfcNode* node;
-    glm::mat4 localToWorld; // calculated
-};
+    bool hasMaterial = materialIndex != invalidIndex && materialIndex < model->materials.size();
+    model::Material* material = hasMaterial ? &model->materials[materialIndex] : nullptr;
 
-void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* model, glm::mat4 transform)
+    id <MTLTexture> baseColor = hasMaterial ? getPbrTexture(model, material->baseColorMap) : nullptr;
+    id <MTLTexture> normal = hasMaterial ? getPbrTexture(model, material->normalMap) : nullptr;
+    id <MTLTexture> metallicRoughness = hasMaterial ? getPbrTexture(model, material->metallicRoughnessMap) : nullptr;
+    id <MTLTexture> emission = hasMaterial ? getPbrTexture(model, material->emissionMap) : nullptr;
+
+    [encoder setFragmentTexture:baseColor atIndex:binding_fragment::baseColorMap];
+    [encoder setFragmentTexture:normal atIndex:binding_fragment::normalMap];
+    [encoder setFragmentTexture:metallicRoughness atIndex:binding_fragment::metallicRoughnessMap];
+    [encoder setFragmentTexture:emission atIndex:binding_fragment::emissionMap];
+}
+
+void drawModel(App const* app, id <MTLRenderCommandEncoder> encoder, model::Model* model, glm::mat4 transform)
 {
     [encoder setCullMode:MTLCullModeBack];
     [encoder setTriangleFillMode:app->showLines > 0.5f ? MTLTriangleFillModeLines : MTLTriangleFillModeFill];
     [encoder setRenderPipelineState:app->shaderPbr];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
+    // same for all meshes
     setPbrFragmentData(app, encoder, PbrFragmentData{
         .metalness = app->currentMetalness,
         .roughness = app->currentRoughness,
@@ -1638,14 +1578,16 @@ void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* mod
     });
 
     // traverse scene using depth-first search (dfs)
-    IfcScene* scene = &model->scenes[0];
+    model::Scene* scene = &model->scenes[0];
+    assert(scene);
 
-    std::stack<IfcDfsData> stack;
-    IfcNode* rootNode = &model->nodes[scene->rootNode];
+    std::stack<ModelDfsData> stack;
+    model::Node* rootNode = &model->nodes[scene->rootNode];
+    assert(rootNode);
     stack.push({.node = rootNode, .localToWorld = transform});
     while (!stack.empty())
     {
-        IfcDfsData data = stack.top();
+        ModelDfsData data = stack.top();
         stack.pop();
 
         // draw mesh at transform
@@ -1656,48 +1598,22 @@ void drawIfc(App const* app, id <MTLRenderCommandEncoder> encoder, IfcModel* mod
             };
             setPbrInstanceData(app, encoder, instance);
 
-            drawPrimitive(encoder, &model->meshes[data.node->meshIndex].primitive, 1);
+            model::Mesh* mesh = &model->meshes[data.node->meshIndex];
+            for (auto& primitive: mesh->primitives)
+            {
+                // set material
+                setPbrMaterial(encoder, model, primitive.materialIndex);
+
+                // draw primitive
+                drawPrimitive(encoder, &primitive.primitive, 1);
+            }
         }
 
         // iterate over children
         for (int i = 0; i < data.node->childNodes.size(); i++)
         {
             size_t childIndex = data.node->childNodes[i];
-            IfcNode* child = &model->nodes[childIndex];
-
-            // calculate localToWorld
-            glm::mat4 localToWorld = data.localToWorld * child->localTransform;
-
-            stack.push({.node = child, .localToWorld = localToWorld});
-        }
-    }
-
-    return;
-
-    // draw axes
-    [encoder setCullMode:MTLCullModeNone];
-    [encoder setTriangleFillMode:MTLTriangleFillModeFill];
-    [encoder setDepthStencilState:app->depthStencilStateDefault];
-    [encoder setRenderPipelineState:app->shaderUnlitColored];
-
-    stack.push({.node = rootNode, .localToWorld = transform});
-    while (!stack.empty())
-    {
-        IfcDfsData data = stack.top();
-        stack.pop();
-
-        // draw mesh at transform
-        if (data.node->meshIndex != invalidIndex)
-        {
-            InstanceData instance{.localToWorld = glm::scale(data.localToWorld, glm::vec3(0.5, 0.5, 0.5))};
-            drawPrimitiveInstance(encoder, &app->meshAxes, &instance);
-        }
-
-        // iterate over children
-        for (int i = 0; i < data.node->childNodes.size(); i++)
-        {
-            size_t childIndex = data.node->childNodes[i];
-            IfcNode* child = &model->nodes[childIndex];
+            model::Node* child = &model->nodes[childIndex];
 
             // calculate localToWorld
             glm::mat4 localToWorld = data.localToWorld * child->localTransform;
@@ -1764,9 +1680,9 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     // draw gltfs
     if (app->config->gltf)
     {
-        drawGltfPbr(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(10, 10, 10)));
-        drawGltfPbr(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
-        drawGltfPbr(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 20, 0)));
+        drawModel(app, encoder, &app->gltfUgv, glm::scale(glm::mat4(1), glm::vec3(10, 10, 10)));
+        drawModel(app, encoder, &app->gltfCathedral, glm::translate(glm::scale(glm::mat4(1), glm::vec3(0.6f, 0.6f, 0.6f)), glm::vec3(60, 0, 0)));
+        drawModel(app, encoder, &app->gltfVrLoftLivingRoomBaked, glm::translate(glm::vec3(0, 20, 0)));
     }
 
     // draw pbr, not textured, rounded cubes
@@ -1814,10 +1730,10 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
     // draw ifc
     if (app->config->ifc)
     {
-        drawIfc(app, encoder, &app->ifcFzkHaus, glm::translate(glm::mat4(1), glm::vec3(0.2f * sin(app->time), 0.2f, 0.2f * cos(app->time))));
-        drawIfc(app, encoder, &app->ifcAiscSculptureBrep, glm::translate(glm::scale(glm::vec3(3, 3, 3)), glm::vec3(7, 0, 0)));
-        drawIfc(app, encoder, &app->ifcInstituteVar2, glm::translate(glm::scale(glm::vec3(1, 1, 1)), glm::vec3(0, 0, 25)));
-//        drawIfc(app, encoder, &app->ifcTableChairs, glm::translate(glm::vec3(0, 0, -7)));
+        drawModel(app, encoder, &app->ifcFzkHaus, glm::translate(glm::mat4(1), glm::vec3(0.2f * sin(app->time), 0.2f, 0.2f * cos(app->time))));
+        drawModel(app, encoder, &app->ifcAiscSculptureBrep, glm::translate(glm::scale(glm::vec3(3, 3, 3)), glm::vec3(7, 0, 0)));
+        drawModel(app, encoder, &app->ifcInstituteVar2, glm::translate(glm::scale(glm::vec3(1, 1, 1)), glm::vec3(0, 0, 25)));
+        drawModel(app, encoder, &app->ifcTableChairs, glm::translate(glm::vec3(0, 0, -7)));
     }
 }
 

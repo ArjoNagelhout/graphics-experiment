@@ -12,6 +12,10 @@ namespace gltf_test
 {
     TEST(Gltf, Import)
     {
+        if (assetsPath.empty())
+        {
+            return;
+        }
         std::cout << assetsPath << std::endl;
 
         id <MTLDevice> device = MTLCreateSystemDefaultDevice();
