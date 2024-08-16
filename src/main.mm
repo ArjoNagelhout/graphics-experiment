@@ -1547,15 +1547,26 @@ id <MTLTexture> getPbrTexture(model::Model* model, size_t textureIndex)
     }
 }
 
-void setPbrMaterial(id <MTLRenderCommandEncoder> encoder, model::Model* model, size_t materialIndex)
+void setPbrMaterial(App const* app, id <MTLRenderCommandEncoder> encoder, model::Model* model, size_t materialIndex)
 {
     bool hasMaterial = materialIndex != invalidIndex && materialIndex < model->materials.size();
     model::Material* material = hasMaterial ? &model->materials[materialIndex] : nullptr;
 
+    // set data
     id <MTLTexture> baseColor = hasMaterial ? getPbrTexture(model, material->baseColorMap) : nullptr;
     id <MTLTexture> normal = hasMaterial ? getPbrTexture(model, material->normalMap) : nullptr;
     id <MTLTexture> metallicRoughness = hasMaterial ? getPbrTexture(model, material->metallicRoughnessMap) : nullptr;
     id <MTLTexture> emission = hasMaterial ? getPbrTexture(model, material->emissionMap) : nullptr;
+
+    // set shader
+    if (!baseColor && !normal && !metallicRoughness && !emission)
+    {
+        [encoder setRenderPipelineState:app->shaderPbr];
+    }
+    else
+    {
+        [encoder setRenderPipelineState:app->shaderPbrWithMaps];
+    }
 
     [encoder setFragmentTexture:baseColor atIndex:binding_fragment::baseColorMap];
     [encoder setFragmentTexture:normal atIndex:binding_fragment::normalMap];
@@ -1567,7 +1578,6 @@ void drawModel(App const* app, id <MTLRenderCommandEncoder> encoder, model::Mode
 {
     [encoder setCullMode:MTLCullModeBack];
     [encoder setTriangleFillMode:app->showLines > 0.5f ? MTLTriangleFillModeLines : MTLTriangleFillModeFill];
-    [encoder setRenderPipelineState:app->shaderPbr];
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
     // same for all meshes
@@ -1602,7 +1612,7 @@ void drawModel(App const* app, id <MTLRenderCommandEncoder> encoder, model::Mode
             for (auto& primitive: mesh->primitives)
             {
                 // set material
-                setPbrMaterial(encoder, model, primitive.materialIndex);
+                setPbrMaterial(app, encoder, model, primitive.materialIndex);
 
                 // draw primitive
                 drawPrimitive(encoder, &primitive.primitive, 1);
@@ -2046,9 +2056,9 @@ int main(int argc, char const* argv[])
         .shadowMapSize = 4096,
 
         // experiments, can be conditionally turned on or off
-        .terrain = false,
-        .gltf = false,
-        .pbrCubes = false,
+        .terrain = true,
+        .gltf = true,
+        .pbrCubes = true,
         .ifc = true,
     };
 

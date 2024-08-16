@@ -31,6 +31,7 @@
         case cgltf_attribute_type_max_enum: assert(false);
         default: assert(false);
     }
+    return VertexAttributeType::Position;
 }
 
 bool importGltf(id <MTLDevice> device, std::filesystem::path const& path, model::Model* outModel)
