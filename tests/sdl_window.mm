@@ -3,13 +3,19 @@
 //
 
 #define SDL_MAIN_USE_CALLBACKS 1 /* use the callbacks instead of main() */
+
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
 #import "Cocoa/Cocoa.h"
 #import "Metal/MTLDevice.h"
 #import "QuartzCore/CAMetalLayer.h"
+#import "Metal/MTLRenderPass.h"
+#import "Metal/MTLDrawable.h"
+#import "Metal/MTLCommandBuffer.h"
+#import "Metal/MTLCommandQueue.h"
 
+#include <iostream>
 #include <cassert>
 
 constexpr int stepRateInMilliseconds = 125;
@@ -20,11 +26,12 @@ struct App
     SDL_MetalView metalView;
     NSView* view;
     CAMetalLayer* metalLayer;
-    id <MTLDevice> device;
 
+    // metal objects
+    id <MTLDevice> device;
+    id <MTLCommandQueue> queue;
 
     SDL_TimerID stepTimer;
-
 };
 
 static Uint32 sdlTimerCallback(void* payload, SDL_TimerID timerId, Uint32 interval)
@@ -44,9 +51,24 @@ static Uint32 sdlTimerCallback(void* payload, SDL_TimerID timerId, Uint32 interv
     return interval;
 }
 
+// called each frame
 SDL_AppResult SDL_AppIterate(void* appstate)
 {
     App* app = (App*)appstate;
+
+    id <CAMetalDrawable> drawable = [app->metalLayer nextDrawable];
+    MTLRenderPassDescriptor* descriptor = [[MTLRenderPassDescriptor alloc] init];
+
+    descriptor.colorAttachments[0].texture = drawable.texture;
+    descriptor.colorAttachments[0].loadAction = MTLLoadActionClear;
+    descriptor.colorAttachments[0].clearColor = MTLClearColorMake(1.0, 0.0, 1.0, 1.0);
+
+    id <MTLCommandBuffer> buffer = [app->queue commandBuffer];
+
+    [buffer presentDrawable:drawable];
+    [buffer commit];
+
+    std::cout << "new frame" << std::endl;
 
     return SDL_APP_CONTINUE;
 }
@@ -68,8 +90,11 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
         assert(app->window);
     }
 
-    // create Metal device
-    app->device = MTLCreateSystemDefaultDevice();
+    // create Metal objects
+    {
+        app->device = MTLCreateSystemDefaultDevice();
+        app->queue = [app->device newCommandQueue];
+    }
 
     // create Metal view
     {
@@ -80,6 +105,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
         // assign metal device to layer
         app->metalLayer = (CAMetalLayer*)SDL_Metal_GetLayer(app->metalView);
         assert(app->metalLayer);
+        [app->metalLayer setDevice:app->device];
     }
 
     app->stepTimer = SDL_AddTimer(stepRateInMilliseconds, sdlTimerCallback, nullptr);
