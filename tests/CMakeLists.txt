@@ -32,7 +32,7 @@ add_executable(parser ${PARSER_SOURCES})
 
 # sdl window
 set(SDL_TEST_SOURCES
-        sdl_window.cpp
+        sdl_window.mm
 )
 
 add_executable(sdl_test ${SDL_TEST_SOURCES})
