@@ -104,3 +104,7 @@ target_include_directories(ifcopenshell INTERFACE IfcOpenShell/src)
 # the include_directories do not get propagated outside ifcOpenShell/cmake/CMakeLists.txt
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 target_link_libraries(ifcopenshell INTERFACE Eigen3::Eigen)
+
+#SDL
+#because dealing with platform specific APIs for window creation is annoying
+add_subdirectory(SDL)

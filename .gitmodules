@@ -28,3 +28,6 @@
 [submodule "external/IfcOpenShell"]
 	path = external/IfcOpenShell
 	url = https://github.com/IfcOpenShell/IfcOpenShell.git
+[submodule "external/SDL"]
+	path = external/SDL
+	url = https://github.com/libsdl-org/SDL.git

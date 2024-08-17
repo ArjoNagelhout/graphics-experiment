@@ -29,3 +29,11 @@ set(PARSER_SOURCES
 )
 
 add_executable(parser ${PARSER_SOURCES})
+
+# sdl window
+set(SDL_TEST_SOURCES
+        sdl_window.cpp
+)
+
+add_executable(sdl_test ${SDL_TEST_SOURCES})
+target_link_libraries(sdl_test PRIVATE SDL3::SDL3)
