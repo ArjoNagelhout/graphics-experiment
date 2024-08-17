@@ -1330,7 +1330,7 @@ void onLaunch(App* app)
     {
         ImGui::CreateContext();
         ImGuiIO& io = ImGui::GetIO(); (void)io;
-        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+        //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
         ImGui::StyleColorsLight();
 
         ImGui_ImplMetal_Init(app->device);
@@ -1511,11 +1511,12 @@ enum DrawSceneFlags_
     return index != invalidIndex && index < model->textures.size();
 }
 
-void setPbrFragmentData(App const* app, id <MTLRenderCommandEncoder> encoder, PbrFragmentData data)
+void setPbrFragmentData(App const* app, id <MTLRenderCommandEncoder> encoder)
 {
-    data.cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position);
-    data.mipLevels = app->mipLevels;
-
+    PbrFragmentData data{
+        .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
+        .mipLevels = app->mipLevels
+    };
     [encoder setFragmentBytes:&data length:sizeof(PbrFragmentData) atIndex:binding_fragment::fragmentData];
     [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:binding_fragment::prefilteredEnvironmentMap];
     [encoder setFragmentTexture:app->brdfLookupTexture atIndex:binding_fragment::brdfLookupTexture];
@@ -1552,7 +1553,7 @@ void setPbrMaterial(App const* app, id <MTLRenderCommandEncoder> encoder, model:
     bool hasMaterial = materialIndex != invalidIndex && materialIndex < model->materials.size();
     model::Material* material = hasMaterial ? &model->materials[materialIndex] : nullptr;
 
-    // set data
+    // get maps
     id <MTLTexture> baseColor = hasMaterial ? getPbrTexture(model, material->baseColorMap) : nullptr;
     id <MTLTexture> normal = hasMaterial ? getPbrTexture(model, material->normalMap) : nullptr;
     id <MTLTexture> metallicRoughness = hasMaterial ? getPbrTexture(model, material->metallicRoughnessMap) : nullptr;
@@ -1568,6 +1569,15 @@ void setPbrMaterial(App const* app, id <MTLRenderCommandEncoder> encoder, model:
         [encoder setRenderPipelineState:app->shaderPbrWithMaps];
     }
 
+    // set data
+    PbrMaterialData materialData{
+        .metalness = hasMaterial ? material->metalness : app->currentMetalness,
+        .roughness = hasMaterial ? material->roughness : app->currentRoughness,
+        .baseColor = hasMaterial ? material->baseColor : app->currentColor
+    };
+    [encoder setFragmentBytes:&materialData length:sizeof(PbrMaterialData) atIndex:binding_fragment::materialData];
+
+    // bind textures
     [encoder setFragmentTexture:baseColor atIndex:binding_fragment::baseColorMap];
     [encoder setFragmentTexture:normal atIndex:binding_fragment::normalMap];
     [encoder setFragmentTexture:metallicRoughness atIndex:binding_fragment::metallicRoughnessMap];
@@ -1581,11 +1591,7 @@ void drawModel(App const* app, id <MTLRenderCommandEncoder> encoder, model::Mode
     [encoder setDepthStencilState:app->depthStencilStateDefault];
 
     // same for all meshes
-    setPbrFragmentData(app, encoder, PbrFragmentData{
-        .metalness = app->currentMetalness,
-        .roughness = app->currentRoughness,
-        .baseColor = app->currentColor
-    });
+    setPbrFragmentData(app, encoder);
 
     // traverse scene using depth-first search (dfs)
     model::Scene* scene = &model->scenes[0];
@@ -1714,24 +1720,18 @@ void drawScene(App* app, id <MTLRenderCommandEncoder> encoder, DrawSceneFlags_ f
                     app->time + (float)x / 6.0f + (float)y / 3.0f, glm::vec3(0, 1, 0));
 
                 PbrInstanceData instance{
-                    .localToWorld = localToWorld,
-                    .localToWorldTransposedInverse = glm::transpose(glm::inverse(localToWorld))
+                    .localToWorld = localToWorld
                 };
+                setPbrInstanceData(app, encoder, instance);
+                setPbrFragmentData(app, encoder);
 
-                PbrFragmentData fragmentData{
-                    .cameraPosition = glmVec3ToSimdFloat3(app->cameraTransform.position),
-                    .mipLevels = app->mipLevels,
-                    .metalness = 1.0f,
+                PbrMaterialData materialData{
+                    .metalness = app->currentMetalness,
                     .roughness = app->currentRoughness,
                     .baseColor = app->currentColor
                 };
-
-                [encoder setFragmentBytes:&fragmentData length:sizeof(PbrFragmentData) atIndex:binding_fragment::fragmentData];
+                [encoder setFragmentBytes:&materialData length:sizeof(PbrMaterialData) atIndex:binding_fragment::materialData];
                 [encoder setFragmentTexture:nullptr atIndex:binding_fragment::emissionMap];
-                [encoder setFragmentTexture:app->prefilteredEnvironmentMap atIndex:binding_fragment::prefilteredEnvironmentMap];
-                [encoder setFragmentTexture:app->brdfLookupTexture atIndex:binding_fragment::brdfLookupTexture];
-                [encoder setFragmentTexture:app->irradianceMap atIndex:binding_fragment::irradianceMap];
-                [encoder setVertexBytes:&instance length:sizeof(PbrInstanceData) atIndex:binding_vertex::instanceData];
                 drawPrimitive(encoder, &app->meshRoundedCube, 1);
             }
         }

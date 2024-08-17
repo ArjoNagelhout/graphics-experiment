@@ -33,16 +33,18 @@ namespace binding_vertex
 namespace binding_fragment
 {
     BINDING int fragmentData = 0; // same for each fragment
-    BINDING int texture = 1;
-    BINDING int shadowMap = 2;
-    BINDING int reflectionMap = 3; // skybox or reflection probe
-    BINDING int prefilteredEnvironmentMap = 4;
-    BINDING int brdfLookupTexture = 5;
-    BINDING int irradianceMap = 6;
-    BINDING int normalMap = 7;
-    BINDING int baseColorMap = 8;
-    BINDING int metallicRoughnessMap = 9;
-    BINDING int emissionMap = 10;
+    BINDING int materialData = 1;
+    BINDING int texture = 2;
+    BINDING int shadowMap = 3;
+    BINDING int reflectionMap = 4; // skybox or reflection probe
+    BINDING int prefilteredEnvironmentMap = 5;
+    BINDING int brdfLookupTexture = 6;
+    BINDING int irradianceMap = 7;
+    BINDING int normalMap = 8;
+    BINDING int baseColorMap = 9;
+    BINDING int metallicRoughnessMap = 10;
+    BINDING int emissionMap = 11;
+
 }
 
     // function constants bindings (for shader variants)
@@ -68,15 +70,18 @@ namespace binding_constant
 #define MATRIX4X4 float4x4
 #endif
 
-struct PbrFragmentData
+struct PbrMaterialData
 {
-    FLOAT3 cameraPosition;
-    unsigned int mipLevels;
-
     // used if the shader does not have maps defined: (set shader constants)
     float metalness;
     float roughness;
     FLOAT3 baseColor;
+};
+
+struct PbrFragmentData
+{
+    FLOAT3 cameraPosition;
+    unsigned int mipLevels;
 };
 
 struct PbrInstanceData

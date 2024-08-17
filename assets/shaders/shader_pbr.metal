@@ -59,6 +59,7 @@ constant bool hasMetallicRoughnessMap [[function_constant(binding_constant::hasM
 fragment half4 pbr_fragment(
     GltfPbrRasterizerData in [[stage_in]],
     device PbrFragmentData const& data [[buffer(binding_fragment::fragmentData)]],
+    device PbrMaterialData const& materialData [[buffer(binding_fragment::materialData)]],
 
     // texture maps
     texture2d<float, access::sample> baseColorMap [[texture(binding_fragment::baseColorMap)]],
@@ -70,6 +71,9 @@ fragment half4 pbr_fragment(
     texture2d<float, access::sample> prefilteredEnvironmentMap [[texture(binding_fragment::prefilteredEnvironmentMap)]],
     texture2d<float, access::sample> brdfLookupTexture [[texture(binding_fragment::brdfLookupTexture)]],
     texture2d<float, access::sample> irradianceMap [[texture(binding_fragment::irradianceMap)]]
+
+    // shadows
+
 )
 {
     constexpr sampler mipSampler(address::repeat, filter::linear, mip_filter::linear);
@@ -88,8 +92,8 @@ fragment half4 pbr_fragment(
     else
     {
         occlusion = 1.0f;
-        roughness = data.roughness;
-        metalness = data.metalness;
+        roughness = materialData.roughness;
+        metalness = materialData.metalness;
     }
 
     // normal mapping
@@ -129,7 +133,7 @@ fragment half4 pbr_fragment(
     }
     else
     {
-        baseColor = data.baseColor;
+        baseColor = materialData.baseColor;
     }
 
     float3 F0 = mix(float3(0.04, 0.04, 0.04), baseColor, metalness);

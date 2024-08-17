@@ -16,7 +16,11 @@ namespace model
 {
     struct Material
     {
+        simd_float3 baseColor; // used if base color map not set
         size_t baseColorMap = invalidIndex; // texture index
+
+        float metalness; // used if metallic roughness map not set
+        float roughness; // used if metallic roughness map not set
         size_t metallicRoughnessMap = invalidIndex; // texture index
         size_t normalMap = invalidIndex; // texture index
         size_t emissionMap = invalidIndex; // texture index
