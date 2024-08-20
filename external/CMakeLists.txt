@@ -73,7 +73,7 @@ set_target_properties(libjpeg-turbo PROPERTIES
 )
 target_include_directories(libjpeg-turbo INTERFACE ${LIBJPEG_TURBO_DIR})
 
-#ifcopenshell
+# ifcopenshell
 # opencascade and eigen should be installed and their install paths should be specified as cmake arguments:
 # -DOCC_INCLUDE_DIR=/opt/homebrew/include/opencascade
 # -DEIGEN_DIR=/opt/homebrew/include/eigen3
@@ -105,6 +105,21 @@ target_include_directories(ifcopenshell INTERFACE IfcOpenShell/src)
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 target_link_libraries(ifcopenshell INTERFACE Eigen3::Eigen)
 
-#SDL
+# SDL
 #because dealing with platform specific APIs for window creation is annoying
 add_subdirectory(SDL)
+
+# MoltenVK
+# see README.md
+# run the following commands:
+# ./fetchDependencies --macos
+# xcodebuild build -quiet -project MoltenVKPackaging.xcodeproj -scheme "MoltenVK Package (macOS only)" -configuration "Debug"
+
+set(MOLTENVK_PACKAGE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/MoltenVK/Package/Debug/MoltenVK)
+#find_library(MOLTENVK_LIB MoltenVK HINTS ${MOLTENVK_PACKAGE_DIR}/static NO_DEFAULT_PATH REQUIRED)
+# message(nalaka ${MOLTENVK_PACKAGE_DIR})
+
+add_library(moltenvk STATIC IMPORTED GLOBAL)
+set_target_properties(moltenvk PROPERTIES
+        IMPORTED_LOCATION ${MOLTENVK_PACKAGE_DIR}/static/MoltenVK.xcframework)
+target_include_directories(moltenvk INTERFACE ${MOLTENVK_PACKAGE_DIR}/include)
