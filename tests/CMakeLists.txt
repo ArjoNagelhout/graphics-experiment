@@ -2,9 +2,7 @@ add_subdirectory(external/googletest)
 
 set(TESTS_SOURCES
         main.cpp
-        websockets.cpp
         gltf.mm
-        json.cpp
         tests.cpp
 )
 
