@@ -39,13 +39,28 @@ add_executable(sdl_experiment ${SDL_EXPERIMENT_SOURCES})
 target_link_libraries(sdl_experiment PRIVATE SDL3::SDL3)
 
 # molten vk experiment
-set(MOLTENVK_EXPERIMENT_SOURCES
-        molten_vk.cpp
+set(MOLTENVK_HELLO_WORLD_SOURCES
+        vulkan_sdl.cpp
 )
 
-add_executable(moltenvk_experiment ${MOLTENVK_EXPERIMENT_SOURCES})
-target_link_libraries(moltenvk_experiment PUBLIC moltenvk SDL3::SDL3)
-target_link_libraries(moltenvk_experiment PUBLIC
+add_executable(moltenvk_hello_world ${MOLTENVK_HELLO_WORLD_SOURCES})
+target_link_libraries(moltenvk_hello_world PUBLIC moltenvk SDL3::SDL3)
+target_link_libraries(moltenvk_hello_world PUBLIC
+        "-framework Cocoa"
+        "-framework Foundation"
+        "-framework Metal"
+        "-framework IOKit"
+        "-framework IOSurface"
+        "-framework QuartzCore"
+)
+
+# vulkan sdl experiment
+set(VULKAN_SDL_SOURCES
+        vulkan_sdl.cpp
+)
+add_executable(vulkan_sdl ${MOLTENVK_HELLO_WORLD_SOURCES})
+target_link_libraries(vulkan_sdl PUBLIC moltenvk SDL3::SDL3)
+target_link_libraries(vulkan_sdl PUBLIC
         "-framework Cocoa"
         "-framework Foundation"
         "-framework Metal"
