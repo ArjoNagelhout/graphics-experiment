@@ -20,9 +20,9 @@ struct App
     // retrieving data needs to be done using functions
     vk::raii::Context context = &vkGetInstanceProcAddr;
     vk::raii::Instance instance = nullptr;
-//    vk::raii::PhysicalDevice physicalDevice = nullptr;
-//    VkPhysicalDeviceProperties properties;
-//    VkDevice_T* device;
+    vk::raii::PhysicalDevice physicalDevice = nullptr;
+    vk::PhysicalDeviceProperties properties;
+    vk::raii::Device device = nullptr;
 };
 
 [[nodiscard]] bool supportsExtension(std::vector<vk::ExtensionProperties>* supportedExtensions, char const* extensionName)
@@ -93,23 +93,39 @@ int main(int argc, char** argv)
 
     // get physical device
     {
-//        uint32_t count = 0;
-//        vkEnumeratePhysicalDevices(app.instance, &count, nullptr);
-//        assert(count > 0);
-//        std::vector<VkPhysicalDevice_T*> devices(count);
-//        vkEnumeratePhysicalDevices(app.instance, &count, devices.data());
-//        app.physicalDevice = devices[0];
-//
-//        vkGetPhysicalDeviceProperties(app.physicalDevice, &app.properties);
+        std::vector<vk::raii::PhysicalDevice> physicalDevices = app.instance.enumeratePhysicalDevices().value();
+        assert(!physicalDevices.empty());
+
+        // todo: pick device that is the best suited for graphics (i.e. has a graphics queue / most memory)
+        app.physicalDevice = physicalDevices[0];
+        app.properties = app.physicalDevice.getProperties();
     }
 
-    // create device
+    // create logical device
+    // we need to specify which queues need to be created
     {
-//        VkDeviceCreateInfo info{
-//            .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-//        };
-//        VkResult result = vkCreateDevice(app.physicalDevice, &info, nullptr, &app.device);
-//        assert(result == VK_SUCCESS);
+        std::vector<float> priorities{1.0f};
+        vk::DeviceQueueCreateInfo graphicsQueue(
+            {},
+            0,
+            priorities);
+
+        std::vector<vk::DeviceQueueCreateInfo> queues{
+            graphicsQueue
+        };
+
+        std::vector<char const*> enabledLayerNames;
+        std::vector<char const*> enabledExtensionNames;
+        vk::PhysicalDeviceFeatures enabledDeviceFeatures;
+
+        vk::DeviceCreateInfo info(
+            {},
+            queues,
+            enabledLayerNames,
+            enabledExtensionNames,
+            &enabledDeviceFeatures
+        );
+        app.device = app.physicalDevice.createDevice(info).value();
     }
 
     std::cout << "hello world" << std::endl;
