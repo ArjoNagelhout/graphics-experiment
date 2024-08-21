@@ -115,6 +115,8 @@ add_subdirectory(SDL)
 # ./fetchDependencies --macos
 # xcodebuild build -quiet -project MoltenVKPackaging.xcodeproj -scheme "MoltenVK Package (macOS only)" -configuration "Debug"
 
+# dynamic linking and dynamic loading is recommended, but static linking is easiest for now
+
 set(MOLTENVK_PACKAGE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/MoltenVK/Package/Debug/MoltenVK)
 add_library(moltenvk STATIC IMPORTED GLOBAL)
 set_target_properties(moltenvk PROPERTIES

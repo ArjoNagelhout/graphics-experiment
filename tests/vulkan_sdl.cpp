@@ -27,9 +27,9 @@ constexpr uint32_t graphicsQueueIndex = 0;
 
 struct FrameData
 {
-    vk::Semaphore acquiringImage; // don't go past if the swapchain image has not been acquired yet
-    vk::Semaphore rendering; // don't go past if we haven't completed rendering yet
-    vk::Fence gpuDone;
+    vk::raii::Semaphore acquiringImage; // don't go past if the swapchain image has not been acquired yet
+    vk::raii::Semaphore rendering; // don't go past if we haven't completed rendering yet
+    vk::raii::Fence gpuDone;
 };
 
 struct App
@@ -44,9 +44,10 @@ struct App
     vk::raii::PhysicalDevice physicalDevice = nullptr;
     vk::PhysicalDeviceProperties properties;
     vk::raii::Device device = nullptr;
-    vk::SurfaceKHR surface = nullptr;
+    vk::raii::Queue graphicsQueue = nullptr;
+    vk::raii::SurfaceKHR surface = nullptr;
     vk::SurfaceCapabilitiesKHR surfaceCapabilities;
-    vk::SwapchainKHR swapchain = nullptr;
+    vk::raii::SwapchainKHR swapchain = nullptr;
     std::vector<FrameData> frames;
     size_t currentFrame = 0;
 };
@@ -99,16 +100,16 @@ SDL_AppResult SDL_AppIterate(void* appstate)
         FrameData* frame = &app->frames[app->currentFrame];
 
         // wait for gpu to be done with this frame
-//        assert(app->device.waitForFences(frame->gpuDone, true, std::numeric_limits<uint64_t>::max()) == vk::Result::eSuccess);
-//        app->device.resetFences(frame->gpuDone);
+
+        assert(app->device.waitForFences(*frame->gpuDone, true, std::numeric_limits<uint64_t>::max()) == vk::Result::eSuccess);
+        app->device.resetFences(*frame->gpuDone);
 
         // acquire image
         vk::AcquireNextImageInfoKHR info(
             app->swapchain,
             10 /*ms*/ * 1000000,
             frame->acquiringImage,
-            nullptr,
-            0
+            nullptr
         );
         auto [result, imageIndex] = app->device.acquireNextImage2KHR(info);
         if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR)
@@ -116,8 +117,45 @@ SDL_AppResult SDL_AppIterate(void* appstate)
             // recreate swapchain
         }
 
-        // present queue
+        // create command pool
+        vk::CommandPoolCreateInfo graphicsPoolInfo(
+            vk::CommandPoolCreateFlagBits::eTransient,
+            graphicsQueueIndex
+        );
+        vk::raii::CommandPool graphicsPool = app->device.createCommandPool(graphicsPoolInfo).value();
 
+        // create command buffers
+        vk::CommandBufferAllocateInfo bufferInfo(
+            graphicsPool,
+            vk::CommandBufferLevel::ePrimary,
+            1
+        );
+        std::vector<vk::raii::CommandBuffer> buffers = app->device.allocateCommandBuffers(bufferInfo).value();
+
+        vk::raii::CommandBuffer* cmd = &buffers[0];
+        vk::CommandBufferBeginInfo beginInfo(
+            vk::CommandBufferUsageFlagBits::eOneTimeSubmit
+        );
+        cmd->begin(beginInfo);
+        cmd->end();
+        vk::PipelineStageFlags flags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        vk::SubmitInfo submitInfo(
+            *frame->acquiringImage,
+            flags,
+            **cmd,
+            *frame->rendering
+        );
+        app->graphicsQueue.submit(submitInfo, frame->gpuDone);
+
+        // present queue
+        // get queue
+        vk::PresentInfoKHR presentInfo(
+            *frame->rendering,
+            *app->swapchain,
+            imageIndex
+        );
+        vk::Result presentResult = app->graphicsQueue.presentKHR(presentInfo);
+        assert(presentResult == vk::Result::eSuccess);
     }
 
     return SDL_APP_CONTINUE;
@@ -216,12 +254,22 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
             app->device = app->physicalDevice.createDevice(info).value();
         }
 
+        // create graphics queue
+        {
+            vk::DeviceQueueInfo2 queueInfo(
+                {},
+                graphicsQueueIndex,
+                0
+            );
+            app->graphicsQueue = app->device.getQueue2(queueInfo).value();
+        }
+
         // create surface
         {
             VkSurfaceKHR surface;
             int result = SDL_Vulkan_CreateSurface(app->window, *app->instance, nullptr, &surface);
             assert(result == 0);
-            app->surface = surface;
+            app->surface = vk::raii::SurfaceKHR(app->instance, surface);
             app->surfaceCapabilities = app->physicalDevice.getSurfaceCapabilitiesKHR(app->surface);
         }
 
@@ -260,7 +308,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
                 app->frames.emplace_back(FrameData{
                     .acquiringImage = app->device.createSemaphore({}).value(),
                     .rendering = app->device.createSemaphore({}).value(),
-                    .gpuDone = app->device.createFence(vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled)).value()
+                    .gpuDone = app->device.createFence(vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled)).value() // create in signaled state
                 });
             }
         }
@@ -296,7 +344,6 @@ void SDL_AppQuit(void* appstate)
     {
         App* app = (App*)appstate;
         SDL_RemoveTimer(app->stepTimer);
-        SDL_Vulkan_DestroySurface(*app->instance, app->surface, nullptr);
         SDL_DestroyWindow(app->window);
         delete app;
     }
