@@ -18,7 +18,7 @@
 #include <iostream>
 #include <cassert>
 
-constexpr int stepRateInMilliseconds = 125;
+constexpr int sdlTimerStepRateInMilliseconds = 125;
 
 struct App
 {
@@ -108,7 +108,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
         [app->metalLayer setDevice:app->device];
     }
 
-    app->stepTimer = SDL_AddTimer(stepRateInMilliseconds, sdlTimerCallback, nullptr);
+    app->stepTimer = SDL_AddTimer(sdlTimerStepRateInMilliseconds, sdlTimerCallback, nullptr);
     assert(app->stepTimer != 0);
 
     return SDL_APP_CONTINUE;

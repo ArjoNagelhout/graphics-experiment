@@ -19,11 +19,9 @@
 #include <SDL3/SDL_main.h>
 
 // constants
-// SDL
-constexpr int stepRateInMilliseconds = 125;
-
-// Vulkan
+constexpr int sdlTimerStepRateInMilliseconds = 125;
 constexpr uint32_t graphicsQueueIndex = 0;
+constexpr uint32_t maxConcurrentFrames = 2;
 
 struct FrameData
 {
@@ -52,6 +50,73 @@ struct App
     size_t currentFrame = 0;
 };
 
+void onLaunch(App* app);
+
+void onDraw(App* app);
+
+// SDL
+
+static Uint32 sdlTimerCallback(void* payload, SDL_TimerID timerId, Uint32 interval)
+{
+    SDL_UserEvent userEvent{
+        .type = SDL_EVENT_USER,
+        .code = 0,
+        .data1 = nullptr,
+        .data2 = nullptr
+    };
+
+    SDL_Event event{
+        .type = SDL_EVENT_USER,
+    };
+    event.user = userEvent;
+    SDL_PushEvent(&event);
+    return interval;
+}
+
+SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
+{
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) < 0)
+    {
+        return SDL_APP_FAILURE;
+    }
+
+    App* app = new App();
+    *appstate = app;
+    onLaunch(app);
+    return SDL_APP_CONTINUE;
+}
+
+void SDL_AppQuit(void* appstate)
+{
+    if (appstate)
+    {
+        App* app = (App*)appstate;
+        SDL_RemoveTimer(app->stepTimer);
+        SDL_DestroyWindow(app->window);
+        delete app;
+    }
+}
+
+SDL_AppResult SDL_AppIterate(void* appstate)
+{
+    App* app = (App*)appstate;
+    onDraw(app);
+    return SDL_APP_CONTINUE;
+}
+
+SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event const* event)
+{
+    switch (event->type)
+    {
+        case SDL_EVENT_QUIT:
+            return SDL_APP_SUCCESS;
+        case SDL_EVENT_USER:
+        case SDL_EVENT_KEY_DOWN:
+            break;
+    }
+    return SDL_APP_CONTINUE;
+}
+
 [[nodiscard]] bool supportsExtension(std::vector<vk::ExtensionProperties>* supportedExtensions, char const* extensionName)
 {
     auto it = std::find_if(
@@ -73,103 +138,13 @@ struct App
     return out;
 }
 
-static Uint32 sdlTimerCallback(void* payload, SDL_TimerID timerId, Uint32 interval)
+void onLaunch(App* app)
 {
-    SDL_UserEvent userEvent{
-        .type = SDL_EVENT_USER,
-        .code = 0,
-        .data1 = nullptr,
-        .data2 = nullptr
-    };
-
-    SDL_Event event{
-        .type = SDL_EVENT_USER,
-    };
-    event.user = userEvent;
-    SDL_PushEvent(&event);
-    return interval;
-}
-
-// called each frame
-SDL_AppResult SDL_AppIterate(void* appstate)
-{
-    App* app = (App*)appstate;
-
-    // draw frame using vulkan
+    // create sdl step timer
     {
-        FrameData* frame = &app->frames[app->currentFrame];
-
-        // wait for gpu to be done with this frame
-
-        assert(app->device.waitForFences(*frame->gpuDone, true, std::numeric_limits<uint64_t>::max()) == vk::Result::eSuccess);
-        app->device.resetFences(*frame->gpuDone);
-
-        // acquire image
-        vk::AcquireNextImageInfoKHR info(
-            app->swapchain,
-            10 /*ms*/ * 1000000,
-            frame->acquiringImage,
-            nullptr
-        );
-        auto [result, imageIndex] = app->device.acquireNextImage2KHR(info);
-        if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR)
-        {
-            // recreate swapchain
-        }
-
-        // create command pool
-        vk::CommandPoolCreateInfo graphicsPoolInfo(
-            vk::CommandPoolCreateFlagBits::eTransient,
-            graphicsQueueIndex
-        );
-        vk::raii::CommandPool graphicsPool = app->device.createCommandPool(graphicsPoolInfo).value();
-
-        // create command buffers
-        vk::CommandBufferAllocateInfo bufferInfo(
-            graphicsPool,
-            vk::CommandBufferLevel::ePrimary,
-            1
-        );
-        std::vector<vk::raii::CommandBuffer> buffers = app->device.allocateCommandBuffers(bufferInfo).value();
-
-        vk::raii::CommandBuffer* cmd = &buffers[0];
-        vk::CommandBufferBeginInfo beginInfo(
-            vk::CommandBufferUsageFlagBits::eOneTimeSubmit
-        );
-        cmd->begin(beginInfo);
-        cmd->end();
-        vk::PipelineStageFlags flags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-        vk::SubmitInfo submitInfo(
-            *frame->acquiringImage,
-            flags,
-            **cmd,
-            *frame->rendering
-        );
-        app->graphicsQueue.submit(submitInfo, frame->gpuDone);
-
-        // present queue
-        // get queue
-        vk::PresentInfoKHR presentInfo(
-            *frame->rendering,
-            *app->swapchain,
-            imageIndex
-        );
-        vk::Result presentResult = app->graphicsQueue.presentKHR(presentInfo);
-        assert(presentResult == vk::Result::eSuccess);
+        app->stepTimer = SDL_AddTimer(sdlTimerStepRateInMilliseconds, sdlTimerCallback, nullptr);
+        assert(app->stepTimer != 0);
     }
-
-    return SDL_APP_CONTINUE;
-}
-
-SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
-{
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) < 0)
-    {
-        return SDL_APP_FAILURE;
-    }
-
-    App* app = new App();
-    *appstate = app;
 
     // create window
     {
@@ -312,39 +287,80 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
                 });
             }
         }
-
-        //SDL_Vulkan_GetPresentationSupport()
     }
-
-    // create step timer
-    {
-        app->stepTimer = SDL_AddTimer(stepRateInMilliseconds, sdlTimerCallback, nullptr);
-        assert(app->stepTimer != 0);
-    }
-
-    return SDL_APP_CONTINUE;
 }
 
-SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event const* event)
+void onDraw(App* app)
 {
-    switch (event->type)
-    {
-        case SDL_EVENT_QUIT:
-            return SDL_APP_SUCCESS;
-        case SDL_EVENT_USER:
-        case SDL_EVENT_KEY_DOWN:
-            break;
-    }
-    return SDL_APP_CONTINUE;
-}
+    FrameData* frame = &app->frames[app->currentFrame];
 
-void SDL_AppQuit(void* appstate)
-{
-    if (appstate)
+    // wait for gpu to be done with this frame
+
+    assert(app->device.waitForFences(*frame->gpuDone, true, std::numeric_limits<uint64_t>::max()) == vk::Result::eSuccess);
+    app->device.resetFences(*frame->gpuDone);
+
+    // acquire image
+    vk::AcquireNextImageInfoKHR info(
+        app->swapchain,
+        10 /*ms*/ * 1000000,
+        frame->acquiringImage,
+        nullptr
+    );
+    auto [result, imageIndex] = app->device.acquireNextImage2KHR(info);
+    if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR)
     {
-        App* app = (App*)appstate;
-        SDL_RemoveTimer(app->stepTimer);
-        SDL_DestroyWindow(app->window);
-        delete app;
+        // recreate swapchain
+    }
+
+    // create command pool
+    vk::CommandPoolCreateInfo graphicsPoolInfo(
+        vk::CommandPoolCreateFlagBits::eTransient,
+        graphicsQueueIndex
+    );
+    vk::raii::CommandPool graphicsPool = app->device.createCommandPool(graphicsPoolInfo).value();
+
+    // create command buffers
+    vk::CommandBufferAllocateInfo bufferInfo(
+        graphicsPool,
+        vk::CommandBufferLevel::ePrimary,
+        1
+    );
+    std::vector<vk::raii::CommandBuffer> buffers = app->device.allocateCommandBuffers(bufferInfo).value();
+
+    vk::raii::CommandBuffer* cmd = &buffers[0];
+    vk::CommandBufferBeginInfo beginInfo(
+        vk::CommandBufferUsageFlagBits::eOneTimeSubmit
+    );
+    cmd->begin(beginInfo);
+
+
+
+    cmd->end();
+    vk::PipelineStageFlags flags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+    vk::SubmitInfo submitInfo(
+        *frame->acquiringImage,
+        flags,
+        **cmd,
+        *frame->rendering
+    );
+    app->graphicsQueue.submit(submitInfo, frame->gpuDone);
+
+    // present queue
+    // get queue
+    vk::PresentInfoKHR presentInfo(
+        *frame->rendering,
+        *app->swapchain,
+        imageIndex
+    );
+    vk::Result presentResult = app->graphicsQueue.presentKHR(presentInfo);
+    assert(presentResult == vk::Result::eSuccess);
+
+    if (app->currentFrame < app->frames.size() - 1)
+    {
+        app->currentFrame++;
+    }
+    else
+    {
+        app->currentFrame = 0;
     }
 }
