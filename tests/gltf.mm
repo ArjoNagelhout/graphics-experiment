@@ -20,7 +20,7 @@ namespace gltf_test
 
         id <MTLDevice> device = MTLCreateSystemDefaultDevice();
 
-        GltfModel model;
+        model::Model model;
         bool success = importGltf(device, assetsPath / "gltf" / "cathedral.glb", &model);
         ASSERT_TRUE(success);
     }

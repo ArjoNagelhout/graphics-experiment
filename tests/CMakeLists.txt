@@ -38,7 +38,7 @@ target_link_libraries(sdl_experiment PRIVATE SDL3::SDL3)
 
 # molten vk experiment
 set(VULKAN_EXPERIMENT_SOURCES
-        vulkan_sdl.cpp
+        vulkan.cpp
 )
 
 add_executable(vulkan_experiment ${VULKAN_EXPERIMENT_SOURCES})
