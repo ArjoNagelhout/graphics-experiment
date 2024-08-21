@@ -25,6 +25,13 @@ constexpr int stepRateInMilliseconds = 125;
 // Vulkan
 constexpr uint32_t graphicsQueueIndex = 0;
 
+struct FrameData
+{
+    vk::Semaphore acquiringImage; // don't go past if the swapchain image has not been acquired yet
+    vk::Semaphore rendering; // don't go past if we haven't completed rendering yet
+    vk::Fence gpuDone;
+};
+
 struct App
 {
     // SDL
@@ -40,6 +47,8 @@ struct App
     vk::SurfaceKHR surface = nullptr;
     vk::SurfaceCapabilitiesKHR surfaceCapabilities;
     vk::SwapchainKHR swapchain = nullptr;
+    std::vector<FrameData> frames;
+    size_t currentFrame = 0;
 };
 
 [[nodiscard]] bool supportsExtension(std::vector<vk::ExtensionProperties>* supportedExtensions, char const* extensionName)
@@ -85,7 +94,31 @@ SDL_AppResult SDL_AppIterate(void* appstate)
 {
     App* app = (App*)appstate;
 
-//    std::cout << "new frame" << std::endl;
+    // draw frame using vulkan
+    {
+        FrameData* frame = &app->frames[app->currentFrame];
+
+        // wait for gpu to be done with this frame
+//        assert(app->device.waitForFences(frame->gpuDone, true, std::numeric_limits<uint64_t>::max()) == vk::Result::eSuccess);
+//        app->device.resetFences(frame->gpuDone);
+
+        // acquire image
+        vk::AcquireNextImageInfoKHR info(
+            app->swapchain,
+            10 /*ms*/ * 1000000,
+            frame->acquiringImage,
+            nullptr,
+            0
+        );
+        auto [result, imageIndex] = app->device.acquireNextImage2KHR(info);
+        if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR)
+        {
+            // recreate swapchain
+        }
+
+        // present queue
+
+    }
 
     return SDL_APP_CONTINUE;
 }
@@ -218,6 +251,18 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
                 nullptr
             };
             app->swapchain = app->device.createSwapchainKHR(info).value();
+        }
+
+        // create frame data for each frame
+        {
+            for (size_t i = 0; i < 2; i++)
+            {
+                app->frames.emplace_back(FrameData{
+                    .acquiringImage = app->device.createSemaphore({}).value(),
+                    .rendering = app->device.createSemaphore({}).value(),
+                    .gpuDone = app->device.createFence(vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled)).value()
+                });
+            }
         }
 
         //SDL_Vulkan_GetPresentationSupport()
