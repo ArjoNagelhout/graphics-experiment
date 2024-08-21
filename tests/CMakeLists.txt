@@ -44,7 +44,7 @@ set(MOLTENVK_EXPERIMENT_SOURCES
 )
 
 add_executable(moltenvk_experiment ${MOLTENVK_EXPERIMENT_SOURCES})
-target_link_libraries(moltenvk_experiment PUBLIC moltenvk)
+target_link_libraries(moltenvk_experiment PUBLIC moltenvk SDL3::SDL3)
 target_link_libraries(moltenvk_experiment PUBLIC
         "-framework Cocoa"
         "-framework Foundation"
