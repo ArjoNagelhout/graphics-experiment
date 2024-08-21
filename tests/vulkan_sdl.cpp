@@ -13,6 +13,7 @@
 #include <vulkan/vulkan_raii.hpp>
 
 #define SDL_MAIN_USE_CALLBACKS 1 /* use the callbacks instead of main() */
+
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 #include <SDL3/SDL_main.h>
@@ -37,6 +38,8 @@ struct App
     vk::PhysicalDeviceProperties properties;
     vk::raii::Device device = nullptr;
     vk::SurfaceKHR surface = nullptr;
+    vk::SurfaceCapabilitiesKHR surfaceCapabilities;
+    vk::SwapchainKHR swapchain = nullptr;
 };
 
 [[nodiscard]] bool supportsExtension(std::vector<vk::ExtensionProperties>* supportedExtensions, char const* extensionName)
@@ -81,7 +84,7 @@ static Uint32 sdlTimerCallback(void* payload, SDL_TimerID timerId, Uint32 interv
 SDL_AppResult SDL_AppIterate(void* appstate)
 {
     App* app = (App*)appstate;
-    
+
 //    std::cout << "new frame" << std::endl;
 
     return SDL_APP_CONTINUE;
@@ -103,7 +106,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
         app->window = SDL_CreateWindow("sdl window test", 600, 400, windowFlags);
         assert(app->window);
     }
-    
+
     // initialize vulkan
     {
         uint32_t version = app->context.enumerateInstanceVersion();
@@ -165,7 +168,9 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
             };
 
             std::vector<char const*> enabledLayerNames;
-            std::vector<char const*> enabledExtensionNames;
+            std::vector<char const*> enabledExtensionNames{
+                vk::KHRSwapchainExtensionName
+            };
             vk::PhysicalDeviceFeatures enabledFeatures;
 
             vk::DeviceCreateInfo info(
@@ -184,6 +189,35 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
             int result = SDL_Vulkan_CreateSurface(app->window, *app->instance, nullptr, &surface);
             assert(result == 0);
             app->surface = surface;
+            app->surfaceCapabilities = app->physicalDevice.getSurfaceCapabilitiesKHR(app->surface);
+        }
+
+        // create swapchain
+        {
+            vk::SurfaceFormatKHR surfaceFormat(
+                vk::Format::eB8G8R8A8Srgb,
+                vk::ColorSpaceKHR::eSrgbNonlinear
+            );
+
+            std::vector<uint32_t> queueIndices{graphicsQueueIndex};
+            vk::SwapchainCreateInfoKHR info{
+                {},
+                app->surface,
+                2,
+                surfaceFormat.format,
+                surfaceFormat.colorSpace,
+                app->surfaceCapabilities.currentExtent,
+                1, // for stereoscopic rendering > 1
+                vk::ImageUsageFlagBits::eColorAttachment,
+                vk::SharingMode::eExclusive,
+                queueIndices,
+                app->surfaceCapabilities.currentTransform,
+                vk::CompositeAlphaFlagBitsKHR::eOpaque,
+                vk::PresentModeKHR::eFifo,
+                true,
+                nullptr
+            };
+            app->swapchain = app->device.createSwapchainKHR(info).value();
         }
 
         //SDL_Vulkan_GetPresentationSupport()
