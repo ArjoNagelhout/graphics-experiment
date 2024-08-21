@@ -116,9 +116,6 @@ add_subdirectory(SDL)
 # xcodebuild build -quiet -project MoltenVKPackaging.xcodeproj -scheme "MoltenVK Package (macOS only)" -configuration "Debug"
 
 set(MOLTENVK_PACKAGE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/MoltenVK/Package/Debug/MoltenVK)
-#find_library(MOLTENVK_LIB MoltenVK HINTS ${MOLTENVK_PACKAGE_DIR}/static NO_DEFAULT_PATH REQUIRED)
-# message(nalaka ${MOLTENVK_PACKAGE_DIR})
-
 add_library(moltenvk STATIC IMPORTED GLOBAL)
 set_target_properties(moltenvk PROPERTIES
         IMPORTED_LOCATION ${MOLTENVK_PACKAGE_DIR}/static/MoltenVK.xcframework)
