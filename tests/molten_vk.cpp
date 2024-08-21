@@ -19,7 +19,7 @@ struct App
     // vulkan handles are simply pointers, do not contain any data
     // retrieving data needs to be done using functions
     vk::raii::Context context = &vkGetInstanceProcAddr;
-//    vk::raii::Instance instance = nullptr;
+    vk::raii::Instance instance = nullptr;
 //    vk::raii::PhysicalDevice physicalDevice = nullptr;
 //    VkPhysicalDeviceProperties properties;
 //    VkDevice_T* device;
@@ -35,37 +35,39 @@ int main(int argc, char** argv)
 
     App app;
     uint32_t version = app.context.enumerateInstanceVersion();
-    std::cout << "version: " << version << std::endl;
+    std::cout << "vulkan version: " << version << std::endl;
 
     // create instance
-    if (0)
     {
-//        uint32_t count = 0;
-//        char const* const* extensions = SDL_Vulkan_GetInstanceExtensions(&count);
-//
-//        for (int i = 0; i < count; i++)
-//        {
-//            std::cout << extensions[i] << std::endl;
-//        }
+        uint32_t count = 0;
+        char const* const* extensions = SDL_Vulkan_GetInstanceExtensions(&count);
 
-        //std::vector<vk::ExtensionProperties> supportedExtensions = app.context.enumerateInstanceExtensionProperties(nullptr);
+        for (int i = 0; i < count; i++)
+        {
+            std::cout << extensions[i] << std::endl;
+        }
+
+        std::vector<vk::ExtensionProperties> supportedExtensions = app.context.enumerateInstanceExtensionProperties(nullptr);
+
+        std::vector<char const*> enabledExtensionNames{
+            supportedExtensions[0].extensionName
+        };
 
         vk::ApplicationInfo appInfo(
             "App",
             {},
             {},
             {},
-            vk::ApiVersion13
+            vk::ApiVersion12
         );
+
         vk::InstanceCreateInfo info(
             {},
             &appInfo,
-            0,
             nullptr,
-            0,
-            nullptr
+            enabledExtensionNames
         );
-        //app.instance = app.context.createInstance(info).value();
+        app.instance = app.context.createInstance(info).value();
     }
 
     // get physical device
