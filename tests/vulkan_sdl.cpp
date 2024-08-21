@@ -36,6 +36,7 @@ struct App
     vk::raii::PhysicalDevice physicalDevice = nullptr;
     vk::PhysicalDeviceProperties properties;
     vk::raii::Device device = nullptr;
+    vk::SurfaceKHR surface = nullptr;
 };
 
 [[nodiscard]] bool supportsExtension(std::vector<vk::ExtensionProperties>* supportedExtensions, char const* extensionName)
@@ -81,7 +82,7 @@ SDL_AppResult SDL_AppIterate(void* appstate)
 {
     App* app = (App*)appstate;
     
-    std::cout << "new frame" << std::endl;
+//    std::cout << "new frame" << std::endl;
 
     return SDL_APP_CONTINUE;
 }
@@ -98,7 +99,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 
     // create window
     {
-        SDL_WindowFlags windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_METAL;
+        SDL_WindowFlags windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN;
         app->window = SDL_CreateWindow("sdl window test", 600, 400, windowFlags);
         assert(app->window);
     }
@@ -176,6 +177,16 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
             );
             app->device = app->physicalDevice.createDevice(info).value();
         }
+
+        // create surface
+        {
+            VkSurfaceKHR surface;
+            int result = SDL_Vulkan_CreateSurface(app->window, *app->instance, nullptr, &surface);
+            assert(result == 0);
+            app->surface = surface;
+        }
+
+        //SDL_Vulkan_GetPresentationSupport()
     }
 
     // create step timer
@@ -206,6 +217,7 @@ void SDL_AppQuit(void* appstate)
     {
         App* app = (App*)appstate;
         SDL_RemoveTimer(app->stepTimer);
+        SDL_Vulkan_DestroySurface(*app->instance, app->surface, nullptr);
         SDL_DestroyWindow(app->window);
         delete app;
     }
