@@ -25,6 +25,27 @@ struct App
 //    VkDevice_T* device;
 };
 
+[[nodiscard]] bool supportsExtension(std::vector<vk::ExtensionProperties>* supportedExtensions, char const* extensionName)
+{
+    auto it = std::find_if(
+        supportedExtensions->begin(),
+        supportedExtensions->end(),
+        [extensionName](vk::ExtensionProperties p) { return strcmp(p.extensionName, extensionName) == 0; });
+    return it != supportedExtensions->end();
+}
+
+[[nodiscard]] std::vector<char const*> getSdlVulkanExtensions()
+{
+    uint32_t count = 0;
+    char const* const* sdlExtensions = SDL_Vulkan_GetInstanceExtensions(&count);
+    std::vector<char const*> out(count);
+    for (uint32_t i = 0; i < count; i++)
+    {
+        out[i] = sdlExtensions[i];
+    }
+    return out;
+}
+
 int main(int argc, char** argv)
 {
     // initialize sdl
@@ -39,19 +60,19 @@ int main(int argc, char** argv)
 
     // create instance
     {
-        uint32_t count = 0;
-        char const* const* extensions = SDL_Vulkan_GetInstanceExtensions(&count);
 
-        for (int i = 0; i < count; i++)
-        {
-            std::cout << extensions[i] << std::endl;
-        }
+        std::vector<char const*> sdlExtensions = getSdlVulkanExtensions();
 
         std::vector<vk::ExtensionProperties> supportedExtensions = app.context.enumerateInstanceExtensionProperties(nullptr);
 
-        std::vector<char const*> enabledExtensionNames{
-            supportedExtensions[0].extensionName
-        };
+        std::vector<char const*> enabledExtensionNames;
+        for (auto& sdlExtension: sdlExtensions)
+        {
+            if (supportsExtension(&supportedExtensions, sdlExtension))
+            {
+                enabledExtensionNames.emplace_back(sdlExtension);
+            }
+        }
 
         vk::ApplicationInfo appInfo(
             "App",
