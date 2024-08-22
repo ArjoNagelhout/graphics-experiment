@@ -150,12 +150,13 @@ target_include_directories(vulkan_headers INTERFACE Vulkan-Headers/include)
 # cmake --install build --prefix /Users/arjonagelhout/Documents/Experiments/metal-experiment/external/Vulkan-Loader/build/install
 
 set(VULKAN_LOADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Vulkan-Loader)
+set(VULKAN_LOADER_LIB lib/libvulkan.dylib)
 ExternalProject_Add(build_vulkan_loader
         SOURCE_DIR ${VULKAN_LOADER_DIR}
         CONFIGURE_COMMAND ${CMAKE_COMMAND} -B <BINARY_DIR> <SOURCE_DIR> -DUPDATE_DEPS=OFF -DVULKAN_HEADERS_INSTALL_DIR=${VULKAN_HEADERS_INSTALL_DIR} -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR>
         INSTALL_COMMAND ${CMAKE_COMMAND} --install <BINARY_DIR> --prefix <INSTALL_DIR>
-        BUILD_BYPRODUCTS <INSTALL_DIR>/lib/libvulkan.dylib
+        BUILD_BYPRODUCTS <INSTALL_DIR>/${VULKAN_LOADER_LIB}
 )
 add_dependencies(build_vulkan_loader build_vulkan_headers)
 ExternalProject_Get_Property(build_vulkan_loader INSTALL_DIR)
@@ -165,7 +166,7 @@ message("vulkan loader install dir: ${VULKAN_LOADER_INSTALL_DIR}")
 
 add_library(vulkan_loader STATIC IMPORTED GLOBAL)
 add_dependencies(vulkan_loader build_vulkan_loader)
-set_target_properties(vulkan_loader PROPERTIES IMPORTED_LOCATION ${VULKAN_LOADER_INSTALL_DIR}/lib/libvulkan.dylib)
+set_target_properties(vulkan_loader PROPERTIES IMPORTED_LOCATION ${VULKAN_LOADER_INSTALL_DIR}/${VULKAN_LOADER_LIB})
 
 # Vulkan validation layers
 # cd Vulkan-ValidationLayers/
@@ -173,3 +174,17 @@ set_target_properties(vulkan_loader PROPERTIES IMPORTED_LOCATION ${VULKAN_LOADER
 # cmake --build build --config Debug
 # cmake --install build --prefix /Users/arjonagelhout/Documents/Experiments/metal-experiment/external/Vulkan-ValidationLayers/build/install
 
+# environment variables:
+# VK_LAYER_PATH=/Users/arjonagelhout/Documents/Experiments/metal-experiment/build/debug/external/build_vulkan_validation_layers-prefix/share/vulkan/explicit_layer.d
+
+set(VULKAN_VALIDATION_LAYERS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Vulkan-ValidationLayers)
+set(VULKAN_VALIDATION_LAYERS_LIB lib/libVkLayer_khronos_validation.dylib)
+ExternalProject_Add(build_vulkan_validation_layers
+        SOURCE_DIR ${VULKAN_VALIDATION_LAYERS_DIR}
+        CONFIGURE_COMMAND ${CMAKE_COMMAND} -B <BINARY_DIR> <SOURCE_DIR> -DUPDATE_DEPS=ON -DBUILD_WERROR=ON -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config ${CMAKE_BUILD_TYPE}
+        INSTALL_COMMAND ${CMAKE_COMMAND} --install <BINARY_DIR> --prefix <INSTALL_DIR>
+        BUILD_BYPRODUCTS <INSTALL_DIR>/${VULKAN_VALIDATION_LAYERS_LIB}
+)
+add_library(vulkan_validation_layers INTERFACE)
+add_dependencies(vulkan_validation_layers build_vulkan_validation_layers)
