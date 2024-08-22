@@ -34,3 +34,6 @@
 [submodule "external/MoltenVK"]
 	path = external/MoltenVK
 	url = https://github.com/KhronosGroup/MoltenVK.git
+[submodule "external/Vulkan-Loader"]
+	path = external/Vulkan-Loader
+	url = https://github.com/KhronosGroup/Vulkan-Loader.git
