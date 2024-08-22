@@ -7,6 +7,7 @@
 
 #define VULKAN_HPP_RAII_NO_EXCEPTIONS
 #define VULKAN_HPP_NO_EXCEPTIONS
+#define VK_ENABLE_BETA_EXTENSIONS
 
 #include <vulkan/vulkan_raii.hpp>
 
@@ -56,7 +57,7 @@ struct App
     vk::raii::SwapchainKHR swapchain = nullptr;
     vk::Extent2D swapchainExtent;
     std::vector<vk::Image> swapchainImages;
-    std::vector<vk::ImageView> swapchainImageViews;
+    std::vector<vk::raii::ImageView> swapchainImageViews;
     std::vector<FrameData> frames;
     size_t currentFrame = 0;
 
@@ -177,16 +178,18 @@ void onLaunch(App* app)
             std::cout << "layer: " << layer.layerName << ", " << layer.description << std::endl;
         }
 
-        std::vector<char const*> enabledExtensionNames;
+        std::vector<char const*> enabledExtensions;
         for (auto& sdlExtension: sdlExtensions)
         {
             if (supportsExtension(&supportedExtensions, sdlExtension))
             {
-                enabledExtensionNames.emplace_back(sdlExtension);
+                enabledExtensions.emplace_back(sdlExtension);
             }
         }
 
-        enabledExtensionNames.emplace_back(vk::KHRPortabilityEnumerationExtensionName);
+        enabledExtensions.emplace_back(vk::KHRPortabilityEnumerationExtensionName);
+
+        std::vector<char const*> enabledLayers{"VK_LAYER_KHRONOS_validation"};
 
         vk::ApplicationInfo appInfo(
             "App",
@@ -199,10 +202,19 @@ void onLaunch(App* app)
         vk::InstanceCreateInfo info(
             vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR,
             &appInfo,
-            nullptr,
-            enabledExtensionNames
+            enabledLayers,
+            enabledExtensions
         );
-        app->instance = app->context.createInstance(info).value();
+        auto result = app->context.createInstance(info);
+        if (result.has_value())
+        {
+            app->instance = std::move(result.value());
+        }
+        else
+        {
+            std::cout << "error: " << to_string(result.error()) << std::endl;
+            exit(1);
+        }
     }
 
     // get physical device
@@ -230,7 +242,8 @@ void onLaunch(App* app)
 
         std::vector<char const*> enabledLayerNames;
         std::vector<char const*> enabledExtensionNames{
-            vk::KHRSwapchainExtensionName
+            vk::KHRSwapchainExtensionName,
+            vk::KHRPortabilitySubsetExtensionName
         };
         vk::PhysicalDeviceFeatures enabledFeatures;
 
@@ -261,7 +274,6 @@ void onLaunch(App* app)
             app->graphicsQueueIndex,
             0
         );
-        std::cout << app->graphicsQueueIndex << std::endl;
         app->graphicsQueue = app->device.getQueue2(queueInfo).value();
     }
 
@@ -308,7 +320,7 @@ void onLaunch(App* app)
 
     // create swapchain image views
     {
-        app->swapchainImageViews.resize(app->swapchainImages.size());
+        app->swapchainImageViews.reserve(app->swapchainImages.size());
         for (size_t i = 0; i < app->swapchainImages.size(); i++)
         {
             // create image view
@@ -317,9 +329,22 @@ void onLaunch(App* app)
                 {},
                 *image,
                 vk::ImageViewType::e2D,
-                app->surfaceFormat.format
+                app->surfaceFormat.format,
+                vk::ComponentMapping(
+                    vk::ComponentSwizzle::eIdentity,
+                    vk::ComponentSwizzle::eIdentity,
+                    vk::ComponentSwizzle::eIdentity,
+                    vk::ComponentSwizzle::eIdentity
+                ),
+                vk::ImageSubresourceRange(
+                    vk::ImageAspectFlagBits::eColor,
+                    0,
+                    1,
+                    0,
+                    1
+                )
             );
-            app->swapchainImageViews[i] = app->device.createImageView(info).value();
+            app->swapchainImageViews.emplace_back(app->device.createImageView(info).value());
         }
     }
 
@@ -337,6 +362,9 @@ void onLaunch(App* app)
             vk::ImageLayout::eUndefined,
             vk::ImageLayout::ePresentSrcKHR
         );
+//        vk::AttachmentDescription2 depthAttachment(
+//
+//            );
         std::vector<vk::AttachmentDescription2> attachments{
             colorAttachment
         };
@@ -348,10 +376,10 @@ void onLaunch(App* app)
                 vk::ImageLayout::eColorAttachmentOptimal
             )
         };
-        vk::AttachmentReference2 subpassDepthAttachment(
-            1,
-            vk::ImageLayout::eDepthAttachmentOptimal
-        );
+//        vk::AttachmentReference2 subpassDepthAttachment(
+//            1,
+//            vk::ImageLayout::eDepthAttachmentOptimal
+//        );
 
         vk::SubpassDescription2 subpass(
             {},
@@ -360,7 +388,7 @@ void onLaunch(App* app)
             {},
             subpassColorAttachments,
             {},
-            &subpassDepthAttachment,
+            nullptr,//&subpassDepthAttachment,
             {}
         );
 
@@ -375,16 +403,16 @@ void onLaunch(App* app)
             vk::AccessFlagBits::eNone,
             vk::AccessFlagBits::eColorAttachmentWrite
         );
-        vk::SubpassDependency2 dependencyDepth(
-            vk::SubpassExternal,
-            0,
-            vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests,
-            vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests,
-            vk::AccessFlagBits::eNone,
-            vk::AccessFlagBits::eDepthStencilAttachmentWrite
-        );
+//        vk::SubpassDependency2 dependencyDepth(
+//            vk::SubpassExternal,
+//            0,
+//            vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests,
+//            vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests,
+//            vk::AccessFlagBits::eNone,
+//            vk::AccessFlagBits::eDepthStencilAttachmentWrite
+//        );
 
-        std::vector<vk::SubpassDependency2> dependencies{dependencyColor, dependencyDepth};
+        std::vector<vk::SubpassDependency2> dependencies{dependencyColor};//, dependencyDepth};
 
         // create render pass
         vk::RenderPassCreateInfo2 info(
@@ -404,12 +432,12 @@ void onLaunch(App* app)
             vk::FramebufferCreateInfo info(
                 {},
                 app->renderPass,
-                app->swapchainImageViews[i],
+                *app->swapchainImageViews[i],
                 app->swapchainExtent.width,
                 app->swapchainExtent.height,
                 1
             );
-            app->framebuffers[i] = app->device.createFramebuffer(info).value();
+            app->framebuffers.emplace_back(app->device.createFramebuffer(info).value());
         }
     }
 
