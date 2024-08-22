@@ -174,11 +174,17 @@ void onLaunch(App* app)
     uint32_t version = app->context.enumerateInstanceVersion();
     std::cout << "vulkan version: " << version << std::endl;
 
-    // create vulkan instance
+    // create vulkan instance / create instance
     {
         std::vector<char const*> sdlExtensions = getSdlVulkanExtensions();
 
         std::vector<vk::ExtensionProperties> supportedExtensions = app->context.enumerateInstanceExtensionProperties(nullptr);
+
+        std::vector<vk::LayerProperties> layers = app->context.enumerateInstanceLayerProperties();
+        for (auto& layer: layers)
+        {
+            std::cout << "layer: " << layer.layerName << ", " << layer.description << std::endl;
+        }
 
         std::vector<char const*> enabledExtensionNames;
         for (auto& sdlExtension: sdlExtensions)

@@ -66,3 +66,10 @@ target_link_libraries(vulkan_sdl PUBLIC
         "-framework IOSurface"
         "-framework QuartzCore"
 )
+
+# vulkan loader experiment
+set(VULKAN_LOADER_EXPERIMENT
+        vulkan_loader.cpp
+)
+add_executable(vulkan_loader_experiment ${VULKAN_LOADER_EXPERIMENT})
+target_link_libraries(vulkan_loader_experiment PUBLIC vulkan_loader)
