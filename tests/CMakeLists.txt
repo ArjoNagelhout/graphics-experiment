@@ -68,8 +68,14 @@ target_link_libraries(vulkan_sdl PUBLIC
 )
 
 # vulkan loader experiment
+set(CMAKE_MACOSX_RPATH 1)
 set(VULKAN_LOADER_EXPERIMENT
         vulkan_loader.cpp
 )
 add_executable(vulkan_loader_experiment ${VULKAN_LOADER_EXPERIMENT})
 target_link_libraries(vulkan_loader_experiment PUBLIC vulkan_loader)
+
+# purely for debug purposes
+set_target_properties(vulkan_loader_experiment PROPERTIES
+        BUILD_RPATH ${VULKAN_LOADER_INSTALL_DIR}/lib
+)

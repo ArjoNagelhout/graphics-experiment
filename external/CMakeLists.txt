@@ -159,13 +159,12 @@ ExternalProject_Add(build_vulkan_loader
 add_dependencies(build_vulkan_loader build_vulkan_headers)
 ExternalProject_Get_Property(build_vulkan_loader INSTALL_DIR)
 set(VULKAN_LOADER_INSTALL_DIR ${INSTALL_DIR})
+set(VULKAN_LOADER_INSTALL_DIR ${VULKAN_LOADER_INSTALL_DIR} PARENT_SCOPE)
 message("vulkan loader install dir: ${VULKAN_LOADER_INSTALL_DIR}")
 
 add_library(vulkan_loader STATIC IMPORTED GLOBAL)
 add_dependencies(vulkan_loader build_vulkan_loader)
 set_target_properties(vulkan_loader PROPERTIES IMPORTED_LOCATION ${VULKAN_LOADER_INSTALL_DIR}/lib/libvulkan.dylib)
-
-
 
 # Vulkan validation layers
 # cd Vulkan-ValidationLayers/
