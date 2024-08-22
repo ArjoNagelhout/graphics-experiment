@@ -73,7 +73,7 @@ set(VULKAN_LOADER_EXPERIMENT
         vulkan_loader.cpp
 )
 add_executable(vulkan_loader_experiment ${VULKAN_LOADER_EXPERIMENT})
-target_link_libraries(vulkan_loader_experiment PUBLIC vulkan_loader)
+target_link_libraries(vulkan_loader_experiment PUBLIC vulkan_headers vulkan_loader)
 
 # purely for debug purposes
 set_target_properties(vulkan_loader_experiment PROPERTIES

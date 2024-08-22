@@ -141,6 +141,7 @@ message("vulkan headers install dir: ${VULKAN_HEADERS_INSTALL_DIR}")
 
 add_library(vulkan_headers INTERFACE)
 add_dependencies(vulkan_headers build_vulkan_headers)
+target_include_directories(vulkan_headers INTERFACE Vulkan-Headers/include)
 
 # Vulkan Loader
 # cd Vulkan-Loader/
