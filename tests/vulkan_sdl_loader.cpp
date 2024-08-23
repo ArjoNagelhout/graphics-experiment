@@ -23,9 +23,14 @@ constexpr uint32_t maxConcurrentFrames = 2;
 
 struct FrameData
 {
+    // semaphore is for synchronization / dictating ordering of GPU commands
+    // a fence is for the cpu to wait on the gpu to have finished a specific task
+
     vk::raii::Semaphore acquiringImage; // don't go past if the swapchain image has not been acquired yet
     vk::raii::Semaphore rendering; // don't go past if we haven't completed rendering yet
-    vk::raii::Fence gpuHasExecutedCommandBuffers;
+
+    vk::raii::CommandBuffer commandBuffer;
+    vk::raii::Fence gpuHasExecutedCommandBuffer;
 };
 
 struct App
@@ -39,6 +44,7 @@ struct App
     vk::raii::Instance instance = nullptr;
     vk::raii::PhysicalDevice physicalDevice = nullptr;
     vk::PhysicalDeviceProperties properties;
+    uint32_t physicalDeviceIndex = 0;
     vk::raii::Device device = nullptr;
 
     // queues
@@ -63,8 +69,10 @@ struct App
 
     // render pass
     vk::raii::RenderPass renderPass = nullptr;
-
     std::vector<vk::raii::Framebuffer> framebuffers;
+
+    // command pools
+    vk::raii::CommandPool graphicsPool = nullptr;
 };
 
 void onLaunch(App* app);
@@ -223,7 +231,8 @@ void onLaunch(App* app)
         assert(!physicalDevices.empty());
 
         // todo: pick device that is the best suited for graphics (i.e. has a graphics queue / most memory)
-        app->physicalDevice = physicalDevices[0];
+        app->physicalDeviceIndex = 0;
+        app->physicalDevice = physicalDevices[app->physicalDeviceIndex];
         app->properties = app->physicalDevice.getProperties();
     }
 
@@ -441,17 +450,39 @@ void onLaunch(App* app)
         }
     }
 
+    // create command pool / graphics pool
+    {
+        vk::CommandPoolCreateInfo graphicsPoolInfo(
+            vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+            app->graphicsQueueIndex
+        );
+        app->graphicsPool = app->device.createCommandPool(graphicsPoolInfo).value();
+    }
+
+    // allocate command buffers
+    std::vector<vk::raii::CommandBuffer> commandBuffers;
+    {
+        vk::CommandBufferAllocateInfo bufferInfo(
+            app->graphicsPool,
+            vk::CommandBufferLevel::ePrimary,
+            maxConcurrentFrames
+        );
+        commandBuffers = app->device.allocateCommandBuffers(bufferInfo).value();
+    }
+
     // create frame data for each frame
     {
-        for (size_t i = 0; i < 2; i++)
+        for (size_t i = 0; i < maxConcurrentFrames; i++)
         {
             app->frames.emplace_back(FrameData{
                 .acquiringImage = app->device.createSemaphore({}).value(),
                 .rendering = app->device.createSemaphore({}).value(),
-                .gpuHasExecutedCommandBuffers = app->device.createFence(
+                .commandBuffer = std::move(commandBuffers[i]),
+                .gpuHasExecutedCommandBuffer = app->device.createFence(
                     vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled)).value() // create in signaled state
             });
         }
+        commandBuffers.clear();
     }
 }
 
@@ -460,15 +491,17 @@ void onDraw(App* app)
     FrameData* frame = &app->frames[app->currentFrame];
 
     // wait for the GPU to be done with the submitted command buffers of this frame data
-    assert(app->device.waitForFences(*frame->gpuHasExecutedCommandBuffers, true, std::numeric_limits<uint64_t>::max()) == vk::Result::eSuccess);
-    app->device.resetFences(*frame->gpuHasExecutedCommandBuffers);
+    assert(app->device.waitForFences(*frame->gpuHasExecutedCommandBuffer, true, std::numeric_limits<uint64_t>::max()) == vk::Result::eSuccess);
+    app->device.resetFences(*frame->gpuHasExecutedCommandBuffer);
+    frame->commandBuffer.reset();
 
     // acquire image
     vk::AcquireNextImageInfoKHR info(
         app->swapchain,
         10 /*ms*/ * 1000000,
         frame->acquiringImage,
-        nullptr
+        nullptr,
+        1 << app->physicalDeviceIndex
     );
     auto [result, imageIndex] = app->device.acquireNextImage2KHR(info);
     if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR)
@@ -476,22 +509,7 @@ void onDraw(App* app)
         // recreate swapchain
     }
 
-    // create command pool
-    vk::CommandPoolCreateInfo graphicsPoolInfo(
-        vk::CommandPoolCreateFlagBits::eTransient,
-        app->graphicsQueueIndex
-    );
-    vk::raii::CommandPool graphicsPool = app->device.createCommandPool(graphicsPoolInfo).value();
-
-    // create command buffers
-    vk::CommandBufferAllocateInfo bufferInfo(
-        graphicsPool,
-        vk::CommandBufferLevel::ePrimary,
-        1
-    );
-    std::vector<vk::raii::CommandBuffer> buffers = app->device.allocateCommandBuffers(bufferInfo).value();
-
-    vk::raii::CommandBuffer* cmd = &buffers[0];
+    vk::raii::CommandBuffer* cmd = &frame->commandBuffer;
     cmd->begin({});
 
     // main render pass
@@ -507,9 +525,9 @@ void onDraw(App* app)
     vk::SubpassBeginInfo subpassBeginInfo(
         vk::SubpassContents::eInline
     );
-//    cmd->beginRenderPass2(renderPassBeginInfo, subpassBeginInfo);
+    cmd->beginRenderPass2(renderPassBeginInfo, subpassBeginInfo);
 
-//    cmd->endRenderPass();
+    cmd->endRenderPass();
     cmd->end();
     vk::PipelineStageFlags flags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
     vk::SubmitInfo submitInfo(
@@ -518,7 +536,7 @@ void onDraw(App* app)
         **cmd,
         *frame->rendering
     );
-    app->graphicsQueue.submit(submitInfo, frame->gpuHasExecutedCommandBuffers);
+    app->graphicsQueue.submit(submitInfo, frame->gpuHasExecutedCommandBuffer);
 
     // present queue
     // get queue
