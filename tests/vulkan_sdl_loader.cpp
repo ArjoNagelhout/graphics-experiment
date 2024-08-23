@@ -535,7 +535,7 @@ void onDraw(App* app)
     cmd->begin({});
 
     // main render pass
-    vk::ClearValue clear(vk::ClearColorValue(255, 0, 255, 255));
+    vk::ClearValue clear(vk::ClearColorValue(0.0f, 1.0f, 1.0f, 1.0f));
     vk::ClearValue clearDepth(vk::ClearDepthStencilValue(1.0f, 0));
     std::vector<vk::ClearValue> clearValues{clear, clearDepth};
     vk::RenderPassBeginInfo renderPassBeginInfo(

@@ -26,7 +26,19 @@ to an external program.
 ### Graphics API and supported platforms
 The application is written for Cocoa (macOS) and the Metal API, but for VR should be ported to Vulkan. Metal is 
 a cleaner API, so we might want to write a Vulkan backend for the Metal API (or a subset of the Metal API we use) 
-but porting is easier than implementing the features, focus is on implementing features first. 
+but porting is easier than implementing the features, focus is on implementing features first.
+
+#### Update 2024-08-23
+As a plethora of IFC viewers and CAD software exists for desktop platforms such as macOS, it does not make sense to target Metal, unless
+I would target the Apple Vision Pro. Unfortunately, that platform is outside any reasonable price range.
+
+Therefore, the intended target platform is now Meta Quest 3 and PCVR. Experimenting with Metal was good for understanding what type of abstractions to build (or not),
+as it is a higher level, less verbose API compared to Vulkan. Last time I wrote a Vulkan renderer, I had no idea what I was doing as I was blindly copying code
+from vk-tutorial, and trying to abstract things in an OOP way, as this was the first time I had ventured outside C#.
+This time I know how to progress, and how to write simple graphics code.
+
+My alternative to writing Vulkan would be using a translation layer from Metal to Vulkan, but that would make things more complicated, and less well-supported. 
+MoltenVK is well-supported and suffices for development purposes (i.e. writing the renderer on a macOS desktop computer before building it for the target platform). 
 
 ### Experiments
 
