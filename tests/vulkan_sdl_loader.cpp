@@ -59,25 +59,34 @@ struct App
     vk::raii::SurfaceKHR surface = nullptr;
     vk::SurfaceCapabilitiesKHR surfaceCapabilities;
 
+    // render pass
+    vk::raii::RenderPass renderPass = nullptr;
+
     // swapchain
     vk::raii::SwapchainKHR swapchain = nullptr;
     vk::Extent2D swapchainExtent;
     std::vector<vk::Image> swapchainImages;
     std::vector<vk::raii::ImageView> swapchainImageViews;
-    std::vector<FrameData> frames;
-    size_t currentFrame = 0;
-
-    // render pass
-    vk::raii::RenderPass renderPass = nullptr;
     std::vector<vk::raii::Framebuffer> framebuffers;
 
     // command pools
+    // because we're using raii, the allocated command buffers should come *after* the pool in the struct
+    // otherwise, the command buffers will try to destroy after the pool has been destroyed,
+    // which results in a segfault.
     vk::raii::CommandPool graphicsPool = nullptr;
+
+    // frame data (for concurrent frame rendering)
+    // i.e. we can already start recording in a command buffer while the GPU is still executing the previous frame
+    // (i.e. executing the other command buffer)
+    std::vector<FrameData> frames;
+    size_t currentFrame = 0;
 };
 
 void onLaunch(App* app);
 
 void onDraw(App* app);
+
+void onQuit(App* app);
 
 // SDL callbacks (instead of using a main function)
 
@@ -116,8 +125,7 @@ void SDL_AppQuit(void* appstate)
     if (appstate)
     {
         App* app = (App*)appstate;
-        SDL_RemoveTimer(app->stepTimer);
-        SDL_DestroyWindow(app->window);
+        onQuit(app);
         delete app;
     }
 }
@@ -527,7 +535,7 @@ void onDraw(App* app)
     cmd->begin({});
 
     // main render pass
-    vk::ClearValue clear(vk::ClearColorValue(255, 0, 255, 1));
+    vk::ClearValue clear(vk::ClearColorValue(255, 0, 255, 255));
     vk::ClearValue clearDepth(vk::ClearDepthStencilValue(1.0f, 0));
     std::vector<vk::ClearValue> clearValues{clear, clearDepth};
     vk::RenderPassBeginInfo renderPassBeginInfo(
@@ -566,4 +574,12 @@ void onDraw(App* app)
     }
 
     app->currentFrame = (app->currentFrame + 1) % app->frames.size();
+}
+
+void onQuit(App* app)
+{
+    SDL_RemoveTimer(app->stepTimer);
+    SDL_DestroyWindow(app->window);
+
+    app->device.waitIdle();
 }
