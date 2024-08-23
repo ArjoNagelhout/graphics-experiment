@@ -163,6 +163,90 @@ SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event const* event)
     return out;
 }
 
+void onResize(App* app)
+{
+    app->device.waitIdle();
+
+    app->swapchain.clear();
+    app->swapchainImageViews.clear();
+    app->framebuffers.clear();
+
+    // update surface capabilities (to retrieve width and height)
+    app->surfaceCapabilities = app->physicalDevice.getSurfaceCapabilitiesKHR(app->surface);
+
+    // create swapchain
+    {
+        std::vector<uint32_t> queueIndices{app->graphicsQueueIndex};
+        app->swapchainExtent = app->surfaceCapabilities.currentExtent;
+        vk::SwapchainCreateInfoKHR info{
+            {},
+            app->surface,
+            2,
+            app->surfaceFormat.format,
+            app->surfaceFormat.colorSpace,
+            app->swapchainExtent,
+            1, // for stereoscopic rendering > 1
+            vk::ImageUsageFlagBits::eColorAttachment,
+            vk::SharingMode::eExclusive,
+            queueIndices,
+            app->surfaceCapabilities.currentTransform,
+            vk::CompositeAlphaFlagBitsKHR::eOpaque,
+            vk::PresentModeKHR::eFifo,
+            true,
+            nullptr
+        };
+        app->swapchain = app->device.createSwapchainKHR(info).value();
+        app->swapchainImages = app->swapchain.getImages();
+    }
+
+    // create swapchain image views
+    {
+        app->swapchainImageViews.reserve(app->swapchainImages.size());
+        for (size_t i = 0; i < app->swapchainImages.size(); i++)
+        {
+            // create image view
+            vk::Image* image = &app->swapchainImages[i];
+            vk::ImageViewCreateInfo info(
+                {},
+                *image,
+                vk::ImageViewType::e2D,
+                app->surfaceFormat.format,
+                vk::ComponentMapping(
+                    vk::ComponentSwizzle::eIdentity,
+                    vk::ComponentSwizzle::eIdentity,
+                    vk::ComponentSwizzle::eIdentity,
+                    vk::ComponentSwizzle::eIdentity
+                ),
+                vk::ImageSubresourceRange(
+                    vk::ImageAspectFlagBits::eColor,
+                    0,
+                    1,
+                    0,
+                    1
+                )
+            );
+            app->swapchainImageViews.emplace_back(app->device.createImageView(info).value());
+        }
+    }
+
+    // create framebuffers (one for each swapchain image)
+    {
+        app->framebuffers.reserve(app->swapchainImages.size());
+        for (size_t i = 0; i < app->swapchainImages.size(); i++)
+        {
+            vk::FramebufferCreateInfo info(
+                {},
+                app->renderPass,
+                *app->swapchainImageViews[i],
+                app->swapchainExtent.width,
+                app->swapchainExtent.height,
+                1
+            );
+            app->framebuffers.emplace_back(app->device.createFramebuffer(info).value());
+        }
+    }
+}
+
 void onLaunch(App* app)
 {
     // create sdl step timer
@@ -286,77 +370,6 @@ void onLaunch(App* app)
         app->graphicsQueue = app->device.getQueue2(queueInfo).value();
     }
 
-    // create window
-    {
-        SDL_WindowFlags windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN;
-        app->window = SDL_CreateWindow("sdl window test", 600, 400, windowFlags);
-        assert(app->window);
-    }
-
-    // create surface
-    {
-        VkSurfaceKHR surface;
-        int result = SDL_Vulkan_CreateSurface(app->window, *app->instance, nullptr, &surface);
-        assert(result == 0);
-        app->surface = vk::raii::SurfaceKHR(app->instance, surface);
-        app->surfaceCapabilities = app->physicalDevice.getSurfaceCapabilitiesKHR(app->surface);
-    }
-
-    // create swapchain
-    {
-        std::vector<uint32_t> queueIndices{app->graphicsQueueIndex};
-        app->swapchainExtent = app->surfaceCapabilities.currentExtent;
-        vk::SwapchainCreateInfoKHR info{
-            {},
-            app->surface,
-            2,
-            app->surfaceFormat.format,
-            app->surfaceFormat.colorSpace,
-            app->swapchainExtent,
-            1, // for stereoscopic rendering > 1
-            vk::ImageUsageFlagBits::eColorAttachment,
-            vk::SharingMode::eExclusive,
-            queueIndices,
-            app->surfaceCapabilities.currentTransform,
-            vk::CompositeAlphaFlagBitsKHR::eOpaque,
-            vk::PresentModeKHR::eFifo,
-            true,
-            nullptr
-        };
-        app->swapchain = app->device.createSwapchainKHR(info).value();
-        app->swapchainImages = app->swapchain.getImages();
-    }
-
-    // create swapchain image views
-    {
-        app->swapchainImageViews.reserve(app->swapchainImages.size());
-        for (size_t i = 0; i < app->swapchainImages.size(); i++)
-        {
-            // create image view
-            vk::Image* image = &app->swapchainImages[i];
-            vk::ImageViewCreateInfo info(
-                {},
-                *image,
-                vk::ImageViewType::e2D,
-                app->surfaceFormat.format,
-                vk::ComponentMapping(
-                    vk::ComponentSwizzle::eIdentity,
-                    vk::ComponentSwizzle::eIdentity,
-                    vk::ComponentSwizzle::eIdentity,
-                    vk::ComponentSwizzle::eIdentity
-                ),
-                vk::ImageSubresourceRange(
-                    vk::ImageAspectFlagBits::eColor,
-                    0,
-                    1,
-                    0,
-                    1
-                )
-            );
-            app->swapchainImageViews.emplace_back(app->device.createImageView(info).value());
-        }
-    }
-
     // create render pass
     {
         // attachments
@@ -433,22 +446,23 @@ void onLaunch(App* app)
         app->renderPass = app->device.createRenderPass2(info).value();
     }
 
-    // create framebuffers (one for each swapchain image)
+    // create window
     {
-        app->framebuffers.reserve(app->swapchainImages.size());
-        for (size_t i = 0; i < app->swapchainImages.size(); i++)
-        {
-            vk::FramebufferCreateInfo info(
-                {},
-                app->renderPass,
-                *app->swapchainImageViews[i],
-                app->swapchainExtent.width,
-                app->swapchainExtent.height,
-                1
-            );
-            app->framebuffers.emplace_back(app->device.createFramebuffer(info).value());
-        }
+        SDL_WindowFlags windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN;
+        app->window = SDL_CreateWindow("sdl window test", 600, 400, windowFlags);
+        assert(app->window);
     }
+
+    // create surface
+    {
+        VkSurfaceKHR surface;
+        int result = SDL_Vulkan_CreateSurface(app->window, *app->instance, nullptr, &surface);
+        assert(result == 0);
+        app->surface = vk::raii::SurfaceKHR(app->instance, surface);
+    }
+
+    // create swapchain / swapchain image views and framebuffers
+    onResize(app);
 
     // create command pool / graphics pool
     {
@@ -546,14 +560,10 @@ void onDraw(App* app)
         imageIndex
     );
     vk::Result presentResult = app->graphicsQueue.presentKHR(presentInfo);
-    assert(presentResult == vk::Result::eSuccess);
+    if (presentResult == vk::Result::eErrorOutOfDateKHR || presentResult == vk::Result::eSuboptimalKHR)
+    {
+        onResize(app);
+    }
 
-    if (app->currentFrame < app->frames.size() - 1)
-    {
-        app->currentFrame++;
-    }
-    else
-    {
-        app->currentFrame = 0;
-    }
+    app->currentFrame = (app->currentFrame + 1) % app->frames.size();
 }
