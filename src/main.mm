@@ -2056,10 +2056,10 @@ int main(int argc, char const* argv[])
         .shadowMapSize = 4096,
 
         // experiments, can be conditionally turned on or off
-        .terrain = false,
-        .gltf = false,
-        .pbrCubes = false,
-        .ifc = true,
+        .terrain = true,
+        .gltf = true,
+        .pbrCubes = true,
+        .ifc = false,
     };
 
     App app{

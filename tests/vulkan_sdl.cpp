@@ -257,7 +257,7 @@ void onLaunch(App* app)
         for (int i = 0; i < properties.size(); i++)
         {
             vk::QueueFamilyProperties2 p = properties[i];
-            if (p.queueFamilyProperties.queueFlags | vk::QueueFlagBits::eGraphics)
+            if (p.queueFamilyProperties.queueFlags & vk::QueueFlagBits::eGraphics)
             {
                 app->graphicsQueueIndex = i;
                 break;

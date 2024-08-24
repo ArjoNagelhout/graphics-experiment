@@ -188,3 +188,6 @@ ExternalProject_Add(build_vulkan_validation_layers
 )
 add_library(vulkan_validation_layers INTERFACE)
 add_dependencies(vulkan_validation_layers build_vulkan_validation_layers)
+
+# glslang (for compiling shaders on runtime and getting reflection information from the AST)
+add_subdirectory(glslang)

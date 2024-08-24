@@ -43,3 +43,6 @@
 [submodule "external/Vulkan-ValidationLayers"]
 	path = external/Vulkan-ValidationLayers
 	url = https://github.com/KhronosGroup/Vulkan-ValidationLayers.git
+[submodule "external/glslang"]
+	path = external/glslang
+	url = https://github.com/KhronosGroup/glslang.git
