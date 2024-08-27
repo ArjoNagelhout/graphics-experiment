@@ -6,6 +6,7 @@
 #include <cassert>
 #include <filesystem>
 #include <fstream>
+#include <string>
 
 #define VULKAN_HPP_RAII_NO_EXCEPTIONS
 #define VULKAN_HPP_NO_EXCEPTIONS
@@ -346,7 +347,9 @@ void onResize(App* app)
     vk::raii::PipelineCache* cache,
     vk::raii::RenderPass* renderPass,
     std::filesystem::path const& vertexPath,
-    std::filesystem::path const& fragmentPath)
+    std::filesystem::path const& fragmentPath,
+    std::string const& vertexName,
+    std::string const& fragmentName)
 {
     std::unique_ptr<Shader> shader = std::make_unique<Shader>();
 
@@ -356,8 +359,8 @@ void onResize(App* app)
     vk::PipelineShaderStageCreateInfo vertexStage(
         {},
         vk::ShaderStageFlagBits::eVertex,
-        vertexModule,
-        "vertex",
+        *vertexModule,
+        vertexName.c_str(),
         nullptr
     );
 
@@ -366,8 +369,8 @@ void onResize(App* app)
     vk::PipelineShaderStageCreateInfo fragmentStage(
         {},
         vk::ShaderStageFlagBits::eFragment,
-        fragmentModule,
-        "fragment",
+        *fragmentModule,
+        fragmentName.c_str(),
         nullptr
     );
     std::vector<vk::PipelineShaderStageCreateInfo> stages{vertexStage, fragmentStage};
@@ -378,18 +381,31 @@ void onResize(App* app)
     // bindings
     vk::VertexInputBindingDescription binding(
         0,
-        16,
+        sizeof(float) * (3 + 2 + 3),
         vk::VertexInputRate::eVertex
     );
     std::vector<vk::VertexInputBindingDescription> bindings{binding};
 
     // attributes
-    vk::VertexInputAttributeDescription attribute(
+    // layout(location = 0) in vec3 v_Position;
+    // layout(location = 1) in vec2 v_UV;
+    // layout(location = 2) in vec3 v_Normal;
+    vk::VertexInputAttributeDescription position(
         0,
         0,
-        vk::Format::eR32G32B32A32Sfloat
+        vk::Format::eR32G32B32Sfloat
     );
-    std::vector<vk::VertexInputAttributeDescription> attributes{attribute};
+    vk::VertexInputAttributeDescription uv(
+        1,
+        0,
+        vk::Format::eR32G32Sfloat
+    );
+    vk::VertexInputAttributeDescription normal(
+        2,
+        0,
+        vk::Format::eR32G32B32Sfloat
+    );
+    std::vector<vk::VertexInputAttributeDescription> attributes{position, uv, normal};
 
     vk::PipelineVertexInputStateCreateInfo vertexInputState = vk::PipelineVertexInputStateCreateInfo(
         {},
@@ -400,19 +416,30 @@ void onResize(App* app)
     vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState(
         {},
         vk::PrimitiveTopology::eTriangleList,
-        true
+        false
+    );
+
+    vk::Viewport viewport(0, 0, 0, 0, 0.0f, 1.0f);
+
+    // set scissor rect
+    vk::Rect2D scissor(vk::Offset2D(0, 0), vk::Extent2D(0, 0));
+
+    vk::PipelineViewportStateCreateInfo viewportState(
+        {},
+        viewport,
+        scissor
     );
 
     vk::PipelineRasterizationStateCreateInfo rasterizationState(
         {},
-        true,
-        true,
+        false,
+        false,
         vk::PolygonMode::eFill,
         vk::CullModeFlagBits::eBack,
         vk::FrontFace::eClockwise,
-        true,
+        false,
         0.0f,
-        1.0f,
+        0.0f,
         0.0f,
         1.0f
     );
@@ -437,12 +464,22 @@ void onResize(App* app)
         0.0f,
         1.0f
     );
-    std::vector<vk::PipelineColorBlendAttachmentState> attachments;
+    vk::PipelineColorBlendAttachmentState colorBlendAttachment(
+        true,
+        vk::BlendFactor::eSrcAlpha,
+        vk::BlendFactor::eOneMinusSrcAlpha,
+        vk::BlendOp::eAdd,
+        vk::BlendFactor::eOne,
+        vk::BlendFactor::eZero,
+        vk::BlendOp::eAdd,
+        vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA
+    );
+    std::vector<vk::PipelineColorBlendAttachmentState> colorBlendAttachments{colorBlendAttachment};
     vk::PipelineColorBlendStateCreateInfo colorBlendState(
         {},
         false,
-        vk::LogicOp::eClear,
-        attachments,
+        vk::LogicOp::eCopy,
+        colorBlendAttachments,
         {0.0f, 0.0f, 0.0f, 0.0f}
     );
 
@@ -462,18 +499,31 @@ void onResize(App* app)
         vk::ShaderStageFlagBits::eVertex
     );
     std::vector<vk::DescriptorSetLayoutBinding> descriptorSetBindings{descriptorSetBinding};
-    vk::DescriptorSetLayoutCreateInfo descriptorSetInfo(
+    vk::DescriptorSetLayoutCreateInfo descriptorSet1Info(
         {},
         descriptorSetBindings
     );
-    vk::raii::DescriptorSetLayout descriptorSet1 = device->createDescriptorSetLayout(descriptorSetInfo).value();
+    vk::raii::DescriptorSetLayout descriptorSet1 = device->createDescriptorSetLayout(descriptorSet1Info).value();
     shader->descriptorSetLayouts.emplace_back(std::move(descriptorSet1));
+
+    std::vector<vk::DescriptorSetLayout> descriptorSetLayouts;
+    for (auto& descriptorSetLayout: shader->descriptorSetLayouts)
+    {
+        descriptorSetLayouts.emplace_back(*descriptorSetLayout);
+    }
+
+    vk::PushConstantRange pushConstant1(
+        vk::ShaderStageFlagBits::eVertex,
+        0,
+        64
+    );
+
+    std::vector<vk::PushConstantRange> pushConstants{pushConstant1};
 
     vk::PipelineLayoutCreateInfo layoutInfo(
         {},
-        {},
-        {}
-        //shader->descriptorSetLayouts
+        descriptorSetLayouts,
+        pushConstants
     );
     shader->pipelineLayout = device->createPipelineLayout(layoutInfo).value();
 
@@ -483,7 +533,7 @@ void onResize(App* app)
         &vertexInputState,
         &inputAssemblyState,
         nullptr,
-        nullptr,
+        &viewportState,
         &rasterizationState,
         &multisampleState,
         &depthStencilState,
@@ -491,7 +541,9 @@ void onResize(App* app)
         &dynamicState,
         shader->pipelineLayout,
         *renderPass,
-        0
+        0,
+        nullptr,
+        -1
     );
     shader->pipeline = device->createGraphicsPipeline(cache, pipelineInfo).value();
     return shader;
@@ -776,7 +828,9 @@ void onLaunch(App* app, int argc, char** argv)
         &app->pipelineCache,
         &app->renderPassMain,
         shadersPath / "shader_unlit.vert",
-        shadersPath / "shader_unlit.frag"
+        shadersPath / "shader_unlit.frag",
+        "main",
+        "main"
     );
 }
 
