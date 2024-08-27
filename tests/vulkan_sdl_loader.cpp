@@ -492,13 +492,21 @@ void onResize(App* app)
         dynamicStates
     );
 
-    vk::DescriptorSetLayoutBinding descriptorSetBinding(
+    // descriptor sets
+    // vertex stage:
+    vk::DescriptorSetLayoutBinding vertexCameraBuffer(
         0,
         vk::DescriptorType::eUniformBuffer,
         1,
         vk::ShaderStageFlagBits::eVertex
     );
-    std::vector<vk::DescriptorSetLayoutBinding> descriptorSetBindings{descriptorSetBinding};
+    vk::DescriptorSetLayoutBinding fragmentTexture(
+        1,
+        vk::DescriptorType::eCombinedImageSampler,
+        1,
+        vk::ShaderStageFlagBits::eFragment
+    );
+    std::vector<vk::DescriptorSetLayoutBinding> descriptorSetBindings{vertexCameraBuffer, fragmentTexture};
     vk::DescriptorSetLayoutCreateInfo descriptorSet1Info(
         {},
         descriptorSetBindings
