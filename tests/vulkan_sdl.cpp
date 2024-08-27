@@ -63,7 +63,7 @@ struct App
     size_t currentFrame = 0;
 
     // render pass
-    vk::raii::RenderPass renderPass = nullptr;
+    vk::raii::RenderPass renderPassMain = nullptr;
 
     std::vector<vk::raii::Framebuffer> framebuffers;
 };
@@ -393,7 +393,7 @@ void onLaunch(App* app)
             subpasses,
             dependencies
         );
-        app->renderPass = app->device.createRenderPass2(info).value();
+        app->renderPassMain = app->device.createRenderPass2(info).value();
     }
 
     // create framebuffers (one for each swapchain image)
@@ -403,7 +403,7 @@ void onLaunch(App* app)
         {
             vk::FramebufferCreateInfo info(
                 {},
-                app->renderPass,
+                app->renderPassMain,
                 app->swapchainImageViews[i],
                 app->swapchainExtent.width,
                 app->swapchainExtent.height,
@@ -471,7 +471,7 @@ void onDraw(App* app)
     vk::ClearValue clearDepth(vk::ClearDepthStencilValue(1.0f, 0));
     std::vector<vk::ClearValue> clearValues{clear, clearDepth};
     vk::RenderPassBeginInfo renderPassBeginInfo(
-        app->renderPass,
+        app->renderPassMain,
         app->framebuffers[imageIndex],
         vk::Rect2D(vk::Offset2D{0, 0}, app->swapchainExtent),
         clearValues

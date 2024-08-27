@@ -20,7 +20,9 @@
 #include <SDL3/SDL_main.h>
 
 #include <glslang/Public/ShaderLang.h>
-#include "glslang/Public/ResourceLimits.h"
+#include <glslang/Public/ResourceLimits.h>
+#include <glslang/MachineIndependent/localintermediate.h>
+#include <SPIRV/GlslangToSpv.h>
 
 // constants
 constexpr int sdlTimerStepRateInMilliseconds = 125;
@@ -42,6 +44,19 @@ struct AppConfig
 {
     std::filesystem::path assetsPath;
     std::filesystem::path privateAssetsPath;
+};
+
+// maybe shader variants can be stored directly inside this same structure?
+struct Shader
+{
+    // add any metadata / reflection information here
+
+    // descriptor sets
+    std::vector<vk::raii::DescriptorSetLayout> descriptorSetLayouts;
+
+    // pipeline
+    vk::raii::PipelineLayout pipelineLayout = nullptr;
+    vk::raii::Pipeline pipeline = nullptr;
 };
 
 struct App
@@ -73,7 +88,7 @@ struct App
     vk::SurfaceCapabilitiesKHR surfaceCapabilities;
 
     // render pass
-    vk::raii::RenderPass renderPass = nullptr;
+    vk::raii::RenderPass renderPassMain = nullptr;
 
     // swapchain
     vk::raii::SwapchainKHR swapchain = nullptr;
@@ -96,8 +111,7 @@ struct App
 
     // pipeline
     vk::raii::PipelineCache pipelineCache = nullptr;
-    vk::raii::PipelineLayout pipelineLayout = nullptr;
-    vk::raii::Pipeline pipeline = nullptr;
+    std::unique_ptr<Shader> shader;
 };
 
 void onLaunch(App* app, int argc, char** argv);
@@ -262,7 +276,7 @@ void onResize(App* app)
         {
             vk::FramebufferCreateInfo info(
                 {},
-                app->renderPass,
+                app->renderPassMain,
                 *app->swapchainImageViews[i],
                 app->swapchainExtent.width,
                 app->swapchainExtent.height,
@@ -273,20 +287,214 @@ void onResize(App* app)
     }
 }
 
-void compileShader(std::filesystem::path const& path)
+[[nodiscard]] vk::raii::ShaderModule createShaderModule(vk::raii::Device* device, std::filesystem::path const& path, EShLanguage stage)
 {
     assert(std::filesystem::exists(path));
 
+    std::ifstream file(path);
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    std::string string = buffer.str();
+
+    glslang::InitializeProcess();
+    EShMessages messages = EShMessages::EShMsgDebugInfo;
+
+    glslang::TShader shader(stage);
+
+    std::vector<char const*> strings{string.c_str()};
+    shader.setStrings(strings.data(), 1);
+    shader.setEnvInput(glslang::EShSourceGlsl, stage, glslang::EShClientVulkan, 100);
+    shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_2);
+    shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_2);
+    bool success = shader.parse(GetDefaultResources(), 110, false, messages);
+    assert(success);
+
+    glslang::TProgram program;
+    program.addShader(&shader);
+    success = program.link(messages);
+    std::cout << program.getInfoDebugLog() << std::endl;
+    assert(success);
+
+    // loop through all shader stages and add if that stage exists
+    glslang::TIntermediate* intermediate = program.getIntermediate(stage);
+
+    std::vector<uint32_t> spirv;
+    spv::SpvBuildLogger logger;
+    glslang::SpvOptions options{
+        .generateDebugInfo = false,
+        .stripDebugInfo = false,
+        .disableOptimizer = false,
+        .optimizeSize = false,
+        .disassemble = false,
+        .validate = true,
+        .emitNonSemanticShaderDebugInfo = false,
+        .emitNonSemanticShaderDebugSource = false,
+        .compileOnly = false,
+        .optimizerAllowExpandedIDBound = false
+    };
+    glslang::GlslangToSpv(*intermediate, spirv, &logger, &options);
+    std::cout << logger.getAllMessages() << std::endl;
+
+    glslang::FinalizeProcess();
+
+    vk::ShaderModuleCreateInfo moduleInfo({}, spirv);
+    return device->createShaderModule(moduleInfo).value();
 }
 
-struct Shader
+[[nodiscard]] std::unique_ptr<Shader> createShader(
+    vk::raii::Device* device,
+    vk::raii::PipelineCache* cache,
+    vk::raii::RenderPass* renderPass,
+    std::filesystem::path const& vertexPath,
+    std::filesystem::path const& fragmentPath)
 {
+    std::unique_ptr<Shader> shader = std::make_unique<Shader>();
 
-};
+    // stages
+    // vertex stage
+    vk::raii::ShaderModule vertexModule = createShaderModule(device, vertexPath, EShLanguage::EShLangVertex);
+    vk::PipelineShaderStageCreateInfo vertexStage(
+        {},
+        vk::ShaderStageFlagBits::eVertex,
+        vertexModule,
+        "vertex",
+        nullptr
+    );
 
-[[nodiscard]] std::unique_ptr<Shader> createShader()
-{
-    return nullptr;
+    // fragment stage
+    vk::raii::ShaderModule fragmentModule = createShaderModule(device, fragmentPath, EShLanguage::EShLangFragment);
+    vk::PipelineShaderStageCreateInfo fragmentStage(
+        {},
+        vk::ShaderStageFlagBits::eFragment,
+        fragmentModule,
+        "fragment",
+        nullptr
+    );
+    std::vector<vk::PipelineShaderStageCreateInfo> stages{vertexStage, fragmentStage};
+
+    // states
+
+    // vertex input
+    // bindings
+    vk::VertexInputBindingDescription binding(
+        0,
+        16,
+        vk::VertexInputRate::eVertex
+    );
+    std::vector<vk::VertexInputBindingDescription> bindings{binding};
+
+    // attributes
+    vk::VertexInputAttributeDescription attribute(
+        0,
+        0,
+        vk::Format::eR32G32B32A32Sfloat
+    );
+    std::vector<vk::VertexInputAttributeDescription> attributes{attribute};
+
+    vk::PipelineVertexInputStateCreateInfo vertexInputState = vk::PipelineVertexInputStateCreateInfo(
+        {},
+        bindings,
+        attributes
+    );
+
+    vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState(
+        {},
+        vk::PrimitiveTopology::eTriangleList,
+        true
+    );
+
+    vk::PipelineRasterizationStateCreateInfo rasterizationState(
+        {},
+        true,
+        true,
+        vk::PolygonMode::eFill,
+        vk::CullModeFlagBits::eBack,
+        vk::FrontFace::eClockwise,
+        true,
+        0.0f,
+        1.0f,
+        0.0f,
+        1.0f
+    );
+    vk::PipelineMultisampleStateCreateInfo multisampleState(
+        {},
+        vk::SampleCountFlagBits::e1,
+        false,
+        0.0f,
+        {},
+        false,
+        false
+    );
+    vk::PipelineDepthStencilStateCreateInfo depthStencilState(
+        {},
+        true,
+        true,
+        vk::CompareOp::eLessOrEqual,
+        true,
+        false,
+        {},
+        {},
+        0.0f,
+        1.0f
+    );
+    std::vector<vk::PipelineColorBlendAttachmentState> attachments;
+    vk::PipelineColorBlendStateCreateInfo colorBlendState(
+        {},
+        false,
+        vk::LogicOp::eClear,
+        attachments,
+        {0.0f, 0.0f, 0.0f, 0.0f}
+    );
+
+    std::vector<vk::DynamicState> dynamicStates{
+        vk::DynamicState::eViewport,
+        vk::DynamicState::eScissor
+    };
+    vk::PipelineDynamicStateCreateInfo dynamicState(
+        {},
+        dynamicStates
+    );
+
+    vk::DescriptorSetLayoutBinding descriptorSetBinding(
+        0,
+        vk::DescriptorType::eUniformBuffer,
+        1,
+        vk::ShaderStageFlagBits::eVertex
+    );
+    std::vector<vk::DescriptorSetLayoutBinding> descriptorSetBindings{descriptorSetBinding};
+    vk::DescriptorSetLayoutCreateInfo descriptorSetInfo(
+        {},
+        descriptorSetBindings
+    );
+    vk::raii::DescriptorSetLayout descriptorSet1 = device->createDescriptorSetLayout(descriptorSetInfo).value();
+    shader->descriptorSetLayouts.emplace_back(std::move(descriptorSet1));
+
+    vk::PipelineLayoutCreateInfo layoutInfo(
+        {},
+        {},
+        {}
+        //shader->descriptorSetLayouts
+    );
+    shader->pipelineLayout = device->createPipelineLayout(layoutInfo).value();
+
+    vk::GraphicsPipelineCreateInfo pipelineInfo(
+        {},
+        stages,
+        &vertexInputState,
+        &inputAssemblyState,
+        nullptr,
+        nullptr,
+        &rasterizationState,
+        &multisampleState,
+        &depthStencilState,
+        &colorBlendState,
+        &dynamicState,
+        shader->pipelineLayout,
+        *renderPass,
+        0
+    );
+    shader->pipeline = device->createGraphicsPipeline(cache, pipelineInfo).value();
+    return shader;
 }
 
 void onLaunch(App* app, int argc, char** argv)
@@ -496,7 +704,7 @@ void onLaunch(App* app, int argc, char** argv)
             subpasses,
             dependencies
         );
-        app->renderPass = app->device.createRenderPass2(info).value();
+        app->renderPassMain = app->device.createRenderPass2(info).value();
     }
 
     // create window
@@ -561,209 +769,15 @@ void onLaunch(App* app, int argc, char** argv)
         app->pipelineCache = app->device.createPipelineCache(pipelineCacheInfo).value();
     }
 
-    // compile shader
-    {
-        std::filesystem::path shadersPath = app->config.assetsPath / "shaders_vulkan";
-        std::filesystem::path path = shadersPath / "shader_unlit.vert";
-        assert(std::filesystem::exists(path));
-        std::ifstream file(path);
-        std::stringstream buffer;
-        buffer << file.rdbuf();
-        std::string string = buffer.str();
-        char const* s = string.c_str();
-
-        glslang::InitializeProcess();
-        EShMessages messages = EShMessages::EShMsgDebugInfo;
-
-        EShLanguage stage = EShLangVertex;
-
-        glslang::TShader shader(stage);
-
-        std::vector<char const*> strings{s};
-        shader.setStrings(strings.data(), 1);
-        shader.setEnvInput(glslang::EShSourceGlsl, stage, glslang::EShClientVulkan, 100);
-        shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_2);
-        shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_2);
-        bool success = shader.parse(GetDefaultResources(), 110, false, messages);
-        assert(success);
-
-        glslang::TProgram program;
-        program.addShader(&shader);
-        success = program.link(messages);
-        std::cout << program.getInfoDebugLog() << std::endl;
-        assert(success);
-
-        // get shader
-
-        glslang::FinalizeProcess();
-    }
-
-    // create graphics pipeline / create pipeline
-    {
-        // stages
-        std::vector<vk::PipelineShaderStageCreateInfo> stages;
-        {
-            // vertex stage
-            std::vector<uint32_t> vertexCode;
-            vk::ShaderModuleCreateInfo vertexModuleInfo({}, vertexCode);
-            vk::raii::ShaderModule vertexModule = app->device.createShaderModule(vertexModuleInfo).value();
-
-            vk::SpecializationMapEntry vertexSpecializationEntry(
-                0,
-                0,
-                0
-            );
-            std::vector<vk::SpecializationMapEntry> vertexSpecializationEntries{vertexSpecializationEntry};
-            vk::ArrayProxyNoTemporaries<unsigned char const> vertexSpecializationData;
-            vk::SpecializationInfo vertexSpecializationInfo(
-                vertexSpecializationEntries,
-                vertexSpecializationData
-            );
-
-            vk::PipelineShaderStageCreateInfo vertexStage(
-                {},
-                vk::ShaderStageFlagBits::eVertex,
-                vertexModule,
-                "vertex",
-                &vertexSpecializationInfo
-            );
-            stages.emplace_back(vertexStage);
-
-            // fragment stage
-            std::vector<uint32_t> fragmentCode;
-            vk::ShaderModuleCreateInfo fragmentModuleInfo({}, fragmentCode);
-            vk::raii::ShaderModule fragmentModule = app->device.createShaderModule(fragmentModuleInfo).value();
-
-            vk::SpecializationMapEntry fragmentSpecializationEntry(
-                0,
-                0,
-                0
-            );
-            std::vector<vk::SpecializationMapEntry> fragmentSpecializationEntries{fragmentSpecializationEntry};
-            vk::ArrayProxyNoTemporaries<unsigned char const> fragmentSpecializationData;
-            vk::SpecializationInfo fragmentSpecializationInfo(
-                fragmentSpecializationEntries,
-                fragmentSpecializationData
-            );
-
-            vk::PipelineShaderStageCreateInfo fragmentStage(
-                {},
-                vk::ShaderStageFlagBits::eFragment,
-                fragmentModule,
-                "fragment",
-                &fragmentSpecializationInfo
-            );
-            stages.emplace_back(fragmentStage);
-        }
-
-        // states
-
-        // vertex input
-        vk::PipelineVertexInputStateCreateInfo vertexInput;
-        {
-            // bindings
-            vk::VertexInputBindingDescription binding(
-                0,
-                4,
-                vk::VertexInputRate::eVertex
-            );
-            std::vector<vk::VertexInputBindingDescription> bindings{binding};
-
-            // attributes
-            vk::VertexInputAttributeDescription attribute(
-                0,
-                0,
-                vk::Format::eR32Sfloat
-            );
-            std::vector<vk::VertexInputAttributeDescription> attributes{attribute};
-
-            vertexInput = vk::PipelineVertexInputStateCreateInfo(
-                {},
-                bindings,
-                attributes
-            );
-        }
-
-        vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState(
-            {},
-            vk::PrimitiveTopology::eTriangleList,
-            true
-        );
-
-        vk::PipelineRasterizationStateCreateInfo rasterizationState(
-            {},
-            true,
-            true,
-            vk::PolygonMode::eFill,
-            vk::CullModeFlagBits::eBack,
-            vk::FrontFace::eClockwise,
-            true,
-            0.0f,
-            1.0f,
-            0.0f,
-            1.0f
-        );
-        vk::PipelineMultisampleStateCreateInfo multisampleState(
-            {},
-            vk::SampleCountFlagBits::e1,
-            false,
-            0.0f,
-            {},
-            false,
-            false
-        );
-        vk::PipelineDepthStencilStateCreateInfo depthStencilState(
-            {},
-            true,
-            true,
-            vk::CompareOp::eLessOrEqual,
-            true,
-            false,
-            {},
-            {},
-            0.0f,
-            1.0f
-        );
-        std::vector<vk::PipelineColorBlendAttachmentState> attachments;
-        vk::PipelineColorBlendStateCreateInfo colorBlendState(
-            {},
-            false,
-            vk::LogicOp::eClear,
-            attachments,
-            {0.0f, 0.0f, 0.0f, 0.0f}
-        );
-
-        std::vector<vk::DynamicState> dynamicStates{
-            vk::DynamicState::eViewport,
-            vk::DynamicState::eScissor
-        };
-        vk::PipelineDynamicStateCreateInfo dynamicState(
-            {},
-            dynamicStates
-        );
-
-        vk::PipelineLayoutCreateInfo layoutInfo{};
-
-        app->pipelineLayout = app->device.createPipelineLayout(layoutInfo).value();
-
-        vk::GraphicsPipelineCreateInfo pipelineInfo(
-            {},
-            stages,
-            &vertexInput,
-            &inputAssemblyState,
-            nullptr,
-            nullptr,
-            &rasterizationState,
-            &multisampleState,
-            &depthStencilState,
-            &colorBlendState,
-            &dynamicState,
-            app->pipelineLayout,
-            app->renderPass,
-            0
-        );
-        app->pipeline = app->device.createGraphicsPipeline(app->pipelineCache, pipelineInfo).value();
-    }
+    // create graphics pipeline / create pipeline / create shader
+    std::filesystem::path shadersPath = app->config.assetsPath / "shaders_vulkan";
+    app->shader = createShader(
+        &app->device,
+        &app->pipelineCache,
+        &app->renderPassMain,
+        shadersPath / "shader_unlit.vert",
+        shadersPath / "shader_unlit.frag"
+    );
 }
 
 void onDraw(App* app)
@@ -797,7 +811,7 @@ void onDraw(App* app)
     vk::ClearValue clearDepth(vk::ClearDepthStencilValue(1.0f, 0));
     std::vector<vk::ClearValue> clearValues{clear, clearDepth};
     vk::RenderPassBeginInfo renderPassBeginInfo(
-        app->renderPass,
+        app->renderPassMain,
         app->framebuffers[imageIndex],
         vk::Rect2D(vk::Offset2D{0, 0}, app->swapchainExtent),
         clearValues
@@ -823,10 +837,10 @@ void onDraw(App* app)
     );
     cmd->setScissor(0, scissor);
 
-    cmd->bindPipeline(vk::PipelineBindPoint::eGraphics, app->pipeline);
+    cmd->bindPipeline(vk::PipelineBindPoint::eGraphics, app->shader->pipeline);
     //cmd->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, app->pipelineLayout, 0, )
     vk::ArrayProxy<unsigned char const> constants;
-    cmd->pushConstants(app->pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, constants);
+    cmd->pushConstants(app->shader->pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, constants);
 
     //cmd->bindIndexBuffer()
     //cmd->bindVertexBuffers()
