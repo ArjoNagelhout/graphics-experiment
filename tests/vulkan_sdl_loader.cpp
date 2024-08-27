@@ -893,7 +893,8 @@ void onDraw(App* app)
 
     cmd->bindPipeline(vk::PipelineBindPoint::eGraphics, app->shader->pipeline);
     //cmd->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, app->pipelineLayout, 0, )
-    vk::ArrayProxy<unsigned char const> constants;
+
+    vk::ArrayProxy<unsigned char const> constants{'a', 'a', 'a', 'a'};
     cmd->pushConstants(app->shader->pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, constants);
 
     //cmd->bindIndexBuffer()
