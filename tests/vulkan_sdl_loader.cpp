@@ -12,6 +12,7 @@
 #define VULKAN_HPP_RAII_NO_EXCEPTIONS
 #define VULKAN_HPP_NO_STRUCT_CONSTRUCTORS
 #define VULKAN_HPP_NO_EXCEPTIONS
+#define VULKAN_HPP_NO_SMART_HANDLE
 #define VK_ENABLE_BETA_EXTENSIONS
 
 #include <vulkan/vulkan_raii.hpp>
@@ -84,13 +85,89 @@ struct VertexData
     glm::vec3 normal;
 };
 
+// because I'm too lazy to call vmaDestroyAllocation for each allocation
+namespace vma::raii
+{
+    struct Allocator
+    {
+        Allocator(VmaAllocator allocator_) : allocator(allocator_) {}
+
+        Allocator(std::nullptr_t) {}
+
+        ~Allocator()
+        {
+            if (allocator)
+            {
+                vmaDestroyAllocator(allocator);
+            }
+        }
+
+        Allocator() = delete;
+
+        Allocator(Allocator const&) = delete;
+
+        Allocator& operator=(Allocator const&) = delete;
+
+        Allocator& operator=(Allocator&& other) noexcept
+        {
+            std::swap(allocator, other.allocator);
+            return *this;
+        }
+
+        [[nodiscard]] VmaAllocator operator*() const
+        {
+            return allocator;
+        }
+
+        VmaAllocator allocator = nullptr;
+    };
+
+    struct Allocation
+    {
+        Allocation(VmaAllocator allocator_, VmaAllocation allocation_) : allocator(allocator_), allocation(allocation_) {}
+
+        Allocation(std::nullptr_t) {}
+
+        ~Allocation()
+        {
+            if (allocation)
+            {
+                vmaFreeMemory(allocator, allocation);
+            }
+        }
+
+        Allocation() = delete;
+
+        Allocation(Allocation const&) = delete;
+
+        Allocation& operator=(Allocation const&) = delete;
+
+        Allocation& operator=(Allocation&& other) noexcept
+        {
+            // if we don't swap, the other one will still be valid and destroyed on move,
+            // which would cause UB due to it freeing the memory in the destructor
+            std::swap(allocator, other.allocator);
+            std::swap(allocation, other.allocation);
+            return *this;
+        }
+
+        [[nodiscard]] VmaAllocation operator*() const
+        {
+            return allocation;
+        }
+
+        VmaAllocator allocator = nullptr;
+        VmaAllocation allocation = nullptr;
+    };
+}
+
 struct Mesh
 {
     uint32_t vertexCount = 0;
     vk::raii::Buffer vertexBuffer = nullptr;
-    VmaAllocation vertexBufferAllocation = nullptr;
+    vma::raii::Allocation vertexBufferAllocation = nullptr;
     vk::raii::Buffer indexBuffer = nullptr;
-    VmaAllocation indexBufferAllocation = nullptr;
+    vma::raii::Allocation indexBufferAllocation = nullptr;
 };
 
 struct App
@@ -148,7 +225,7 @@ struct App
     std::unique_ptr<Shader> shader;
 
     // memory allocator
-    VmaAllocator allocator = nullptr;
+    vma::raii::Allocator allocator = nullptr;
 
     // mesh
     Mesh mesh;
@@ -897,7 +974,9 @@ void onLaunch(App* app, int argc, char** argv)
             .instance = *app->instance,
             .vulkanApiVersion = app->config.vulkanApiVersion
         };
-        VkResult result = vmaCreateAllocator(&info, &app->allocator);
+        VmaAllocator allocator;
+        VkResult result = vmaCreateAllocator(&info, &allocator);
+        app->allocator = vma::raii::Allocator(allocator);
         assert(result == VK_SUCCESS);
     }
 
@@ -916,6 +995,7 @@ void onLaunch(App* app, int argc, char** argv)
             VertexData{.position{minX, maxY, 0.0f}},
             VertexData{.position{maxX, maxY, 0.0f}},
         };
+        mesh.vertexCount = vertices.size();
 
         // indices
         std::vector<uint32_t> indices = std::vector<uint32_t>{
@@ -923,58 +1003,67 @@ void onLaunch(App* app, int argc, char** argv)
             1, 2, 3
         };
 
-        // create vertex buffer
         size_t vertexBufferSize = vertices.size() * sizeof(VertexData);
-        vk::BufferCreateInfo vertexBufferInfo{
-            .size = vertexBufferSize,
-            .usage = vk::BufferUsageFlagBits::eVertexBuffer
-        };
-        VmaAllocationCreateInfo vertexBufferAllocationInfo{
-            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        };
-        VkBuffer vertexBuffer;
-        vmaCreateBuffer(
-            app->allocator,
-            (VkBufferCreateInfo*)&vertexBufferInfo,
-            &vertexBufferAllocationInfo,
-            &vertexBuffer,
-            &mesh.vertexBufferAllocation,
-            nullptr
-        );
-        mesh.vertexBuffer = vk::raii::Buffer(app->device, vertexBuffer);
+        size_t indexBufferSize = indices.size() * sizeof(uint32_t);
+
+        // create vertex buffer
+        {
+            vk::BufferCreateInfo vertexBufferInfo{
+                .size = vertexBufferSize,
+                .usage = vk::BufferUsageFlagBits::eVertexBuffer
+            };
+            VmaAllocationCreateInfo vertexBufferAllocationInfo{
+                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+            };
+            VkBuffer vertexBuffer;
+            VmaAllocation vertexBufferAllocation;
+            vmaCreateBuffer(
+                *app->allocator,
+                (VkBufferCreateInfo*)&vertexBufferInfo,
+                &vertexBufferAllocationInfo,
+                &vertexBuffer,
+                &vertexBufferAllocation,
+                nullptr
+            );
+            mesh.vertexBuffer = vk::raii::Buffer(app->device, vertexBuffer);
+            mesh.vertexBufferAllocation = vma::raii::Allocation(*app->allocator, vertexBufferAllocation);
+        }
 
         // create index buffer
-        size_t indexBufferSize = indices.size() * sizeof(uint32_t);
-        vk::BufferCreateInfo indexBufferInfo{
-            .size = indexBufferSize,
-            .usage = vk::BufferUsageFlagBits::eIndexBuffer,
-        };
-        VmaAllocationCreateInfo indexBufferAllocationInfo{
-            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        };
-        VkBuffer indexBuffer;
-        vmaCreateBuffer(
-            app->allocator,
-            (VkBufferCreateInfo*)&indexBufferInfo,
-            &indexBufferAllocationInfo,
-            &indexBuffer,
-            &mesh.indexBufferAllocation,
-            nullptr
-        );
-        mesh.indexBuffer = vk::raii::Buffer(app->device, indexBuffer);
+        {
+            vk::BufferCreateInfo indexBufferInfo{
+                .size = indexBufferSize,
+                .usage = vk::BufferUsageFlagBits::eIndexBuffer,
+            };
+            VmaAllocationCreateInfo indexBufferAllocationInfo{
+                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+            };
+            VkBuffer indexBuffer;
+            VmaAllocation indexBufferAllocation;
+            vmaCreateBuffer(
+                *app->allocator,
+                (VkBufferCreateInfo*)&indexBufferInfo,
+                &indexBufferAllocationInfo,
+                &indexBuffer,
+                &indexBufferAllocation,
+                nullptr
+            );
+            mesh.indexBuffer = vk::raii::Buffer(app->device, indexBuffer);
+            mesh.indexBufferAllocation = vma::raii::Allocation(*app->allocator, indexBufferAllocation);
+        }
 
         // copy data from CPU to GPU
         // todo: add staging buffer
 
         void* vertexBufferData = nullptr;
-        vmaMapMemory(app->allocator, mesh.vertexBufferAllocation, &vertexBufferData);
+        vmaMapMemory(*app->allocator, *mesh.vertexBufferAllocation, &vertexBufferData);
         memcpy(vertexBufferData, vertices.data(), vertexBufferSize);
-        vmaUnmapMemory(app->allocator, mesh.vertexBufferAllocation);
+        vmaUnmapMemory(*app->allocator, *mesh.vertexBufferAllocation);
 
         void* indexBufferData = nullptr;
-        vmaMapMemory(app->allocator, mesh.indexBufferAllocation, &indexBufferData);
+        vmaMapMemory(*app->allocator, *mesh.indexBufferAllocation, &indexBufferData);
         memcpy(indexBufferData, indices.data(), indexBufferSize);
-        vmaUnmapMemory(app->allocator, mesh.indexBufferAllocation);
+        vmaUnmapMemory(*app->allocator, *mesh.indexBufferAllocation);
 
         app->mesh = std::move(mesh);
     }
