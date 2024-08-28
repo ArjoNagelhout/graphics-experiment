@@ -188,6 +188,12 @@ ExternalProject_Add(build_vulkan_validation_layers
 )
 add_library(vulkan_validation_layers INTERFACE)
 add_dependencies(vulkan_validation_layers build_vulkan_validation_layers)
+# todo: change library_path of VkLayer_khronos_validation.json, as it requires a relative path
+# "library_path": "../../../lib/libVkLayer_khronos_validation.dylib"
+# this should be done manually now
 
 # glslang (for compiling shaders on runtime and getting reflection information from the AST)
 add_subdirectory(glslang)
+
+# VulkanMemoryAllocator (vma), because Vulkan is very verbose for memory management
+add_subdirectory(VulkanMemoryAllocator)

@@ -27,6 +27,19 @@
 #include <glslang/MachineIndependent/localintermediate.h>
 #include <SPIRV/GlslangToSpv.h>
 
+#define VMA_IMPLEMENTATION
+
+#include <vk_mem_alloc.h>
+
+// the following should be defined before including any headers that use glm, otherwise things break
+#define GLM_ENABLE_EXPERIMENTAL
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_FORCE_LEFT_HANDED
+
+//#include <glm/glm.hpp>
+#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
+
 // constants
 constexpr int sdlTimerStepRateInMilliseconds = 125;
 constexpr uint32_t maxConcurrentFrames = 2;
@@ -47,6 +60,8 @@ struct AppConfig
 {
     std::filesystem::path assetsPath;
     std::filesystem::path privateAssetsPath;
+
+    uint32_t vulkanApiVersion = 0;
 };
 
 // maybe shader variants can be stored directly inside this same structure?
@@ -60,6 +75,22 @@ struct Shader
     // pipeline
     vk::raii::PipelineLayout pipelineLayout = nullptr;
     vk::raii::Pipeline pipeline = nullptr;
+};
+
+struct VertexData
+{
+    glm::vec3 position;
+    glm::vec2 uv;
+    glm::vec3 normal;
+};
+
+struct Mesh
+{
+    uint32_t vertexCount = 0;
+    vk::raii::Buffer vertexBuffer = nullptr;
+    VmaAllocation vertexBufferAllocation = nullptr;
+    vk::raii::Buffer indexBuffer = nullptr;
+    VmaAllocation indexBufferAllocation = nullptr;
 };
 
 struct App
@@ -115,6 +146,12 @@ struct App
     // pipeline
     vk::raii::PipelineCache pipelineCache = nullptr;
     std::unique_ptr<Shader> shader;
+
+    // memory allocator
+    VmaAllocator allocator = nullptr;
+
+    // mesh
+    Mesh mesh;
 };
 
 void onLaunch(App* app, int argc, char** argv);
@@ -579,6 +616,8 @@ void onLaunch(App* app, int argc, char** argv)
         }
         app->config.assetsPath = argv[1];
         app->config.privateAssetsPath = argv[2];
+
+        app->config.vulkanApiVersion = vk::ApiVersion12;
     }
 
     // create sdl step timer
@@ -620,7 +659,7 @@ void onLaunch(App* app, int argc, char** argv)
             .applicationVersion = vk::makeApiVersion(1, 1, 0, 0),
             .pEngineName = nullptr,
             .engineVersion = vk::makeApiVersion(1, 1, 0, 0),
-            .apiVersion = vk::ApiVersion12
+            .apiVersion = app->config.vulkanApiVersion
         };
 
         vk::InstanceCreateInfo info{
@@ -831,16 +870,110 @@ void onLaunch(App* app, int argc, char** argv)
     }
 
     // create graphics pipeline / create pipeline / create shader
-    std::filesystem::path shadersPath = app->config.assetsPath / "shaders_vulkan";
-    app->shader = createShader(
-        &app->device,
-        &app->pipelineCache,
-        &app->renderPassMain,
-        shadersPath / "shader_unlit.vert",
-        shadersPath / "shader_unlit.frag",
-        "main",
-        "main"
-    );
+    {
+        std::filesystem::path shadersPath = app->config.assetsPath / "shaders_vulkan";
+        app->shader = createShader(
+            &app->device,
+            &app->pipelineCache,
+            &app->renderPassMain,
+            shadersPath / "shader_unlit.vert",
+            shadersPath / "shader_unlit.frag",
+            "main",
+            "main"
+        );
+    }
+
+    // create allocator
+    {
+        VmaAllocatorCreateInfo info{
+            .flags = {},
+            .physicalDevice = *app->physicalDevice,
+            .device = *app->device,
+            .preferredLargeHeapBlockSize = 0,
+            .pAllocationCallbacks = nullptr,
+            .pDeviceMemoryCallbacks = nullptr,
+            .pHeapSizeLimit = nullptr,
+            .pVulkanFunctions = nullptr,
+            .instance = *app->instance,
+            .vulkanApiVersion = app->config.vulkanApiVersion
+        };
+        VkResult result = vmaCreateAllocator(&info, &app->allocator);
+        assert(result == VK_SUCCESS);
+    }
+
+    // create mesh
+    {
+        Mesh mesh;
+
+        // vertices
+        float minX = -0.5f;
+        float minY = -0.5f;
+        float maxX = 0.5f;
+        float maxY = 0.5f;
+        std::vector<VertexData> vertices = std::vector<VertexData>{
+            VertexData{.position{minX, minY, 0.0f}},
+            VertexData{.position{maxX, minY, 0.0f}},
+            VertexData{.position{minX, maxY, 0.0f}},
+            VertexData{.position{maxX, maxY, 0.0f}},
+        };
+
+        // indices
+        std::vector<uint32_t> indices = std::vector<uint32_t>{
+            0, 1, 3,
+            1, 2, 3
+        };
+
+        // create vertex buffer
+        size_t vertexBufferSize = vertices.size() * sizeof(VertexData);
+        vk::BufferCreateInfo vertexBufferInfo{
+            .size = vertexBufferSize,
+            .usage = vk::BufferUsageFlagBits::eVertexBuffer
+        };
+        VmaAllocationCreateInfo vertexBufferAllocationInfo{
+            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        };
+        vmaCreateBuffer(
+            app->allocator,
+            (VkBufferCreateInfo*)&vertexBufferInfo,
+            &vertexBufferAllocationInfo,
+            (VkBuffer*)&*mesh.vertexBuffer,
+            &mesh.vertexBufferAllocation,
+            nullptr
+        );
+
+        // create index buffer
+        size_t indexBufferSize = indices.size() * sizeof(uint32_t);
+        vk::BufferCreateInfo indexBufferInfo{
+            .size = indexBufferSize,
+            .usage = vk::BufferUsageFlagBits::eIndexBuffer,
+        };
+        VmaAllocationCreateInfo indexBufferAllocationInfo{
+            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        };
+        vmaCreateBuffer(
+            app->allocator,
+            (VkBufferCreateInfo*)&indexBufferInfo,
+            &indexBufferAllocationInfo,
+            (VkBuffer*)&*mesh.indexBuffer,
+            &mesh.indexBufferAllocation,
+            nullptr
+        );
+
+        // copy data from CPU to GPU
+        // todo: add staging buffer
+
+        void* vertexBufferData = nullptr;
+        vmaMapMemory(app->allocator, mesh.vertexBufferAllocation, &vertexBufferData);
+        memcpy(vertexBufferData, vertices.data(), vertexBufferSize);
+        vmaUnmapMemory(app->allocator, mesh.vertexBufferAllocation);
+
+        void* indexBufferData = nullptr;
+        vmaMapMemory(app->allocator, mesh.indexBufferAllocation, &indexBufferData);
+        memcpy(indexBufferData, indices.data(), indexBufferSize);
+        vmaUnmapMemory(app->allocator, mesh.indexBufferAllocation);
+
+        app->mesh = std::move(mesh);
+    }
 }
 
 void onDraw(App* app)

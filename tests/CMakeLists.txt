@@ -61,7 +61,16 @@ set_target_properties(vulkan_loader_experiment PROPERTIES
 
 # vulkan sdl loader experiment
 add_executable(vulkan_sdl_loader_experiment vulkan_sdl_loader.cpp)
-target_link_libraries(vulkan_sdl_loader_experiment PUBLIC SDL3::SDL3 vulkan_headers vulkan_loader vulkan_validation_layers glslang glslang-default-resource-limits)
+target_link_libraries(vulkan_sdl_loader_experiment PUBLIC
+        SDL3::SDL3
+        glm
+        VulkanMemoryAllocator
+        vulkan_headers
+        vulkan_loader
+        vulkan_validation_layers
+        glslang
+        glslang-default-resource-limits
+)
 set_target_properties(vulkan_sdl_loader_experiment PROPERTIES
         BUILD_RPATH ${VULKAN_LOADER_INSTALL_DIR}/lib
 )
