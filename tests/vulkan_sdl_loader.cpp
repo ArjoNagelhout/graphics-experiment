@@ -932,14 +932,16 @@ void onLaunch(App* app, int argc, char** argv)
         VmaAllocationCreateInfo vertexBufferAllocationInfo{
             .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         };
+        VkBuffer vertexBuffer;
         vmaCreateBuffer(
             app->allocator,
             (VkBufferCreateInfo*)&vertexBufferInfo,
             &vertexBufferAllocationInfo,
-            (VkBuffer*)&*mesh.vertexBuffer,
+            &vertexBuffer,
             &mesh.vertexBufferAllocation,
             nullptr
         );
+        mesh.vertexBuffer = vk::raii::Buffer(app->device, vertexBuffer);
 
         // create index buffer
         size_t indexBufferSize = indices.size() * sizeof(uint32_t);
@@ -950,14 +952,16 @@ void onLaunch(App* app, int argc, char** argv)
         VmaAllocationCreateInfo indexBufferAllocationInfo{
             .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         };
+        VkBuffer indexBuffer;
         vmaCreateBuffer(
             app->allocator,
             (VkBufferCreateInfo*)&indexBufferInfo,
             &indexBufferAllocationInfo,
-            (VkBuffer*)&*mesh.indexBuffer,
+            &indexBuffer,
             &mesh.indexBufferAllocation,
             nullptr
         );
+        mesh.indexBuffer = vk::raii::Buffer(app->device, indexBuffer);
 
         // copy data from CPU to GPU
         // todo: add staging buffer
