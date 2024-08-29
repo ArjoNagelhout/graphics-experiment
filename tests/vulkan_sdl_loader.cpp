@@ -161,13 +161,26 @@ namespace vma::raii
     };
 }
 
+struct BufferDescriptor
+{
+    size_t size = 0;
+    // if update frequently is turned on, we don't use a staging buffer
+    bool updateFrequently = false;
+    vk::BufferUsageFlags usage;
+};
+
+struct Buffer
+{
+    BufferDescriptor descriptor; // we simply keep the descriptor
+    vk::raii::Buffer buffer = nullptr;
+    vma::raii::Allocation allocation = nullptr;
+};
+
 struct Mesh
 {
     uint32_t vertexCount = 0;
-    vk::raii::Buffer vertexBuffer = nullptr;
-    vma::raii::Allocation vertexBufferAllocation = nullptr;
-    vk::raii::Buffer indexBuffer = nullptr;
-    vma::raii::Allocation indexBufferAllocation = nullptr;
+    Buffer vertexBuffer;
+    Buffer indexBuffer;
 };
 
 struct App
@@ -403,7 +416,7 @@ void onResize(App* app)
     }
 }
 
-[[nodiscard]] vk::raii::ShaderModule createShaderModule(vk::raii::Device* device, std::filesystem::path const& path, EShLanguage stage)
+[[nodiscard]] vk::raii::ShaderModule createShaderModule(vk::raii::Device const* device, std::filesystem::path const& path, EShLanguage stage)
 {
     assert(std::filesystem::exists(path));
 
@@ -461,9 +474,9 @@ void onResize(App* app)
 }
 
 [[nodiscard]] std::unique_ptr<Shader> createShader(
-    vk::raii::Device* device,
-    vk::raii::PipelineCache* cache,
-    vk::raii::RenderPass* renderPass,
+    vk::raii::Device const* device,
+    vk::raii::PipelineCache const* cache,
+    vk::raii::RenderPass const* renderPass,
     std::filesystem::path const& vertexPath,
     std::filesystem::path const& fragmentPath,
     std::string const& vertexName,
@@ -680,6 +693,55 @@ void onResize(App* app)
     };
     shader->pipeline = device->createGraphicsPipeline(cache, pipelineInfo).value();
     return shader;
+}
+
+Buffer createBuffer(
+    vk::raii::Device const* device,
+    VmaAllocator allocator,
+    BufferDescriptor descriptor)
+{
+    vk::BufferCreateInfo info{
+        .size = descriptor.size,
+        .usage = descriptor.usage
+    };
+    VmaAllocationCreateInfo allocationInfo{
+        .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    };
+    VkBuffer buffer;
+    VmaAllocation allocation;
+    vmaCreateBuffer(
+        allocator,
+        (VkBufferCreateInfo*)&info,
+        &allocationInfo,
+        &buffer,
+        &allocation,
+        nullptr
+    );
+
+    return Buffer{
+        .descriptor = descriptor,
+        .buffer = vk::raii::Buffer(*device, buffer),
+        .allocation = vma::raii::Allocation(allocator, allocation)
+    };
+}
+
+void uploadToBuffer(
+    VmaAllocator allocator,
+    Buffer* buffer, void* data, size_t length)
+{
+    assert(buffer);
+    if (buffer->descriptor.updateFrequently)
+    {
+        // map memory directly
+        void* destination = nullptr;
+        vmaMapMemory(allocator, *buffer->allocation, &destination);
+        memcpy(destination, data, buffer->descriptor.size);
+        vmaUnmapMemory(allocator, *buffer->allocation);
+    }
+    else
+    {
+        // use staging buffer
+    }
 }
 
 void onLaunch(App* app, int argc, char** argv)
@@ -1007,63 +1069,23 @@ void onLaunch(App* app, int argc, char** argv)
         size_t indexBufferSize = indices.size() * sizeof(uint32_t);
 
         // create vertex buffer
-        {
-            vk::BufferCreateInfo vertexBufferInfo{
-                .size = vertexBufferSize,
-                .usage = vk::BufferUsageFlagBits::eVertexBuffer
-            };
-            VmaAllocationCreateInfo vertexBufferAllocationInfo{
-                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-            };
-            VkBuffer vertexBuffer;
-            VmaAllocation vertexBufferAllocation;
-            vmaCreateBuffer(
-                *app->allocator,
-                (VkBufferCreateInfo*)&vertexBufferInfo,
-                &vertexBufferAllocationInfo,
-                &vertexBuffer,
-                &vertexBufferAllocation,
-                nullptr
-            );
-            mesh.vertexBuffer = vk::raii::Buffer(app->device, vertexBuffer);
-            mesh.vertexBufferAllocation = vma::raii::Allocation(*app->allocator, vertexBufferAllocation);
-        }
+        BufferDescriptor vertexBufferInfo{
+            .size = vertexBufferSize,
+            .updateFrequently = true,
+            .usage = vk::BufferUsageFlagBits::eVertexBuffer
+        };
+        mesh.vertexBuffer = createBuffer(&app->device, *app->allocator, vertexBufferInfo);
 
         // create index buffer
-        {
-            vk::BufferCreateInfo indexBufferInfo{
-                .size = indexBufferSize,
-                .usage = vk::BufferUsageFlagBits::eIndexBuffer,
-            };
-            VmaAllocationCreateInfo indexBufferAllocationInfo{
-                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-            };
-            VkBuffer indexBuffer;
-            VmaAllocation indexBufferAllocation;
-            vmaCreateBuffer(
-                *app->allocator,
-                (VkBufferCreateInfo*)&indexBufferInfo,
-                &indexBufferAllocationInfo,
-                &indexBuffer,
-                &indexBufferAllocation,
-                nullptr
-            );
-            mesh.indexBuffer = vk::raii::Buffer(app->device, indexBuffer);
-            mesh.indexBufferAllocation = vma::raii::Allocation(*app->allocator, indexBufferAllocation);
-        }
+        BufferDescriptor indexBufferInfo{
+            .size = indexBufferSize,
+            .updateFrequently = true,
+            .usage = vk::BufferUsageFlagBits::eIndexBuffer
+        };
+        mesh.indexBuffer = createBuffer(&app->device, *app->allocator, indexBufferInfo);
 
         // copy data from CPU to GPU
-        // todo: add staging buffer
-
-        void* vertexBufferData = nullptr;
-        vmaMapMemory(*app->allocator, *mesh.vertexBufferAllocation, &vertexBufferData);
-        memcpy(vertexBufferData, vertices.data(), vertexBufferSize);
-        vmaUnmapMemory(*app->allocator, *mesh.vertexBufferAllocation);
-
-        void* indexBufferData = nullptr;
-        vmaMapMemory(*app->allocator, *mesh.indexBufferAllocation, &indexBufferData);
-        memcpy(indexBufferData, indices.data(), indexBufferSize);
-        vmaUnmapMemory(*app->allocator, *mesh.indexBufferAllocation);
+        uploadToBuffer(*app->allocator, &mesh.vertexBuffer, vertices.data(), vertexBufferSize);
 
         app->mesh = std::move(mesh);
     }
