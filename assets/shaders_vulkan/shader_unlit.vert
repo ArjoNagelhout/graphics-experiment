@@ -6,18 +6,17 @@ layout(location = 1) in vec2 v_UV;
 layout(location = 2) in vec3 v_Normal;
 
 layout(binding = 0) uniform cameraBuffer {
-    mat4 VP;
+    mat4 viewProjection;
 } Camera;
 
 layout( push_constant ) uniform pushConstantsBuffer {
-    mat4 Model;
+    mat4 localToWorld;
 } PushConstant;
 
 // output
 layout(location = 0) out vec2 out_UV;
 
 void main() {
-    mat4 mvp = Camera.VP * PushConstant.Model;
-    gl_Position = mvp * vec4(v_Position, 1);
+    gl_Position = Camera.viewProjection * PushConstant.localToWorld * vec4(v_Position, 1);
     out_UV = v_UV;
 }

@@ -40,6 +40,7 @@
 //#include <glm/glm.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
+#include <glm/mat4x4.hpp>
 
 // constants
 constexpr int sdlTimerStepRateInMilliseconds = 125;
@@ -186,6 +187,11 @@ struct Mesh
     Buffer indexBuffer;
 };
 
+struct CameraData
+{
+    glm::mat4 viewProjection;
+};
+
 struct App
 {
     AppConfig config;
@@ -253,6 +259,10 @@ struct App
 
     // mesh
     Mesh mesh;
+
+    // camera
+    CameraData cameraData; // data for GPU
+    Buffer cameraDataBuffer;
 };
 
 void onLaunch(App* app, int argc, char** argv);
@@ -650,13 +660,13 @@ void onResize(App* app)
         .descriptorCount = 1,
         .stageFlags = vk::ShaderStageFlagBits::eVertex
     };
-    vk::DescriptorSetLayoutBinding fragmentTexture{
-        .binding = 1,
-        .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-        .descriptorCount = 1,
-        .stageFlags = vk::ShaderStageFlagBits::eFragment
-    };
-    std::vector<vk::DescriptorSetLayoutBinding> descriptorSetBindings{vertexCameraBuffer, fragmentTexture};
+//    vk::DescriptorSetLayoutBinding fragmentTexture{
+//        .binding = 1,
+//        .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+//        .descriptorCount = 1,
+//        .stageFlags = vk::ShaderStageFlagBits::eFragment
+//    };
+    std::vector<vk::DescriptorSetLayoutBinding> descriptorSetBindings{vertexCameraBuffer/*, fragmentTexture*/};
     vk::DescriptorSetLayoutCreateInfo descriptorSet1Info{
         .bindingCount = (uint32_t)descriptorSetBindings.size(),
         .pBindings = descriptorSetBindings.data()
@@ -712,7 +722,7 @@ void onResize(App* app)
     return shader;
 }
 
-Buffer createBuffer(
+[[nodiscard]] Buffer createBuffer(
     vk::raii::Device const* device,
     VmaAllocator allocator,
     BufferDescriptor descriptor)
@@ -1070,6 +1080,7 @@ void onLaunch(App* app, int argc, char** argv)
             }
         };
         vk::DescriptorPoolCreateInfo info{
+            .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
             .maxSets = 10,
             .poolSizeCount = (uint32_t)pools.size(),
             .pPoolSizes = pools.data()
@@ -1184,6 +1195,35 @@ void onLaunch(App* app, int argc, char** argv)
 
         app->mesh = std::move(mesh);
     }
+
+    // create camera data buffer
+    {
+        BufferDescriptor descriptor{
+            .size = sizeof(CameraData),
+            .updateFrequently = true,
+            .usage = vk::BufferUsageFlagBits::eUniformBuffer
+        };
+        app->cameraDataBuffer = createBuffer(&app->device, *app->allocator, descriptor);
+        uploadToBuffer(*app->allocator, &app->cameraDataBuffer, &app->cameraData, sizeof(CameraData));
+    }
+
+    // update descriptor sets (to point to the buffers with the relevant data)
+    {
+        vk::DescriptorBufferInfo bufferInfo{
+            .buffer = app->cameraDataBuffer.buffer,
+            .offset = 0,
+            .range = vk::WholeSize
+        };
+        vk::WriteDescriptorSet cameraData{
+            .dstSet = app->shader->descriptorSet,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eUniformBuffer,
+            .pBufferInfo = &bufferInfo
+        };
+        app->device.updateDescriptorSets(cameraData, {});
+    }
 }
 
 void onDraw(App* app)
@@ -1226,39 +1266,43 @@ void onDraw(App* app)
     vk::SubpassBeginInfo subpassBeginInfo{.contents = vk::SubpassContents::eInline};
     cmd->beginRenderPass2(renderPassBeginInfo, subpassBeginInfo);
 
-    // set viewport
-    vk::Viewport viewport{
-        .x = 0,
-        .y = 0,
-        .width = (float)app->swapchainExtent.width,
-        .height = (float)app->swapchainExtent.height,
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f
-    };
-    cmd->setViewport(0, viewport);
+    // set dynamic viewport and scissor rect
+    {
+        vk::Viewport viewport{
+            .x = 0,
+            .y = 0,
+            .width = (float)app->swapchainExtent.width,
+            .height = (float)app->swapchainExtent.height,
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f
+        };
+        cmd->setViewport(0, viewport);
 
-    // set scissor rect
-    vk::Rect2D scissor{
-        .offset = vk::Offset2D{.x = 0, .y = 0},
-        .extent = app->swapchainExtent
-    };
-    cmd->setScissor(0, scissor);
+        // set scissor rect
+        vk::Rect2D scissor{
+            .offset = vk::Offset2D{.x = 0, .y = 0},
+            .extent = app->swapchainExtent
+        };
+        cmd->setScissor(0, scissor);
+    }
 
     cmd->bindPipeline(vk::PipelineBindPoint::eGraphics, app->shader->pipeline);
 
     vk::ArrayProxy<unsigned char const> constants{'a', 'a', 'a', 'a'};
     cmd->pushConstants(app->shader->pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, constants);
 
-    // bind descriptor sets
     cmd->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, app->shader->pipelineLayout, 0, *app->shader->descriptorSet, {});
 
     // draw mesh
-    cmd->bindIndexBuffer(*app->mesh.indexBuffer.buffer, 0, vk::IndexType::eUint32);
-    cmd->bindVertexBuffers(0, *app->mesh.vertexBuffer.buffer, {0});
-    cmd->drawIndexed(app->mesh.indexCount, 1, 0, 0, 0);
+    {
+        cmd->bindIndexBuffer(*app->mesh.indexBuffer.buffer, 0, vk::IndexType::eUint32);
+        cmd->bindVertexBuffers(0, *app->mesh.vertexBuffer.buffer, {0});
+        cmd->drawIndexed(app->mesh.indexCount, 1, 0, 0, 0);
+    }
 
     cmd->endRenderPass();
     cmd->end();
+
     vk::PipelineStageFlags waitDestinationStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
     vk::SubmitInfo submitInfo{
         .waitSemaphoreCount = 1,
