@@ -71,7 +71,8 @@ struct Shader
     // add any metadata / reflection information here
 
     // descriptor sets
-    std::vector<vk::raii::DescriptorSetLayout> descriptorSetLayouts;
+    vk::raii::DescriptorSetLayout descriptorSetLayout = nullptr;
+    vk::raii::DescriptorSet descriptorSet = nullptr;
 
     // pipeline
     vk::raii::PipelineLayout pipelineLayout = nullptr;
@@ -179,6 +180,8 @@ struct Buffer
 struct Mesh
 {
     uint32_t vertexCount = 0;
+    uint32_t indexCount = 0;
+    vk::IndexType indexType = vk::IndexType::eUint32;
     Buffer vertexBuffer;
     Buffer indexBuffer;
 };
@@ -237,6 +240,7 @@ struct App
 
     // pipeline
     vk::raii::PipelineCache pipelineCache = nullptr;
+    vk::raii::DescriptorPool descriptorPool = nullptr;
     std::unique_ptr<Shader> shader;
 
     // memory allocator
@@ -482,6 +486,7 @@ void onResize(App* app)
 
 [[nodiscard]] std::unique_ptr<Shader> createShader(
     vk::raii::Device const* device,
+    vk::raii::DescriptorPool const* descriptorPool,
     vk::raii::PipelineCache const* cache,
     vk::raii::RenderPass const* renderPass,
     std::filesystem::path const& vertexPath,
@@ -656,8 +661,17 @@ void onResize(App* app)
         .bindingCount = (uint32_t)descriptorSetBindings.size(),
         .pBindings = descriptorSetBindings.data()
     };
-    vk::raii::DescriptorSetLayout descriptorSet1 = device->createDescriptorSetLayout(descriptorSet1Info).value();
-    shader->descriptorSetLayouts.emplace_back(std::move(descriptorSet1));
+    shader->descriptorSetLayout = device->createDescriptorSetLayout(descriptorSet1Info).value();
+
+    // create descriptor sets based on layout
+    vk::DescriptorSetAllocateInfo info{
+        .descriptorPool = *descriptorPool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &*shader->descriptorSetLayout
+    };
+    std::vector<vk::raii::DescriptorSet> sets = device->allocateDescriptorSets(info).value();
+    assert(sets.size() == 1);
+    shader->descriptorSet = std::move(sets[0]);
 
     vk::PushConstantRange vertexPushConstants{
         .stageFlags = vk::ShaderStageFlagBits::eVertex,
@@ -667,14 +681,10 @@ void onResize(App* app)
     std::vector<vk::PushConstantRange> pushConstants{vertexPushConstants};
 
     // create pipeline layout
-    std::vector<vk::DescriptorSetLayout> descriptorSetLayouts;
-    for (auto& descriptorSetLayout: shader->descriptorSetLayouts)
-    {
-        descriptorSetLayouts.emplace_back(*descriptorSetLayout);
-    }
+
     vk::PipelineLayoutCreateInfo layoutInfo{
-        .setLayoutCount = (uint32_t)descriptorSetLayouts.size(),
-        .pSetLayouts = descriptorSetLayouts.data(),
+        .setLayoutCount = 1,
+        .pSetLayouts = &*shader->descriptorSetLayout,
         .pushConstantRangeCount = (uint32_t)pushConstants.size(),
         .pPushConstantRanges = pushConstants.data()
     };
@@ -722,7 +732,6 @@ Buffer createBuffer(
         allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     }
 
-
     VkBuffer buffer;
     VmaAllocation allocation;
     vmaCreateBuffer(
@@ -757,10 +766,9 @@ void uploadToBuffer(
     else
     {
         // use staging buffer
-
+        assert(false);
 
         // get queue
-
     }
 }
 
@@ -1049,11 +1057,32 @@ void onLaunch(App* app, int argc, char** argv)
         app->pipelineCache = app->device.createPipelineCache(pipelineCacheInfo).value();
     }
 
+    // create descriptor pool
+    {
+        std::vector<vk::DescriptorPoolSize> pools{
+            {
+                .type = vk::DescriptorType::eUniformBuffer,
+                .descriptorCount = 1
+            },
+            {
+                .type = vk::DescriptorType::eCombinedImageSampler,
+                .descriptorCount = 1
+            }
+        };
+        vk::DescriptorPoolCreateInfo info{
+            .maxSets = 10,
+            .poolSizeCount = (uint32_t)pools.size(),
+            .pPoolSizes = pools.data()
+        };
+        app->descriptorPool = app->device.createDescriptorPool(info).value();
+    }
+
     // create graphics pipeline / create pipeline / create shader
     {
         std::filesystem::path shadersPath = app->config.assetsPath / "shaders_vulkan";
         app->shader = createShader(
             &app->device,
+            &app->descriptorPool,
             &app->pipelineCache,
             &app->renderPassMain,
             shadersPath / "shader_unlit.vert",
@@ -1127,6 +1156,8 @@ void onLaunch(App* app, int argc, char** argv)
             0, 1, 3,
             1, 2, 3
         };
+        mesh.indexCount = indices.size();
+        mesh.indexType = vk::IndexType::eUint32;
 
         size_t vertexBufferSize = vertices.size() * sizeof(VertexData);
         size_t indexBufferSize = indices.size() * sizeof(uint32_t);
@@ -1145,11 +1176,11 @@ void onLaunch(App* app, int argc, char** argv)
             .updateFrequently = true,
             .usage = vk::BufferUsageFlagBits::eIndexBuffer
         };
-        //mesh.indexBuffer = createBuffer(&app->device, *app->allocator, indexBufferInfo);
+        mesh.indexBuffer = createBuffer(&app->device, *app->allocator, indexBufferInfo);
 
         // copy data from CPU to GPU
-        //uploadToBuffer(*app->allocator, &mesh.vertexBuffer, vertices.data(), vertexBufferSize);
-        //uploadToBuffer(*app->allocator, &mesh.indexBuffer, indices.data(), indexBufferSize);
+        uploadToBuffer(*app->allocator, &mesh.vertexBuffer, vertices.data(), vertexBufferSize);
+        uploadToBuffer(*app->allocator, &mesh.indexBuffer, indices.data(), indexBufferSize);
 
         app->mesh = std::move(mesh);
     }
@@ -1214,14 +1245,17 @@ void onDraw(App* app)
     cmd->setScissor(0, scissor);
 
     cmd->bindPipeline(vk::PipelineBindPoint::eGraphics, app->shader->pipeline);
-    //cmd->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, app->pipelineLayout, 0, )
 
     vk::ArrayProxy<unsigned char const> constants{'a', 'a', 'a', 'a'};
     cmd->pushConstants(app->shader->pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, constants);
 
-    //cmd->bindIndexBuffer()
-    //cmd->bindVertexBuffers()
-    //cmd->drawIndexed()
+    // bind descriptor sets
+    cmd->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, app->shader->pipelineLayout, 0, *app->shader->descriptorSet, {});
+
+    // draw mesh
+    cmd->bindIndexBuffer(*app->mesh.indexBuffer.buffer, 0, vk::IndexType::eUint32);
+    cmd->bindVertexBuffers(0, *app->mesh.vertexBuffer.buffer, {0});
+    cmd->drawIndexed(app->mesh.indexCount, 1, 0, 0, 0);
 
     cmd->endRenderPass();
     cmd->end();
