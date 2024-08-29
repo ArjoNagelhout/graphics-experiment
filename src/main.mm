@@ -37,8 +37,6 @@
 #include "glm/gtx/transform.hpp"
 #include "glm/gtx/quaternion.hpp"
 
-
-
 #include <stack>
 
 struct App;
@@ -1780,7 +1778,7 @@ void onDraw(App* app)
         app->time -= 2.0f * pi_;
     }
 
-    // update sun and camera transform
+    // update sun / update camera transform
     {
         float speed = 0.1f;
         float rotationSpeed = 2.0f;

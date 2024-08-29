@@ -37,10 +37,11 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_LEFT_HANDED
 
-//#include <glm/glm.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/mat4x4.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtx/transform.hpp>
 
 // constants
 constexpr int sdlTimerStepRateInMilliseconds = 125;
@@ -187,9 +188,24 @@ struct Mesh
     Buffer indexBuffer;
 };
 
+struct Transform
+{
+    glm::vec3 position{0, 0, 0};
+    glm::quat rotation{1, 0, 0, 0};
+    glm::vec3 scale{1};
+};
+
+[[nodiscard]] glm::mat4 transformToMatrix(Transform const* transform)
+{
+    glm::mat4 translation = glm::translate(glm::mat4(1), transform->position);
+    glm::mat4 rotation = glm::toMat4(transform->rotation);
+    glm::mat4 scale = glm::scale(transform->scale);
+    return translation * rotation * scale;
+}
+
 struct CameraData
 {
-    glm::mat4 viewProjection;
+    glm::mat4 viewProjection = glm::mat4(1);
 };
 
 struct App
@@ -261,9 +277,22 @@ struct App
     Mesh mesh;
 
     // camera
+    Transform cameraTransform; // for calculating the camera data (which contains the viewProjection matrix)
+    float cameraYaw;
+    float cameraPitch;
+    float cameraRoll;
     CameraData cameraData; // data for GPU
     Buffer cameraDataBuffer;
+
+    // input
+    std::bitset<static_cast<size_t>(SDL_NUM_SCANCODES)> keys;
 };
+
+[[nodiscard]] bool isKeyPressed(App* app, SDL_Keycode key)
+{
+    SDL_Scancode scancode = SDL_GetScancodeFromKey(key, nullptr);
+    return app->keys[scancode];
+}
 
 void onLaunch(App* app, int argc, char** argv);
 
@@ -320,14 +349,30 @@ SDL_AppResult SDL_AppIterate(void* appstate)
     return SDL_APP_CONTINUE;
 }
 
+void onKeyDown(App* app, SDL_Scancode scancode)
+{
+    app->keys[scancode] = true;
+}
+
+void onKeyUp(App* app, SDL_Scancode scancode)
+{
+    app->keys[scancode] = false;
+}
+
 SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event const* event)
 {
+    App* app = (App*)appstate;
+
     switch (event->type)
     {
         case SDL_EVENT_QUIT:
             return SDL_APP_SUCCESS;
         case SDL_EVENT_USER:
         case SDL_EVENT_KEY_DOWN:
+            onKeyDown(app, event->key.scancode);
+            break;
+        case SDL_EVENT_KEY_UP:
+            onKeyUp(app, event->key.scancode);
             break;
     }
     return SDL_APP_CONTINUE;
@@ -1231,9 +1276,48 @@ void onDraw(App* app)
     FrameData* frame = &app->frames[app->currentFrame];
 
     // wait for the GPU to be done with the submitted command buffers of this frame data
-    assert(app->device.waitForFences(*frame->gpuHasExecutedCommandBuffer, true, std::numeric_limits<uint64_t>::max()) == vk::Result::eSuccess);
-    app->device.resetFences(*frame->gpuHasExecutedCommandBuffer);
-    frame->commandBuffer.reset();
+    {
+        assert(app->device.waitForFences(*frame->gpuHasExecutedCommandBuffer, true, std::numeric_limits<uint64_t>::max()) == vk::Result::eSuccess);
+        app->device.resetFences(*frame->gpuHasExecutedCommandBuffer);
+        frame->commandBuffer.reset();
+    }
+
+    // update camera transform / update camera data
+    {
+        float speed = 0.05f;
+        float rotationSpeed = 1.0f;
+
+        // update position
+        auto const dx = static_cast<float>(isKeyPressed(app, SDLK_D) - isKeyPressed(app, SDLK_A));
+        auto const dy = static_cast<float>(isKeyPressed(app, SDLK_E) - isKeyPressed(app, SDLK_Q));
+        auto const dz = static_cast<float>(isKeyPressed(app, SDLK_W) - isKeyPressed(app, SDLK_S));
+        glm::vec3 delta{dx, dy, dz};
+
+        delta *= speed;
+
+        //  update rotation
+        auto const dyaw = static_cast<float>(isKeyPressed(app, SDLK_RIGHT) - isKeyPressed(app, SDLK_LEFT));
+        auto const dpitch = static_cast<float>(isKeyPressed(app, SDLK_UP) - isKeyPressed(app, SDLK_DOWN));
+        auto const droll = static_cast<float>(isKeyPressed(app, SDLK_RIGHTBRACKET) - isKeyPressed(app, SDLK_LEFTBRACKET));
+        app->cameraYaw += dyaw * rotationSpeed;
+        app->cameraPitch += dpitch * rotationSpeed;
+        app->cameraRoll += droll * rotationSpeed;
+
+        glm::quat pitch = glm::angleAxis(glm::radians(-app->cameraPitch), glm::vec3(1, 0, 0));
+        glm::quat yaw = glm::angleAxis(glm::radians(app->cameraYaw), glm::vec3(0, 1, 0));
+        glm::quat roll = glm::angleAxis(glm::radians(app->cameraRoll), glm::vec3(0, 0, 1));
+        glm::quat rotation = yaw * pitch * roll;
+
+        Transform& c = app->cameraTransform;
+        c.position += rotation * delta;
+        c.rotation = rotation;
+        c.scale = glm::vec3{1, 1, 1};
+
+        std::cout << "camera position: x: " << c.position.x << ", y: " << c.position.y << ", z: " << c.position.z << std::endl;
+
+        // copy data to buffer
+        uploadToBuffer(*app->allocator, &app->cameraDataBuffer, &app->cameraData, sizeof(CameraData));
+    }
 
     // acquire image
     vk::AcquireNextImageInfoKHR info{
