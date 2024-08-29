@@ -711,7 +711,7 @@ Buffer createBuffer(
         .size = descriptor.size,
         .usage = descriptor.usage
     };
-    VmaAllocationCreateInfo allocationInfo;
+    VmaAllocationCreateInfo allocationInfo{};
     if (descriptor.updateFrequently)
     {
         allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
