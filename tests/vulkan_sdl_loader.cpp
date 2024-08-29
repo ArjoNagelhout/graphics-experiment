@@ -165,7 +165,7 @@ struct BufferDescriptor
 {
     size_t size = 0;
     // if update frequently is turned on, we don't use a staging buffer
-    bool updateFrequently = false;
+    bool updateFrequently = false; // update or accessed frequently
     vk::BufferUsageFlags usage;
 };
 
@@ -200,8 +200,10 @@ struct App
     vk::raii::Device device = nullptr;
 
     // queues
-    uint32_t graphicsQueueIndex = 0;
+    uint32_t transferQueueFamilyIndex = 0;
+    uint32_t graphicsQueueFamilyIndex = 0;
     vk::raii::Queue graphicsQueue = nullptr;
+    vk::raii::Queue transferQueue = nullptr;
 
     // surface
     vk::SurfaceFormatKHR surfaceFormat{
@@ -239,6 +241,11 @@ struct App
 
     // memory allocator
     vma::raii::Allocator allocator = nullptr;
+
+    // uploading from CPU to GPU
+    vk::raii::CommandPool uploadPool = nullptr;
+    vk::raii::CommandBuffer uploadBuffer = nullptr;
+    vk::raii::Fence gpuHasFinishedExecutingUploadBuffer = nullptr;
 
     // mesh
     Mesh mesh;
@@ -346,7 +353,7 @@ void onResize(App* app)
 
     // create swapchain
     {
-        std::vector<uint32_t> queueIndices{app->graphicsQueueIndex};
+        std::vector<uint32_t> queueIndices{app->graphicsQueueFamilyIndex};
         app->swapchainExtent = app->surfaceCapabilities.currentExtent;
         vk::SwapchainCreateInfoKHR info{
             .surface = app->surface,
@@ -704,9 +711,18 @@ Buffer createBuffer(
         .size = descriptor.size,
         .usage = descriptor.usage
     };
-    VmaAllocationCreateInfo allocationInfo{
-        .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    };
+    VmaAllocationCreateInfo allocationInfo;
+    if (descriptor.updateFrequently)
+    {
+        allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+    else
+    {
+        // if it's not frequently updated, we can keep it local in GPU memory
+        allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    }
+
+
     VkBuffer buffer;
     VmaAllocation allocation;
     vmaCreateBuffer(
@@ -741,6 +757,10 @@ void uploadToBuffer(
     else
     {
         // use staging buffer
+
+
+        // get queue
+
     }
 }
 
@@ -832,18 +852,52 @@ void onLaunch(App* app, int argc, char** argv)
         app->properties = app->physicalDevice.getProperties();
     }
 
-    // create logical device
+    // get queues family indices / get graphics queue and upload queue family indices
+    {
+        // loop through all available families
+        bool foundGraphics = false;
+        bool foundTransfer = false;
+
+        std::vector<vk::QueueFamilyProperties> families = app->physicalDevice.getQueueFamilyProperties();
+        for (int i = 0; i < families.size(); i++)
+        {
+            vk::QueueFamilyProperties family = families[i];
+
+            if (!foundGraphics && family.queueFlags & vk::QueueFlagBits::eGraphics)
+            {
+                app->graphicsQueueFamilyIndex = i;
+                foundGraphics = true;
+            }
+            else if (!foundTransfer && family.queueFlags & vk::QueueFlagBits::eTransfer)
+            {
+                app->transferQueueFamilyIndex = i;
+                foundTransfer = true;
+            }
+        }
+
+        // for now
+        assert(app->graphicsQueueFamilyIndex != app->transferQueueFamilyIndex);
+    }
+
+    // create logical device / create device
     {
         // we need to specify which queues need to be created
-        std::vector<float> priorities{1.0f};
+        float priority = 1.0f;
         vk::DeviceQueueCreateInfo graphicsQueue{
-            .queueFamilyIndex = app->graphicsQueueIndex,
-            .queueCount = (uint32_t)priorities.size(),
-            .pQueuePriorities = priorities.data()
+            .queueFamilyIndex = app->graphicsQueueFamilyIndex,
+            .queueCount = 1,
+            .pQueuePriorities = &priority
+        };
+
+        vk::DeviceQueueCreateInfo transferQueue{
+            .queueFamilyIndex = app->transferQueueFamilyIndex,
+            .queueCount = 1,
+            .pQueuePriorities = &priority
         };
 
         std::vector<vk::DeviceQueueCreateInfo> queues{
-            graphicsQueue
+            graphicsQueue,
+            transferQueue
         };
 
         std::vector<char const*> enabledLayerNames;
@@ -865,23 +919,10 @@ void onLaunch(App* app, int argc, char** argv)
         app->device = app->physicalDevice.createDevice(info).value();
     }
 
-    // create graphics queue
+    // get queues
     {
-        std::vector<vk::QueueFamilyProperties2> properties = app->physicalDevice.getQueueFamilyProperties2();
-        for (int i = 0; i < properties.size(); i++)
-        {
-            vk::QueueFamilyProperties2 p = properties[i];
-            if (p.queueFamilyProperties.queueFlags & vk::QueueFlagBits::eGraphics)
-            {
-                app->graphicsQueueIndex = i;
-                break;
-            }
-        }
-        vk::DeviceQueueInfo2 queueInfo{
-            .queueFamilyIndex = app->graphicsQueueIndex,
-            .queueIndex = 0
-        };
-        app->graphicsQueue = app->device.getQueue2(queueInfo).value();
+        app->graphicsQueue = app->device.getQueue(app->graphicsQueueFamilyIndex, 0).value();
+        app->transferQueue = app->device.getQueue(app->transferQueueFamilyIndex, 0).value();
     }
 
     // create render pass
@@ -969,7 +1010,7 @@ void onLaunch(App* app, int argc, char** argv)
     {
         vk::CommandPoolCreateInfo graphicsPoolInfo{
             .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-            .queueFamilyIndex = app->graphicsQueueIndex
+            .queueFamilyIndex = app->graphicsQueueFamilyIndex
         };
         app->graphicsPool = app->device.createCommandPool(graphicsPoolInfo).value();
     }
@@ -1042,6 +1083,28 @@ void onLaunch(App* app, int argc, char** argv)
         assert(result == VK_SUCCESS);
     }
 
+    // create upload context (for uploading from CPU to GPU using staging buffers)
+    {
+        // create pool
+        vk::CommandPoolCreateInfo uploadPoolInfo{
+            .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+            .queueFamilyIndex = app->transferQueueFamilyIndex
+        };
+        app->uploadPool = app->device.createCommandPool(uploadPoolInfo).value();
+
+        // create command buffer
+        vk::CommandBufferAllocateInfo bufferInfo{
+            .commandPool = app->uploadPool,
+            .level = vk::CommandBufferLevel::ePrimary,
+            .commandBufferCount = 1
+        };
+        std::vector<vk::raii::CommandBuffer> buffer = app->device.allocateCommandBuffers(bufferInfo).value();
+        app->uploadBuffer = std::move(buffer[0]);
+    }
+
+    std::cout << "graphics queue family index: " << app->graphicsQueueFamilyIndex << std::endl;
+    std::cout << "transfer queue family index: " << app->transferQueueFamilyIndex << std::endl;
+
     // create mesh
     {
         Mesh mesh;
@@ -1082,10 +1145,11 @@ void onLaunch(App* app, int argc, char** argv)
             .updateFrequently = true,
             .usage = vk::BufferUsageFlagBits::eIndexBuffer
         };
-        mesh.indexBuffer = createBuffer(&app->device, *app->allocator, indexBufferInfo);
+        //mesh.indexBuffer = createBuffer(&app->device, *app->allocator, indexBufferInfo);
 
         // copy data from CPU to GPU
-        uploadToBuffer(*app->allocator, &mesh.vertexBuffer, vertices.data(), vertexBufferSize);
+        //uploadToBuffer(*app->allocator, &mesh.vertexBuffer, vertices.data(), vertexBufferSize);
+        //uploadToBuffer(*app->allocator, &mesh.indexBuffer, indices.data(), indexBufferSize);
 
         app->mesh = std::move(mesh);
     }

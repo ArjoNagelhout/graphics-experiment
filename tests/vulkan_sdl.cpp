@@ -43,7 +43,7 @@ struct App
     vk::raii::Device device = nullptr;
 
     // queues
-    uint32_t graphicsQueueIndex = 0;
+    uint32_t graphicsQueueFamilyIndex = 0;
     vk::raii::Queue graphicsQueue = nullptr;
 
     // surface
@@ -228,7 +228,7 @@ void onLaunch(App* app)
         std::vector<float> priorities{1.0f};
         vk::DeviceQueueCreateInfo graphicsQueue(
             {},
-            app->graphicsQueueIndex,
+            app->graphicsQueueFamilyIndex,
             priorities);
 
         std::vector<vk::DeviceQueueCreateInfo> queues{
@@ -259,16 +259,16 @@ void onLaunch(App* app)
             vk::QueueFamilyProperties2 p = properties[i];
             if (p.queueFamilyProperties.queueFlags & vk::QueueFlagBits::eGraphics)
             {
-                app->graphicsQueueIndex = i;
+                app->graphicsQueueFamilyIndex = i;
                 break;
             }
         }
         vk::DeviceQueueInfo2 queueInfo(
             {},
-            app->graphicsQueueIndex,
+            app->graphicsQueueFamilyIndex,
             0
         );
-        std::cout << app->graphicsQueueIndex << std::endl;
+        std::cout << app->graphicsQueueFamilyIndex << std::endl;
         app->graphicsQueue = app->device.getQueue2(queueInfo).value();
     }
 
@@ -283,7 +283,7 @@ void onLaunch(App* app)
 
     // create swapchain
     {
-        std::vector<uint32_t> queueIndices{app->graphicsQueueIndex};
+        std::vector<uint32_t> queueIndices{app->graphicsQueueFamilyIndex};
         app->swapchainExtent = app->surfaceCapabilities.currentExtent;
         vk::SwapchainCreateInfoKHR info{
             {},
@@ -451,7 +451,7 @@ void onDraw(App* app)
     // create command pool
     vk::CommandPoolCreateInfo graphicsPoolInfo(
         vk::CommandPoolCreateFlagBits::eTransient,
-        app->graphicsQueueIndex
+        app->graphicsQueueFamilyIndex
     );
     vk::raii::CommandPool graphicsPool = app->device.createCommandPool(graphicsPoolInfo).value();
 
