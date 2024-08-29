@@ -1202,15 +1202,15 @@ void onLaunch(App* app, int argc, char** argv)
         std::vector<VertexData> vertices = std::vector<VertexData>{
             VertexData{.position{minX, minY, 0.0f}},
             VertexData{.position{maxX, minY, 0.0f}},
-            VertexData{.position{minX, maxY, 0.0f}},
             VertexData{.position{maxX, maxY, 0.0f}},
+            VertexData{.position{minX, maxY, 0.0f}},
         };
         mesh.vertexCount = vertices.size();
 
         // indices
         std::vector<uint32_t> indices = std::vector<uint32_t>{
-            0, 1, 3,
-            1, 2, 3
+            0, 1, 2,
+            0, 2, 3
         };
         mesh.indexCount = indices.size();
         mesh.indexType = vk::IndexType::eUint32;
@@ -1295,7 +1295,7 @@ void onDraw(App* app)
 
         delta *= speed;
 
-        //  update rotation
+        // update rotation
         auto const dyaw = static_cast<float>(isKeyPressed(app, SDLK_RIGHT) - isKeyPressed(app, SDLK_LEFT));
         auto const dpitch = static_cast<float>(isKeyPressed(app, SDLK_UP) - isKeyPressed(app, SDLK_DOWN));
         auto const droll = static_cast<float>(isKeyPressed(app, SDLK_RIGHTBRACKET) - isKeyPressed(app, SDLK_LEFTBRACKET));
