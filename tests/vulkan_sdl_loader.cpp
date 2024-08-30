@@ -1060,7 +1060,7 @@ void onLaunch(App* app, int argc, char** argv)
     // create window
     {
         SDL_WindowFlags windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN;
-        app->window = SDL_CreateWindow("sdl window test", 600, 400, windowFlags);
+        app->window = SDL_CreateWindow("vulkan sld loader experiment", 600, 400, windowFlags);
         assert(app->window);
     }
 

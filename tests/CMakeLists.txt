@@ -75,5 +75,23 @@ set_target_properties(vulkan_sdl_loader_experiment PROPERTIES
         BUILD_RPATH ${VULKAN_LOADER_INSTALL_DIR}/lib
 )
 
+# sizes, just some basic hello world main function so that I could test some things
 add_executable(sizes sizes.cpp)
 target_link_libraries(sizes PUBLIC glm)
+
+# vulkan vr experiment
+# we need to figure out some way to create an android project
+add_executable(vulkan_meta_quest_open_xr vulkan_meta_quest_open_xr.cpp)
+target_link_libraries(vulkan_meta_quest_open_xr PUBLIC
+        SDL3::SDL3
+        glm
+        VulkanMemoryAllocator
+        vulkan_headers
+        vulkan_loader
+        vulkan_validation_layers
+        glslang
+        glslang-default-resource-limits
+)
+set_target_properties(vulkan_meta_quest_open_xr PROPERTIES
+        BUILD_RPATH ${VULKAN_LOADER_INSTALL_DIR}/lib
+)
