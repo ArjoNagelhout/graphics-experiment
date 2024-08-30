@@ -65,6 +65,10 @@ struct AppConfig
     std::filesystem::path privateAssetsPath;
 
     uint32_t vulkanApiVersion = 0;
+
+    float cameraFov = 90.0f;
+    float cameraNear = 0.1f;
+    float cameraFar = 1000.0f;
 };
 
 // maybe shader variants can be stored directly inside this same structure?
@@ -642,7 +646,7 @@ void onResize(App* app)
         .depthClampEnable = false,
         .rasterizerDiscardEnable = false,
         .polygonMode = vk::PolygonMode::eFill,
-        .cullMode = vk::CullModeFlagBits::eBack,
+        .cullMode = vk::CullModeFlagBits::eNone,
         .frontFace = vk::FrontFace::eClockwise,
         .depthBiasEnable = false,
         .depthBiasConstantFactor = 0.0f,
@@ -1313,7 +1317,16 @@ void onDraw(App* app)
         c.rotation = rotation;
         c.scale = glm::vec3{1, 1, 1};
 
-        std::cout << "camera position: x: " << c.position.x << ", y: " << c.position.y << ", z: " << c.position.z << std::endl;
+        //std::cout << "camera position: x: " << c.position.x << ", y: " << c.position.y << ", z: " << c.position.z << std::endl;
+
+        // calculate
+        vk::Extent2D size = app->surfaceCapabilities.currentExtent;
+        glm::mat4 projection = glm::perspective(
+            glm::radians(app->config.cameraFov),
+            (float)size.width / (float)size.height,
+            app->config.cameraNear, app->config.cameraFar);
+        glm::mat4 view = glm::inverse(transformToMatrix(&app->cameraTransform));
+        app->cameraData.viewProjection = projection * view;
 
         // copy data to buffer
         uploadToBuffer(*app->allocator, &app->cameraDataBuffer, &app->cameraData, sizeof(CameraData));
@@ -1372,8 +1385,9 @@ void onDraw(App* app)
 
     cmd->bindPipeline(vk::PipelineBindPoint::eGraphics, app->shader->pipeline);
 
-    vk::ArrayProxy<unsigned char const> constants{'a', 'a', 'a', 'a'};
-    cmd->pushConstants(app->shader->pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, constants);
+    glm::mat4 localToWorld(1); // identity
+
+    vkCmdPushConstants(**cmd, *app->shader->pipelineLayout, (VkShaderStageFlags)vk::ShaderStageFlagBits::eVertex, 0, sizeof(glm::mat4), &localToWorld);
 
     cmd->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, app->shader->pipelineLayout, 0, *app->shader->descriptorSet, {});
 
