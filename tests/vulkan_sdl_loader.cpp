@@ -1369,9 +1369,9 @@ void onDraw(App* app)
     {
         vk::Viewport viewport{
             .x = 0,
-            .y = 0,
+            .y = (float)app->swapchainExtent.height,
             .width = (float)app->swapchainExtent.width,
-            .height = (float)app->swapchainExtent.height,
+            .height = -(float)app->swapchainExtent.height,
             .minDepth = 0.0f,
             .maxDepth = 1.0f
         };
