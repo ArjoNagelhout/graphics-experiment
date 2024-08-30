@@ -281,10 +281,12 @@ struct App
     Mesh mesh;
 
     // camera
-    Transform cameraTransform; // for calculating the camera data (which contains the viewProjection matrix)
-    float cameraYaw;
-    float cameraPitch;
-    float cameraRoll;
+    Transform cameraTransform{
+        glm::vec3{-0.5f, 0, -0.8f}
+    }; // for calculating the camera data (which contains the viewProjection matrix)
+    float cameraYaw = 25.0f;
+    float cameraPitch = 0.0f;
+    float cameraRoll = 0.0f;
     CameraData cameraData; // data for GPU
     Buffer cameraDataBuffer;
 
@@ -1317,7 +1319,7 @@ void onDraw(App* app)
         c.rotation = rotation;
         c.scale = glm::vec3{1, 1, 1};
 
-        //std::cout << "camera position: x: " << c.position.x << ", y: " << c.position.y << ", z: " << c.position.z << std::endl;
+        std::cout << "camera position: x: " << c.position.x << ", y: " << c.position.y << ", z: " << c.position.z << std::endl;
 
         // calculate
         vk::Extent2D size = app->surfaceCapabilities.currentExtent;

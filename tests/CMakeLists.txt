@@ -74,3 +74,6 @@ target_link_libraries(vulkan_sdl_loader_experiment PUBLIC
 set_target_properties(vulkan_sdl_loader_experiment PROPERTIES
         BUILD_RPATH ${VULKAN_LOADER_INSTALL_DIR}/lib
 )
+
+add_executable(sizes sizes.cpp)
+target_link_libraries(sizes PUBLIC glm)
