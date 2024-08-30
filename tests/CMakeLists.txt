@@ -17,9 +17,6 @@ set_source_files_properties(main.cpp PROPERTIES
 add_executable(ifc ifc.cpp)
 target_link_libraries(ifc PUBLIC ifcopenshell)
 
-# parser experiment
-add_executable(parser parser.cpp)
-
 # sdl window experiment
 add_executable(sdl_experiment sdl.mm)
 target_link_libraries(sdl_experiment PRIVATE SDL3::SDL3)
@@ -74,10 +71,6 @@ target_link_libraries(vulkan_sdl_loader_experiment PUBLIC
 set_target_properties(vulkan_sdl_loader_experiment PROPERTIES
         BUILD_RPATH ${VULKAN_LOADER_INSTALL_DIR}/lib
 )
-
-# sizes, just some basic hello world main function so that I could test some things
-add_executable(sizes sizes.cpp)
-target_link_libraries(sizes PUBLIC glm)
 
 # vulkan vr experiment
 # we need to figure out some way to create an android project
