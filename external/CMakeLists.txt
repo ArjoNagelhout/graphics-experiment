@@ -197,3 +197,6 @@ add_subdirectory(glslang)
 
 # VulkanMemoryAllocator (vma), because Vulkan is very verbose for memory management
 add_subdirectory(VulkanMemoryAllocator)
+
+# googletest
+add_subdirectory(googletest)

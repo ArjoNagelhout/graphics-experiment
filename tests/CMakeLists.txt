@@ -1,5 +1,3 @@
-add_subdirectory(external/googletest)
-
 set(TESTS_SOURCES
         main.cpp
         gltf.mm
