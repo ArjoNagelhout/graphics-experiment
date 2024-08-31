@@ -29,10 +29,19 @@ JNI (Java Native Interface) needed
 We copy the project structure from [SDL/android-project](../external/SDL/android-project) and create
 symlinks. 
 
-Symlink 1:  
-`external/SDL/android-project/app/src/main/java/org/libsdl/app` to
-`platforms/android/app/src/main/java/org/libsdl/app`
-
 jni folder is copied from the `external/SDL/android-project/app/jni`
 
-Symlink 2:
+## Symlink 1
+```shell
+cd platforms/android/app/jni
+ln -s ../../../../external/SDL
+```
+
+## Symlink 2
+
+```shell
+cd platforms/android/app/src/main/
+mkdir java/org/
+cd java/org
+ln -s ../../../../../../../external/SDL/android-project/app/src/main/java/org/libsdl
+```
