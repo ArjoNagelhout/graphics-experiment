@@ -1,26 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+          package="com.shapereality.graphics_experiment"
+          android:versionCode="1"
+          android:versionName="1.0"
+          android:installLocation="auto">
+    <uses-sdk
+            android:minSdkVersion="29"
+            android:targetSdkVersion="32" />
+    <uses-feature
+            android:name="android.hardware.vr.headtracking"
+            android:required="true"
+            android:version="1" />
 
     <application
-        android:allowBackup="true"
-        android:dataExtractionRules="@xml/data_extraction_rules"
-        android:fullBackupContent="@xml/backup_rules"
-        android:icon="@mipmap/ic_launcher"
-        android:label="@string/app_name"
-        android:roundIcon="@mipmap/ic_launcher_round"
-        android:supportsRtl="true"
-        android:theme="@style/Theme.GraphicsExperiment"
-        tools:targetApi="31">
-        <activity
-            android:name=".MainActivity"
-            android:exported="true">
+                 android:icon="@mipmap/ic_launcher"
+                 android:theme="@style/GraphicsExperiment">
+        <activity android:name="SDLActivity"
+                  android:label="@string/app_name"
+                  android:alwaysRetainTaskState="true"
+                  android:preferMinimalPostProcessing="true"
+                  android:exported="true"
+                  android:screenOrientation="landscape"
+                  android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+                  android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|uiMode"
+                  android:launchMode="singleTask"
+                  android:resizeableActivity="false"
+        >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
     </application>
-
 </manifest>
