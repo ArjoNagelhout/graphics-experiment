@@ -22,3 +22,14 @@ this is the driver that gets loaded by the vulkan loader
 for this, we should specify the driver in the environment variables via VK_ADD_DRIVER_FILES (see https://github.com/KhronosGroup/Vulkan-Loader/blob/main/docs/LoaderInterfaceArchitecture.md#table-of-debug-environment-variables)
 e.g.:
 VK_ADD_DRIVER_FILES=/Users/arjonagelhout/Documents/Experiments/metal-experiment/external/MoltenVK/Package/Debug/MoltenVK/dylib/macOS/MoltenVK_icd.json
+
+# New approach:
+
+We simply use the SDK, as building from source is silly and also too platform specific (Android, iOS and macOS each have individual needs). 
+Using prepackaged binaries / libraries is easier. 
+
+How to install the Vulkan SDK for macOS:
+
+1. https://vulkan.lunarg.com/sdk/home -> download latest SDK dmg for macOS
+2. Open the dmg and run InstallVulkan, then install Vulkan with any wanted optional components
+3. run `sudo python ./install_vulkan.py` because otherwise the binaries are not symlinked to /usr/local and /usr/bin etc.
