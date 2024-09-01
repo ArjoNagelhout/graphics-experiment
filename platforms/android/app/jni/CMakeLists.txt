@@ -1,9 +1,7 @@
-cmake_minimum_required(VERSION 3.6)
+cmake_minimum_required(VERSION 3.22)
+project(metal_experiment)
 
-project(GAME)
+set(CMAKE_CXX_STANDARD 23)
 
-# SDL sources are in a subfolder named "SDL"
-add_subdirectory(SDL)
-
-# Your game and its CMakeLists.txt are in a subfolder named "src"
-add_subdirectory(src)
+add_subdirectory(external/SDL)
+add_subdirectory(src_vulkan)

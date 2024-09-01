@@ -31,19 +31,25 @@ symlinks.
 
 jni folder is copied from the `external/SDL/android-project/app/jni`
 
-## Symlink 1
-```shell
-cd platforms/android/app/jni
-ln -s ../../../../external/SDL
-```
-
-## Symlink 2
+## Symlink 1 - java libsdl wrapper
 
 ```shell
 cd platforms/android/app/src/main/
 mkdir java/org/
 cd java/org
 ln -s ../../../../../../../external/SDL/android-project/app/src/main/java/org/libsdl
+```
+
+## Symlink 2 - JNI external folder
+```shell
+cd platforms/android/app/jni
+ln -s ../../../../external
+```
+
+## Symlink 3 - JNI src_vulkan folder
+```shell
+cd platforms/android/app/jni
+ln -s ../../../../src_vulkan
 ```
 
 ## Source
