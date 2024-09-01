@@ -45,3 +45,5 @@ mkdir java/org/
 cd java/org
 ln -s ../../../../../../../external/SDL/android-project/app/src/main/java/org/libsdl
 ```
+
+## Source
