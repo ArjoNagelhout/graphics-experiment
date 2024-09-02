@@ -27,9 +27,7 @@
 
 #include <shaderc/shaderc.hpp>
 
-#undef VK_VERSION_1_3
-#undef VK_VERSION_1_2
-//#define VK_VERSION_1_1
+#define VMA_VULKAN_VERSION 1001000
 #define VMA_IMPLEMENTATION
 
 #pragma clang diagnostic push
