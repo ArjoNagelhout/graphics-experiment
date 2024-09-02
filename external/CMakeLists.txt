@@ -128,16 +128,9 @@ if (ANDROID)
             Vulkan-Headers # hpp headers are not provided by the Android NDK, so we have to add it manually
     )
 else ()
-    find_package(Vulkan REQUIRED COMPONENTS glslang SPIRV-Tools)
-    find_library(GLSLANG_DEFAULT glslang-default-resource-limits)
-    find_library(SPIRV_TOOLS_OPT SPIRV-Tools-opt)
-
+    find_package(Vulkan REQUIRED COMPONENTS shaderc_combined)
     target_link_libraries(vulkan INTERFACE
             Vulkan::Vulkan
-            Vulkan::glslang
-            Vulkan::SPIRV-Tools
-            ${GLSLANG_DEFAULT}
-            ${SPIRV_TOOLS_OPT}
+            Vulkan::shaderc_combined
     )
-    target_include_directories(vulkan INTERFACE ${Vulkan_INCLUDE_DIRS})
 endif ()

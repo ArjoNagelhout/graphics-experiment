@@ -23,15 +23,15 @@
 #include <SDL3/SDL_vulkan.h>
 #include <SDL3/SDL_main.h>
 
-#include <glslang/Public/ShaderLang.h>
-#include <glslang/Public/ResourceLimits.h>
-#include <glslang/SPIRV/GlslangToSpv.h>
+#include <shaderc/shaderc.hpp>
 
 #define VMA_IMPLEMENTATION
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnullability-completeness"
+
 #include <vk_mem_alloc.h>
+
 #pragma clang diagnostic pop
 
 // the following should be defined before including any headers that use glm, otherwise things break
@@ -490,7 +490,7 @@ void onResize(App* app)
     }
 }
 
-[[nodiscard]] vk::raii::ShaderModule createShaderModule(vk::raii::Device const* device, std::filesystem::path const& path, EShLanguage stage)
+[[nodiscard]] vk::raii::ShaderModule createShaderModule(vk::raii::Device const* device, std::filesystem::path const& path, shaderc_shader_kind stage)
 {
     assert(std::filesystem::exists(path));
 
@@ -499,45 +499,19 @@ void onResize(App* app)
     buffer << file.rdbuf();
     std::string string = buffer.str();
 
-    glslang::InitializeProcess();
-    EShMessages messages = EShMessages::EShMsgDebugInfo;
+    shaderc::Compiler compiler;
+    shaderc::CompileOptions options;
 
-    glslang::TShader shader(stage);
+    shaderc::SpvCompilationResult module = compiler.CompileGlslToSpv(
+        string.c_str(), string.size(), stage, path.filename().c_str(), options);
 
-    std::vector<char const*> strings{string.c_str()};
-    shader.setStrings(strings.data(), 1);
-    shader.setEnvInput(glslang::EShSourceGlsl, stage, glslang::EShClientVulkan, 100);
-    shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_2);
-    shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_2);
-    bool success = shader.parse(GetDefaultResources(), 110, false, messages);
-    assert(success);
+    if (module.GetCompilationStatus() !=
+        shaderc_compilation_status_success)
+    {
+        std::cerr << module.GetErrorMessage();
+    }
 
-    glslang::TProgram program;
-    program.addShader(&shader);
-    success = program.link(messages);
-    std::cout << program.getInfoDebugLog() << std::endl;
-    assert(success);
-
-    // loop through all shader stages and add if that stage exists
-    glslang::TIntermediate* intermediate = program.getIntermediate(stage);
-
-    std::vector<uint32_t> spirv;
-    spv::SpvBuildLogger logger;
-    glslang::SpvOptions options{
-        .generateDebugInfo = false,
-        .stripDebugInfo = false,
-        .disableOptimizer = false,
-        .optimizeSize = false,
-        .disassemble = false,
-        .validate = true,
-        .emitNonSemanticShaderDebugInfo = false,
-        .emitNonSemanticShaderDebugSource = false,
-        .compileOnly = false
-    };
-    glslang::GlslangToSpv(*intermediate, spirv, &logger, &options);
-    std::cout << logger.getAllMessages() << std::endl;
-
-    glslang::FinalizeProcess();
+    std::vector<uint32_t> spirv(module.cbegin(), module.cend());
 
     vk::ShaderModuleCreateInfo moduleInfo{
         .codeSize = spirv.size() * sizeof(uint32_t),
@@ -560,7 +534,7 @@ void onResize(App* app)
 
     // stages
     // vertex stage
-    vk::raii::ShaderModule vertexModule = createShaderModule(device, vertexPath, EShLanguage::EShLangVertex);
+    vk::raii::ShaderModule vertexModule = createShaderModule(device, vertexPath, shaderc_glsl_default_vertex_shader);
     vk::PipelineShaderStageCreateInfo vertexStage{
         .stage = vk::ShaderStageFlagBits::eVertex,
         .module = *vertexModule,
@@ -569,7 +543,7 @@ void onResize(App* app)
     };
 
     // fragment stage
-    vk::raii::ShaderModule fragmentModule = createShaderModule(device, fragmentPath, EShLanguage::EShLangFragment);
+    vk::raii::ShaderModule fragmentModule = createShaderModule(device, fragmentPath, shaderc_glsl_default_fragment_shader);
     vk::PipelineShaderStageCreateInfo fragmentStage{
         .stage = vk::ShaderStageFlagBits::eFragment,
         .module = *fragmentModule,
@@ -692,7 +666,7 @@ void onResize(App* app)
         .logicOp = vk::LogicOp::eCopy,
         .attachmentCount = (uint32_t)colorBlendAttachments.size(),
         .pAttachments = colorBlendAttachments.data(),
-        .blendConstants = std::array<float, 4>{0.0f, 0.0f, 0.0f, 0.0f}
+        .blendConstants = std::array < float, 4 > {0.0f, 0.0f, 0.0f, 0.0f}
     };
 
     std::vector<vk::DynamicState> dynamicStates{
