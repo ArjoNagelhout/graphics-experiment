@@ -80,30 +80,32 @@ target_include_directories(libjpeg-turbo INTERFACE ${LIBJPEG_TURBO_DIR})
 # see https://docs.ifcopenshell.org/ifcopenshell/installation.html
 
 # default options:
-option(BUILD_IFCGEOM "" ON)
-option(BUILD_IFCPYTHON "" OFF)
-option(BUILD_CONVERT "" OFF)
-option(BUILD_DOCUMENTATION "" OFF)
-option(BUILD_EXAMPLES "" OFF)
-option(BUILD_GEOMSERVER "" OFF)
-option(BUILD_IFCMAX "" OFF)
-option(BUILD_QTVIEWER "" OFF)
-option(BUILD_PACKAGE "" OFF)
-option(GLTF_SUPPORT "" OFF)
-option(CITYJSON_SUPPORT "" OFF)
-option(COLLADA_SUPPORT "" OFF)
-option(HDF5_SUPPORT "" OFF)
-option(WITH_CGAL "" OFF)
-add_subdirectory(IfcOpenShell/cmake)
+if (NOT ANDROID)
+    option(BUILD_IFCGEOM "" ON)
+    option(BUILD_IFCPYTHON "" OFF)
+    option(BUILD_CONVERT "" OFF)
+    option(BUILD_DOCUMENTATION "" OFF)
+    option(BUILD_EXAMPLES "" OFF)
+    option(BUILD_GEOMSERVER "" OFF)
+    option(BUILD_IFCMAX "" OFF)
+    option(BUILD_QTVIEWER "" OFF)
+    option(BUILD_PACKAGE "" OFF)
+    option(GLTF_SUPPORT "" OFF)
+    option(CITYJSON_SUPPORT "" OFF)
+    option(COLLADA_SUPPORT "" OFF)
+    option(HDF5_SUPPORT "" OFF)
+    option(WITH_CGAL "" OFF)
+    add_subdirectory(IfcOpenShell/cmake)
 
-add_library(ifcopenshell INTERFACE)
-target_link_libraries(ifcopenshell INTERFACE IfcParse IfcGeom)
-target_include_directories(ifcopenshell INTERFACE IfcOpenShell/src)
+    add_library(ifcopenshell INTERFACE)
+    target_link_libraries(ifcopenshell INTERFACE IfcParse IfcGeom)
+    target_include_directories(ifcopenshell INTERFACE IfcOpenShell/src)
 
-# eigen include dirs are required, but as IfcOpenShell uses include_directories rather than target_include_directories,
-# the include_directories do not get propagated outside ifcOpenShell/cmake/CMakeLists.txt
-find_package(Eigen3 3.3 REQUIRED NO_MODULE)
-target_link_libraries(ifcopenshell INTERFACE Eigen3::Eigen)
+    # eigen include dirs are required, but as IfcOpenShell uses include_directories rather than target_include_directories,
+    # the include_directories do not get propagated outside ifcOpenShell/cmake/CMakeLists.txt
+    find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+    target_link_libraries(ifcopenshell INTERFACE Eigen3::Eigen)
+endif ()
 
 # SDL
 #because dealing with platform specific APIs for window creation is annoying
@@ -116,15 +118,26 @@ add_subdirectory(VulkanMemoryAllocator)
 add_subdirectory(googletest)
 
 # vulkan
-find_package(Vulkan REQUIRED COMPONENTS glslang SPIRV-Tools)
-find_library(GLSLANG_DEFAULT glslang-default-resource-limits)
-find_library(SPIRV_TOOLS_OPT SPIRV-Tools-opt)
-
 add_library(vulkan INTERFACE)
-target_link_libraries(vulkan INTERFACE
-        Vulkan::Vulkan
-        Vulkan::glslang
-        Vulkan::SPIRV-Tools
-        ${GLSLANG_DEFAULT}
-        ${SPIRV_TOOLS_OPT}
-)
+
+if (ANDROID)
+    add_subdirectory(Vulkan-Headers)
+    find_package(Vulkan REQUIRED)
+    target_link_libraries(vulkan INTERFACE
+            Vulkan::Vulkan
+            Vulkan-Headers # hpp headers are not provided by the Android NDK, so we have to add it manually
+    )
+else ()
+    find_package(Vulkan REQUIRED COMPONENTS glslang SPIRV-Tools)
+    find_library(GLSLANG_DEFAULT glslang-default-resource-limits)
+    find_library(SPIRV_TOOLS_OPT SPIRV-Tools-opt)
+
+    target_link_libraries(vulkan INTERFACE
+            Vulkan::Vulkan
+            Vulkan::glslang
+            Vulkan::SPIRV-Tools
+            ${GLSLANG_DEFAULT}
+            ${SPIRV_TOOLS_OPT}
+    )
+    target_include_directories(vulkan INTERFACE ${Vulkan_INCLUDE_DIRS})
+endif ()

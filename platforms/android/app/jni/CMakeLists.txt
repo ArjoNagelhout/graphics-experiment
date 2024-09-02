@@ -3,5 +3,5 @@ project(metal_experiment)
 
 set(CMAKE_CXX_STANDARD 23)
 
-add_subdirectory(external/SDL)
+add_subdirectory(external)
 add_subdirectory(src_vulkan)

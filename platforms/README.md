@@ -52,4 +52,5 @@ cd platforms/android/app/jni
 ln -s ../../../../src_vulkan
 ```
 
-## Source
+## Gradle + Cmake
+https://developer.android.com/ndk/guides/cmake.html#gradle

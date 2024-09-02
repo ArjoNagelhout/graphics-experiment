@@ -13,8 +13,19 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
-    }
 
+        externalNativeBuild {
+            cmake {
+                //arguments += ""
+            }
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path = file("jni/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -31,12 +42,7 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
-    externalNativeBuild {
-        cmake {
-            path = file("jni/CMakeLists.txt")
-            version = "3.22.1"
-        }
-    }
+
     buildFeatures {
         viewBinding = true
     }
