@@ -20,19 +20,11 @@ add_executable(sdl_experiment sdl.mm)
 target_link_libraries(sdl_experiment PRIVATE SDL3::SDL3)
 
 # vulkan sdl loader experiment
-find_package(Vulkan REQUIRED COMPONENTS glslang SPIRV-Tools)
-
-find_library(GLSLANG_DEFAULT glslang-default-resource-limits)
-find_library(SPIRV_TOOLS_OPT SPIRV-Tools-opt)
 
 add_executable(vulkan_sdl_loader_experiment vulkan_sdl_loader.cpp)
 target_link_libraries(vulkan_sdl_loader_experiment PUBLIC
         SDL3::SDL3
         glm
-        Vulkan::Vulkan
-        Vulkan::glslang
-        Vulkan::SPIRV-Tools
-        ${GLSLANG_DEFAULT}
-        ${SPIRV_TOOLS_OPT}
+        vulkan
         VulkanMemoryAllocator
 )

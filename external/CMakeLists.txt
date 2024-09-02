@@ -114,3 +114,17 @@ add_subdirectory(VulkanMemoryAllocator)
 
 # googletest
 add_subdirectory(googletest)
+
+# vulkan
+find_package(Vulkan REQUIRED COMPONENTS glslang SPIRV-Tools)
+find_library(GLSLANG_DEFAULT glslang-default-resource-limits)
+find_library(SPIRV_TOOLS_OPT SPIRV-Tools-opt)
+
+add_library(vulkan INTERFACE)
+target_link_libraries(vulkan INTERFACE
+        Vulkan::Vulkan
+        Vulkan::glslang
+        Vulkan::SPIRV-Tools
+        ${GLSLANG_DEFAULT}
+        ${SPIRV_TOOLS_OPT}
+)
