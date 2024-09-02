@@ -15,6 +15,8 @@
 #define VULKAN_HPP_NO_SMART_HANDLE
 #define VK_ENABLE_BETA_EXTENSIONS
 
+#define VK_VERSION
+
 #include <vulkan/vulkan_raii.hpp>
 
 #define SDL_MAIN_USE_CALLBACKS 1 /* use the callbacks instead of main() */
@@ -25,6 +27,9 @@
 
 #include <shaderc/shaderc.hpp>
 
+#undef VK_VERSION_1_3
+#undef VK_VERSION_1_2
+//#define VK_VERSION_1_1
 #define VMA_IMPLEMENTATION
 
 #pragma clang diagnostic push
@@ -820,7 +825,7 @@ void onLaunch(App* app, int argc, char** argv)
         app->config.assetsPath = argv[1];
         app->config.privateAssetsPath = argv[2];
 
-        app->config.vulkanApiVersion = vk::ApiVersion12;
+        app->config.vulkanApiVersion = vk::ApiVersion11;
     }
 
     // create sdl step timer
@@ -1337,8 +1342,8 @@ void onDraw(App* app)
         .clearValueCount = (uint32_t)clearValues.size(),
         .pClearValues = clearValues.data()
     };
-    vk::SubpassBeginInfo subpassBeginInfo{.contents = vk::SubpassContents::eInline};
-    cmd->beginRenderPass2(renderPassBeginInfo, subpassBeginInfo);
+
+    cmd->beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 
     // set dynamic viewport and scissor rect
     {

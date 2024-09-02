@@ -123,9 +123,20 @@ add_library(vulkan INTERFACE)
 if (ANDROID)
     add_subdirectory(Vulkan-Headers)
     find_package(Vulkan REQUIRED)
+
+    # make sure shaderc is built before this using the following instructions: https://developer.android.com/ndk/guides/graphics/shader-compilers
+    # replace c++_shared with c++_static etc. if compiled with a different c++ standard library
+    add_library(shaderc_android STATIC IMPORTED)
+    set(SHADERC_DIR ${CMAKE_ANDROID_NDK}/sources/third_party/shaderc)
+    message("shaderc dir ${SHADERC_DIR}")
+    set_target_properties(shaderc_android PROPERTIES IMPORTED_LOCATION
+            ${SHADERC_DIR}/libs/c++_shared/${ANDROID_ABI}/libshaderc.a)
+    target_include_directories(shaderc_android INTERFACE ${SHADERC_DIR}/include)
+
     target_link_libraries(vulkan INTERFACE
             Vulkan::Vulkan
             Vulkan-Headers # hpp headers are not provided by the Android NDK, so we have to add it manually
+            shaderc_android
     )
 else ()
     find_package(Vulkan REQUIRED COMPONENTS shaderc_combined)

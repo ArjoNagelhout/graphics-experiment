@@ -54,3 +54,25 @@ ln -s ../../../../src_vulkan
 
 ## Gradle + Cmake
 https://developer.android.com/ndk/guides/cmake.html#gradle
+
+Warning: two separate `externalNativeBuild`.
+
+- arguments can only be added to inside a `config` or `build type`. 
+- The one directly inside the `android` object does not accept arguments. 
+
+## How to get shaderc working in the NDK
+https://developer.android.com/ndk/guides/graphics/shader-compilers#%E2%80%9Dgradle%E2%80%9D
+
+Where is the NDK / SDK installed? -> on macOS `~/Library/Android/sdk`
+
+So the commands to run are (replace the version with the current ndk version): 
+```shell
+cd ~/Library/Android/sdk/ndk/26.1.10909125/sources/third_party/shaderc/
+../../../ndk-build NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=Android.mk \
+APP_STL:=c++_shared APP_ABI=all libshaderc_combined
+```
+
+Okay, it's now compiling. 
+
+Sample code for including the library using cmake target_link_libraries:
+https://github.com/android/ndk-samples/blob/master/hello-libs/app/src/main/cpp/CMakeLists.txt
