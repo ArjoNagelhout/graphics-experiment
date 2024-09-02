@@ -19,38 +19,20 @@ target_link_libraries(ifc PUBLIC ifcopenshell)
 add_executable(sdl_experiment sdl.mm)
 target_link_libraries(sdl_experiment PRIVATE SDL3::SDL3)
 
-# vulkan loader experiment
-set(CMAKE_MACOSX_RPATH 1)
-
 # vulkan sdl loader experiment
+find_package(Vulkan REQUIRED COMPONENTS glslang SPIRV-Tools)
+
+find_library(GLSLANG_DEFAULT glslang-default-resource-limits)
+find_library(SPIRV_TOOLS_OPT SPIRV-Tools-opt)
+
 add_executable(vulkan_sdl_loader_experiment vulkan_sdl_loader.cpp)
 target_link_libraries(vulkan_sdl_loader_experiment PUBLIC
         SDL3::SDL3
         glm
+        Vulkan::Vulkan
+        Vulkan::glslang
+        Vulkan::SPIRV-Tools
+        ${GLSLANG_DEFAULT}
+        ${SPIRV_TOOLS_OPT}
         VulkanMemoryAllocator
-        vulkan_headers
-        vulkan_loader
-        vulkan_validation_layers
-        glslang
-        glslang-default-resource-limits
-)
-set_target_properties(vulkan_sdl_loader_experiment PROPERTIES
-        BUILD_RPATH ${VULKAN_LOADER_INSTALL_DIR}/lib
-)
-
-# vulkan vr experiment
-# we need to figure out some way to create an android project
-add_executable(vulkan_meta_quest_open_xr vulkan_meta_quest_open_xr.cpp)
-target_link_libraries(vulkan_meta_quest_open_xr PUBLIC
-        SDL3::SDL3
-        glm
-        VulkanMemoryAllocator
-        vulkan_headers
-        vulkan_loader
-        vulkan_validation_layers
-        glslang
-        glslang-default-resource-limits
-)
-set_target_properties(vulkan_meta_quest_open_xr PROPERTIES
-        BUILD_RPATH ${VULKAN_LOADER_INSTALL_DIR}/lib
 )

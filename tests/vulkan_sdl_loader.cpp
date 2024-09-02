@@ -25,12 +25,14 @@
 
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/Public/ResourceLimits.h>
-#include <glslang/MachineIndependent/localintermediate.h>
-#include <SPIRV/GlslangToSpv.h>
+#include <glslang/SPIRV/GlslangToSpv.h>
 
 #define VMA_IMPLEMENTATION
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnullability-completeness"
 #include <vk_mem_alloc.h>
+#pragma clang diagnostic pop
 
 // the following should be defined before including any headers that use glm, otherwise things break
 #define GLM_ENABLE_EXPERIMENTAL
@@ -530,8 +532,7 @@ void onResize(App* app)
         .validate = true,
         .emitNonSemanticShaderDebugInfo = false,
         .emitNonSemanticShaderDebugSource = false,
-        .compileOnly = false,
-        .optimizerAllowExpandedIDBound = false
+        .compileOnly = false
     };
     glslang::GlslangToSpv(*intermediate, spirv, &logger, &options);
     std::cout << logger.getAllMessages() << std::endl;

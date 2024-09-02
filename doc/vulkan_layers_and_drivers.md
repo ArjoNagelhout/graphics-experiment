@@ -33,3 +33,5 @@ How to install the Vulkan SDK for macOS:
 1. https://vulkan.lunarg.com/sdk/home -> download latest SDK dmg for macOS
 2. Open the dmg and run InstallVulkan, then install Vulkan with any wanted optional components
 3. run `sudo python ./install_vulkan.py` because otherwise the binaries are not symlinked to /usr/local and /usr/bin etc.
+
+See https://vulkan.lunarg.com/doc/sdk/latest/mac/getting_started.html
