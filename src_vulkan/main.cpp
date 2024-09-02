@@ -66,8 +66,8 @@ struct FrameData
 
 struct AppConfig
 {
+    // different for each operating system
     std::filesystem::path assetsPath;
-    std::filesystem::path privateAssetsPath;
 
     uint32_t vulkanApiVersion = 0;
 
@@ -305,7 +305,7 @@ struct App
     return app->keys[scancode];
 }
 
-void onLaunch(App* app, int argc, char** argv);
+SDL_AppResult onLaunch(App* app, int argc, char** argv);
 
 void onDraw(App* app);
 
@@ -339,8 +339,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 
     App* app = new App();
     *appstate = app;
-    onLaunch(app, argc, argv);
-    return SDL_APP_CONTINUE;
+    return onLaunch(app, argc, argv);
 }
 
 void SDL_AppQuit(void* appstate)
@@ -493,14 +492,41 @@ void onResize(App* app)
     }
 }
 
+[[nodiscard]] std::string readStringFromFile(std::filesystem::path const& path, bool* success)
+{
+    SDL_IOStream *stream = SDL_IOFromFile(path.c_str(), "r");
+    *success = false;
+
+    if (!stream)
+    {
+        return "";
+    }
+
+    Sint64 fileSize = SDL_GetIOSize(stream);
+    if (fileSize < 0)
+    {
+        SDL_CloseIO(stream);
+        return "";
+    }
+
+    std::string out(fileSize, '\0');
+    if (SDL_ReadIO(stream, out.data(), fileSize) != fileSize)
+    {
+        SDL_CloseIO(stream);
+        return "";
+    }
+
+    SDL_CloseIO(stream);
+
+    *success = true;
+    return out;
+}
+
 [[nodiscard]] vk::raii::ShaderModule createShaderModule(vk::raii::Device const* device, std::filesystem::path const& path, shaderc_shader_kind stage)
 {
-    assert(std::filesystem::exists(path));
-
-    std::ifstream file(path);
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    std::string string = buffer.str();
+    bool success;
+    std::string string = readStringFromFile(path, &success);
+    assert(success);
 
     shaderc::Compiler compiler;
     shaderc::CompileOptions options;
@@ -811,18 +837,17 @@ void uploadToBuffer(
     }
 }
 
-void onLaunch(App* app, int argc, char** argv)
+SDL_AppResult onLaunch(App* app, int argc, char** argv)
 {
     // configure / set config
     {
-        assert(argc == 3);
-        for (int i = 1; i < argc; ++i)
-        {
-            printf("arg %2d = %s\n", i, argv[i]);
-        }
+#if defined(__ANDROID__)
+        app->config.assetsPath = "";
+#else
+        // desktop requires the assetsPath to be supplied as a program argument
+        assert(argc > 1);
         app->config.assetsPath = argv[1];
-        app->config.privateAssetsPath = argv[2];
-
+#endif
         app->config.vulkanApiVersion = vk::ApiVersion11;
     }
 
@@ -884,9 +909,12 @@ void onLaunch(App* app, int argc, char** argv)
         else
         {
             std::cout << "error: " << to_string(result.error()) << std::endl;
-            exit(1);
+            return SDL_APP_FAILURE;
         }
     }
+
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
+                             "Hello World", "Created Vulkan Instance :)", NULL);
 
     // get physical device
     {
@@ -1119,7 +1147,7 @@ void onLaunch(App* app, int argc, char** argv)
 
     // create graphics pipeline / create pipeline / create shader
     {
-        std::filesystem::path shadersPath = app->config.assetsPath / "shaders_vulkan";
+        std::filesystem::path shadersPath = app->config.assetsPath /  "shaders_vulkan";
         app->shader = createShader(
             &app->device,
             &app->descriptorPool,
@@ -1253,6 +1281,8 @@ void onLaunch(App* app, int argc, char** argv)
         };
         app->device.updateDescriptorSets(cameraData, {});
     }
+
+    return SDL_APP_CONTINUE;
 }
 
 void onDraw(App* app)

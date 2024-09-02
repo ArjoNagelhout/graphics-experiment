@@ -52,6 +52,12 @@ cd platforms/android/app/jni
 ln -s ../../../../src_vulkan
 ```
 
+## Symlink 4 - assets folder
+```shell
+cd platforms/android/app/src/main
+ln -s ../../../../
+```
+
 ## Gradle + Cmake
 https://developer.android.com/ndk/guides/cmake.html#gradle
 
@@ -76,3 +82,9 @@ Okay, it's now compiling.
 
 Sample code for including the library using cmake target_link_libraries:
 https://github.com/android/ndk-samples/blob/master/hello-libs/app/src/main/cpp/CMakeLists.txt
+
+## SDL file IO
+On Android we don't have access to the entire file system (we are sandboxed). 
+Therefore, we use SDL_IOFromFile. 
+
+https://wiki.libsdl.org/SDL3/SDL_IOFromFile
