@@ -35,3 +35,6 @@ How to install the Vulkan SDK for macOS:
 3. run `sudo python ./install_vulkan.py` because otherwise the binaries are not symlinked to /usr/local and /usr/bin etc.
 
 See https://vulkan.lunarg.com/doc/sdk/latest/mac/getting_started.html
+
+# otool
+Use otool -l to see whether it links to the correct dylibs and whether rpath is set using `LC_RPATH`. 
