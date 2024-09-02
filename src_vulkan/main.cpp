@@ -8,6 +8,7 @@
 #include <fstream>
 #include <string>
 #include <array>
+#include <unordered_set>
 
 #define VULKAN_HPP_RAII_NO_EXCEPTIONS
 #define VULKAN_HPP_NO_STRUCT_CONSTRUCTORS
@@ -70,6 +71,7 @@ struct AppConfig
     std::filesystem::path assetsPath;
 
     uint32_t vulkanApiVersion = 0;
+    bool vulkanPortability = false; // for macOS / MoltenVK
 
     float cameraFov = 90.0f;
     float cameraNear = 0.1f;
@@ -397,14 +399,24 @@ SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event const* event)
     return it != supportedExtensions->end();
 }
 
-[[nodiscard]] std::vector<char const*> getSdlVulkanExtensions()
+[[nodiscard]] bool supportsLayer(std::vector<vk::LayerProperties>* supportedLayers, char const* layerName)
+{
+    auto it = std::find_if(
+        supportedLayers->begin(),
+        supportedLayers->end(),
+        [layerName](vk::LayerProperties p) { return strcmp(p.layerName, layerName) == 0; }
+    );
+    return it != supportedLayers->end();
+}
+
+[[nodiscard]] std::unordered_set<char const*> getSdlVulkanExtensions()
 {
     uint32_t count = 0;
     char const* const* sdlExtensions = SDL_Vulkan_GetInstanceExtensions(&count);
-    std::vector<char const*> out(count);
+    std::unordered_set<char const*> out(count);
     for (uint32_t i = 0; i < count; i++)
     {
-        out[i] = sdlExtensions[i];
+        out.emplace(sdlExtensions[i]);
     }
     return out;
 }
@@ -494,7 +506,7 @@ void onResize(App* app)
 
 [[nodiscard]] std::string readStringFromFile(std::filesystem::path const& path, bool* success)
 {
-    SDL_IOStream *stream = SDL_IOFromFile(path.c_str(), "r");
+    SDL_IOStream* stream = SDL_IOFromFile(path.c_str(), "r");
     *success = false;
 
     if (!stream)
@@ -841,14 +853,32 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
 {
     // configure / set config
     {
+        int v = int(VK_HEADER_VERSION);
+        std::string a = std::to_string(v);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
+                                 "Hello World", a.c_str(), NULL);
+        // on android this returned 293 (because we're using the headers from Vulkan-Headers)
+        // we should probably change the headers version based on the one that is installed
+        // on android
+
+        // so the headers
+
+
+        // on macOS this returned 290
 #if defined(__ANDROID__)
         app->config.assetsPath = "";
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
+                             "Hello World", "Set assets path", NULL);
 #else
         // desktop requires the assetsPath to be supplied as a program argument
         assert(argc > 1);
         app->config.assetsPath = argv[1];
 #endif
         app->config.vulkanApiVersion = vk::ApiVersion11;
+
+#if defined(__APPLE__)
+        app->config.vulkanPortability = true;
+#endif
     }
 
     // create sdl step timer
@@ -858,32 +888,38 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     }
 
     uint32_t version = app->context.enumerateInstanceVersion();
-    std::cout << "vulkan version: " << version << std::endl;
+    std::cout << "vulkan version: " << version << std::endl; // version 4206592
 
     // create vulkan instance / create instance
     {
-        std::vector<char const*> sdlExtensions = getSdlVulkanExtensions();
-
-        std::vector<vk::ExtensionProperties> supportedExtensions = app->context.enumerateInstanceExtensionProperties();
-
-        std::vector<vk::LayerProperties> layers = app->context.enumerateInstanceLayerProperties();
-        for (auto& layer: layers)
+        // set extensions
+        std::unordered_set<char const*> requiredExtensions = getSdlVulkanExtensions();
+        if (app->config.vulkanPortability)
         {
-            std::cout << "layer: " << layer.layerName << ", " << layer.description << std::endl;
+            requiredExtensions.emplace(vk::KHRPortabilityEnumerationExtensionName);
         }
-
+        std::vector<vk::ExtensionProperties> supportedExtensions = app->context.enumerateInstanceExtensionProperties();
         std::vector<char const*> enabledExtensions;
-        for (auto& sdlExtension: sdlExtensions)
+        for (auto& requiredExtension: requiredExtensions)
         {
-            if (supportsExtension(&supportedExtensions, sdlExtension))
+            if (supportsExtension(&supportedExtensions, requiredExtension))
             {
-                enabledExtensions.emplace_back(sdlExtension);
+                enabledExtensions.emplace_back(requiredExtension);
             }
         }
 
-        enabledExtensions.emplace_back(vk::KHRPortabilityEnumerationExtensionName);
+        // set layers
+        std::vector<char const*> desiredLayers{"VK_LAYER_KHRONOS_validation"};
+        std::vector<vk::LayerProperties> supportedLayers = app->context.enumerateInstanceLayerProperties();
 
-        std::vector<char const*> enabledLayers{"VK_LAYER_KHRONOS_validation"};
+        std::vector<char const*> enabledLayers;
+        for (auto& desiredLayer: desiredLayers)
+        {
+            if (supportsLayer(&supportedLayers, desiredLayer))
+            {
+                enabledLayers.emplace_back(desiredLayer);
+            }
+        }
 
         vk::ApplicationInfo appInfo{
             .pApplicationName = "App",
@@ -894,7 +930,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         };
 
         vk::InstanceCreateInfo info{
-            .flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR,
+            .flags = app->config.vulkanPortability ? vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR : (vk::InstanceCreateFlags)0,
             .pApplicationInfo = &appInfo,
             .enabledLayerCount = (uint32_t)enabledLayers.size(),
             .ppEnabledLayerNames = enabledLayers.data(),
@@ -975,20 +1011,23 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
             transferQueue
         };
 
-        std::vector<char const*> enabledLayerNames;
-        std::vector<char const*> enabledExtensionNames{
-            vk::KHRSwapchainExtensionName,
-            vk::KHRPortabilitySubsetExtensionName
+        std::vector<char const*> enabledLayers;
+        std::vector<char const*> enabledExtensions{
+            vk::KHRSwapchainExtensionName
         };
+        if (app->config.vulkanPortability)
+        {
+            enabledExtensions.emplace_back(vk::KHRPortabilitySubsetExtensionName);
+        }
         vk::PhysicalDeviceFeatures enabledFeatures;
 
         vk::DeviceCreateInfo info{
             .queueCreateInfoCount = (uint32_t)queues.size(),
             .pQueueCreateInfos = queues.data(),
-            .enabledLayerCount = (uint32_t)enabledLayerNames.size(),
-            .ppEnabledLayerNames = enabledLayerNames.data(),
-            .enabledExtensionCount = (uint32_t)enabledExtensionNames.size(),
-            .ppEnabledExtensionNames = enabledExtensionNames.data(),
+            .enabledLayerCount = (uint32_t)enabledLayers.size(),
+            .ppEnabledLayerNames = enabledLayers.data(),
+            .enabledExtensionCount = (uint32_t)enabledExtensions.size(),
+            .ppEnabledExtensionNames = enabledExtensions.data(),
             .pEnabledFeatures = &enabledFeatures
         };
         app->device = app->physicalDevice.createDevice(info).value();
@@ -1147,7 +1186,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
 
     // create graphics pipeline / create pipeline / create shader
     {
-        std::filesystem::path shadersPath = app->config.assetsPath /  "shaders_vulkan";
+        std::filesystem::path shadersPath = app->config.assetsPath / "shaders_vulkan";
         app->shader = createShader(
             &app->device,
             &app->descriptorPool,
@@ -1446,5 +1485,8 @@ void onQuit(App* app)
     SDL_RemoveTimer(app->stepTimer);
     SDL_DestroyWindow(app->window);
 
-    app->device.waitIdle();
+    if (*app->device != nullptr)
+    {
+        app->device.waitIdle();
+    }
 }

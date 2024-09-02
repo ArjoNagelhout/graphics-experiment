@@ -88,3 +88,13 @@ On Android we don't have access to the entire file system (we are sandboxed).
 Therefore, we use SDL_IOFromFile. 
 
 https://wiki.libsdl.org/SDL3/SDL_IOFromFile
+
+## build.gradle.kts
+
+This uses the Kotlin DSL instead of the Groovy DSL, which means that some things are differently named. 
+Booleans are prefixed for example with `is`, so `debuggable true` becomes `isDebuggable = true`.
+
+## Debugging native code
+https://stackoverflow.com/questions/54595468/android-studio-attach-to-process-not-finding-native-symbols
+
+set `isDebuggable = true`, and add a debug symbol directory.
