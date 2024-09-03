@@ -235,10 +235,12 @@ struct App
     uint32_t physicalDeviceIndex = 0;
     vk::raii::Device device = nullptr;
 
-    // queues
-    uint32_t transferQueueFamilyIndex = 0;
+    // graphics queue (also used for transferring for now to reduce complexity in setup)
     uint32_t graphicsQueueFamilyIndex = 0;
     vk::raii::Queue graphicsQueue = nullptr;
+
+    bool separateTransferQueue = false;
+    uint32_t transferQueueFamilyIndex = 0;
     vk::raii::Queue transferQueue = nullptr;
 
     // surface
@@ -431,6 +433,34 @@ void onResize(App* app)
 
     // update surface capabilities (to retrieve width and height)
     app->surfaceCapabilities = app->physicalDevice.getSurfaceCapabilitiesKHR(app->surface);
+
+    // update surface format based on supported surface formats
+    {
+        std::vector<vk::SurfaceFormatKHR> supportedSurfaceFormats = app->physicalDevice.getSurfaceFormatsKHR(app->surface);
+
+        // in order
+        std::vector<vk::Format> desiredFormats{vk::Format::eR8G8B8A8Srgb, vk::Format::eB8G8R8A8Srgb};
+        bool foundDesiredFormat = false;
+        for (vk::Format desiredFormat: desiredFormats)
+        {
+            auto it = std::find_if(
+                supportedSurfaceFormats.begin(),
+                supportedSurfaceFormats.end(),
+                [desiredFormat](vk::SurfaceFormatKHR f) { return f.format == desiredFormat; }
+            );
+            if (it != supportedSurfaceFormats.end())
+            {
+                app->surfaceFormat = *it;
+                foundDesiredFormat = true;
+                break;
+            }
+        }
+        if (!foundDesiredFormat)
+        {
+            assert(!supportedSurfaceFormats.empty());
+            app->surfaceFormat = supportedSurfaceFormats[0];
+        }
+    }
 
     // create swapchain
     {
@@ -855,8 +885,8 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     {
         int v = int(VK_HEADER_VERSION);
         std::string a = std::to_string(v);
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
-                                 "Hello World", a.c_str(), NULL);
+//        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
+//                                 "Hello World", a.c_str(), NULL);
         // on android this returned 293 (because we're using the headers from Vulkan-Headers)
         // we should probably change the headers version based on the one that is installed
         // on android
@@ -867,8 +897,8 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         // on macOS this returned 290
 #if defined(__ANDROID__)
         app->config.assetsPath = "";
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
-                             "Hello World", "Set assets path", NULL);
+//        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
+//                             "Hello World", "Set assets path", NULL);
 #else
         // desktop requires the assetsPath to be supplied as a program argument
         assert(argc > 1);
@@ -949,8 +979,8 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         }
     }
 
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
-                             "Hello World", "Created Vulkan Instance :)", NULL);
+//    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
+//                             "Hello World", "Created Vulkan Instance :)", NULL);
 
     // get physical device
     {
@@ -966,28 +996,58 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     // get queues family indices / get graphics queue and upload queue family indices
     {
         // loop through all available families
-        bool foundGraphics = false;
-        bool foundTransfer = false;
-
         std::vector<vk::QueueFamilyProperties> families = app->physicalDevice.getQueueFamilyProperties();
-        for (int i = 0; i < families.size(); i++)
-        {
-            vk::QueueFamilyProperties family = families[i];
+        assert(!families.empty());
 
-            if (!foundGraphics && family.queueFlags & vk::QueueFlagBits::eGraphics)
+        if (families.size() > 1)
+        {
+            bool foundGraphics = false;
+            bool foundTransfer = false;
+
+            // see if we can get a separate transfer family
+            // when do we want a separate transfer family?
+            // let's say we have 4 queues, that all support transfer *and* graphics
+            // then we want 1 graphics queue and separate 1 transfer queue
+            for (int i = 0; i < families.size(); i++)
             {
-                app->graphicsQueueFamilyIndex = i;
-                foundGraphics = true;
+                vk::QueueFamilyProperties family = families[i];
+                if (!foundGraphics && family.queueFlags & vk::QueueFlagBits::eGraphics)
+                {
+                    app->graphicsQueueFamilyIndex = i;
+                    foundGraphics = true;
+                }
+                else if (!foundTransfer && family.queueFlags & vk::QueueFlagBits::eTransfer)
+                {
+                    app->transferQueueFamilyIndex = i;
+                    foundTransfer = true;
+                }
+
+                if (foundGraphics && foundTransfer)
+                {
+                    break;
+                }
             }
-            else if (!foundTransfer && family.queueFlags & vk::QueueFlagBits::eTransfer)
+
+            if (foundTransfer)
             {
-                app->transferQueueFamilyIndex = i;
-                foundTransfer = true;
+                app->separateTransferQueue = true;
+            }
+            else
+            {
+                // if we have 1 graphics queue, but haven't found a separate transfer queue,
+                // then we want to see if the graphics queue supports transfer
+                assert(families[app->graphicsQueueFamilyIndex].queueFlags & vk::QueueFlagBits::eTransfer);
             }
         }
+        else
+        {
+            // only one queue, so we assume it can handle everything we want to do
+            app->graphicsQueueFamilyIndex = 0;
+            app->transferQueueFamilyIndex = 0;
 
-        // for now
-        assert(app->graphicsQueueFamilyIndex != app->transferQueueFamilyIndex);
+            vk::QueueFamilyProperties family = families[0];
+            assert((family.queueFlags & vk::QueueFlagBits::eGraphics) && (family.queueFlags & vk::QueueFlagBits::eTransfer));
+        }
     }
 
     // create logical device / create device
@@ -1000,16 +1060,19 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
             .pQueuePriorities = &priority
         };
 
-        vk::DeviceQueueCreateInfo transferQueue{
-            .queueFamilyIndex = app->transferQueueFamilyIndex,
-            .queueCount = 1,
-            .pQueuePriorities = &priority
+        std::vector<vk::DeviceQueueCreateInfo> queues{
+                graphicsQueue
         };
 
-        std::vector<vk::DeviceQueueCreateInfo> queues{
-            graphicsQueue,
-            transferQueue
-        };
+        if (app->separateTransferQueue)
+        {
+            vk::DeviceQueueCreateInfo transferQueue{
+                .queueFamilyIndex = app->transferQueueFamilyIndex,
+                .queueCount = 1,
+                .pQueuePriorities = &priority
+            };
+            queues.emplace_back(transferQueue);
+        }
 
         std::vector<char const*> enabledLayers;
         std::vector<char const*> enabledExtensions{
@@ -1036,7 +1099,10 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     // get queues
     {
         app->graphicsQueue = app->device.getQueue(app->graphicsQueueFamilyIndex, 0).value();
-        app->transferQueue = app->device.getQueue(app->transferQueueFamilyIndex, 0).value();
+        if (app->separateTransferQueue)
+        {
+            app->transferQueue = app->device.getQueue(app->transferQueueFamilyIndex, 0).value();
+        }
     }
 
     // create render pass
@@ -1224,7 +1290,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         // create pool
         vk::CommandPoolCreateInfo uploadPoolInfo{
             .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-            .queueFamilyIndex = app->transferQueueFamilyIndex
+            .queueFamilyIndex = app->graphicsQueueFamilyIndex
         };
         app->uploadPool = app->device.createCommandPool(uploadPoolInfo).value();
 
