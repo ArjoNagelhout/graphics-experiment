@@ -431,6 +431,9 @@ void onResize(App* app)
     app->swapchainImageViews.clear();
     app->framebuffers.clear();
 
+//    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
+//                             "Resized", "", NULL);
+
     // update surface capabilities (to retrieve width and height)
     app->surfaceCapabilities = app->physicalDevice.getSurfaceCapabilitiesKHR(app->surface);
 
@@ -885,8 +888,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     {
         int v = int(VK_HEADER_VERSION);
         std::string a = std::to_string(v);
-//        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
-//                                 "Hello World", a.c_str(), NULL);
+
         // on android this returned 293 (because we're using the headers from Vulkan-Headers)
         // we should probably change the headers version based on the one that is installed
         // on android
@@ -1450,12 +1452,17 @@ void onDraw(App* app)
     // acquire image
     vk::AcquireNextImageInfoKHR info{
         .swapchain = app->swapchain,
-        .timeout = 10 /*ms*/ * 1000000,
+        .timeout = UINT64_MAX,//10 /*ms*/ * 1000000,
         .semaphore = frame->acquiringImage,
         .fence = nullptr,
         .deviceMask = 1u << app->physicalDeviceIndex
     };
     auto [result, imageIndex] = app->device.acquireNextImage2KHR(info);
+    if (result != vk::Result::eSuccess)
+    {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
+                                 "You stupid", "", NULL);
+    }
     if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR)
     {
         // recreate swapchain
