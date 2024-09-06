@@ -299,6 +299,11 @@ struct App
     CameraData cameraData; // data for GPU
     Buffer cameraDataBuffer;
 
+    // image
+    vk::raii::Image image = nullptr;
+    vk::raii::ImageView imageView = nullptr;
+    vk::raii::Sampler imageSampler = nullptr;
+
     // input
     std::bitset<static_cast<size_t>(SDL_NUM_SCANCODES)> keys;
 };
@@ -537,40 +542,43 @@ void onResize(App* app)
     }
 }
 
-[[nodiscard]] std::string readStringFromFile(std::filesystem::path const& path, bool* success)
+void importPng(std::filesystem::path const& path)
+{
+
+}
+
+[[nodiscard]] bool readStringFromFile(std::filesystem::path const& path, std::string* outString)
 {
     SDL_IOStream* stream = SDL_IOFromFile(path.c_str(), "r");
-    *success = false;
 
     if (!stream)
     {
-        return "";
+        return false;
     }
 
     Sint64 fileSize = SDL_GetIOSize(stream);
     if (fileSize < 0)
     {
         SDL_CloseIO(stream);
-        return "";
+        return false;
     }
 
-    std::string out(fileSize, '\0');
-    if (SDL_ReadIO(stream, out.data(), fileSize) != fileSize)
+    *outString = std::string(fileSize, '\0');
+    if (SDL_ReadIO(stream, outString->data(), fileSize) != fileSize)
     {
         SDL_CloseIO(stream);
-        return "";
+        return false;
     }
 
     SDL_CloseIO(stream);
 
-    *success = true;
-    return out;
+    return true;
 }
 
 [[nodiscard]] vk::raii::ShaderModule createShaderModule(vk::raii::Device const* device, std::filesystem::path const& path, shaderc_shader_kind stage)
 {
-    bool success;
-    std::string string = readStringFromFile(path, &success);
+    std::string string;
+    bool success = readStringFromFile(path, &string);
     assert(success);
 
     shaderc::Compiler compiler;
@@ -760,13 +768,13 @@ void onResize(App* app)
         .descriptorCount = 1,
         .stageFlags = vk::ShaderStageFlagBits::eVertex
     };
-//    vk::DescriptorSetLayoutBinding fragmentTexture{
-//        .binding = 1,
-//        .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-//        .descriptorCount = 1,
-//        .stageFlags = vk::ShaderStageFlagBits::eFragment
-//    };
-    std::vector<vk::DescriptorSetLayoutBinding> descriptorSetBindings{vertexCameraBuffer/*, fragmentTexture*/};
+    vk::DescriptorSetLayoutBinding fragmentTexture{
+        .binding = 1,
+        .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+        .descriptorCount = 1,
+        .stageFlags = vk::ShaderStageFlagBits::eFragment
+    };
+    std::vector<vk::DescriptorSetLayoutBinding> descriptorSetBindings{vertexCameraBuffer};//, fragmentTexture};
     vk::DescriptorSetLayoutCreateInfo descriptorSet1Info{
         .bindingCount = (uint32_t)descriptorSetBindings.size(),
         .pBindings = descriptorSetBindings.data()
@@ -981,9 +989,6 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         }
     }
 
-//    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
-//                             "Hello World", "Created Vulkan Instance :)", NULL);
-
     // get physical device
     {
         std::vector<vk::raii::PhysicalDevice> physicalDevices = app->instance.enumeratePhysicalDevices().value();
@@ -1050,6 +1055,9 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
             vk::QueueFamilyProperties family = families[0];
             assert((family.queueFlags & vk::QueueFlagBits::eGraphics) && (family.queueFlags & vk::QueueFlagBits::eTransfer));
         }
+
+        std::cout << "graphics queue family index: " << app->graphicsQueueFamilyIndex << std::endl;
+        std::cout << "transfer queue family index: " << app->transferQueueFamilyIndex << std::endl;
     }
 
     // create logical device / create device
@@ -1306,9 +1314,6 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         app->uploadBuffer = std::move(buffer[0]);
     }
 
-    std::cout << "graphics queue family index: " << app->graphicsQueueFamilyIndex << std::endl;
-    std::cout << "transfer queue family index: " << app->transferQueueFamilyIndex << std::endl;
-
     // create mesh
     {
         Mesh mesh;
@@ -1389,6 +1394,11 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         app->device.updateDescriptorSets(cameraData, {});
     }
 
+    // import texture
+    {
+
+    }
+
     return SDL_APP_CONTINUE;
 }
 
@@ -1434,7 +1444,7 @@ void onDraw(App* app)
         c.rotation = rotation;
         c.scale = glm::vec3{1, 1, 1};
 
-        std::cout << "camera position: x: " << c.position.x << ", y: " << c.position.y << ", z: " << c.position.z << std::endl;
+        //std::cout << "camera position: x: " << c.position.x << ", y: " << c.position.y << ", z: " << c.position.z << std::endl;
 
         // calculate
         vk::Extent2D size = app->surfaceCapabilities.currentExtent;
@@ -1452,17 +1462,12 @@ void onDraw(App* app)
     // acquire image
     vk::AcquireNextImageInfoKHR info{
         .swapchain = app->swapchain,
-        .timeout = UINT64_MAX,//10 /*ms*/ * 1000000,
+        .timeout = UINT64_MAX,
         .semaphore = frame->acquiringImage,
         .fence = nullptr,
         .deviceMask = 1u << app->physicalDeviceIndex
     };
     auto [result, imageIndex] = app->device.acquireNextImage2KHR(info);
-    if (result != vk::Result::eSuccess)
-    {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
-                                 "You stupid", "", NULL);
-    }
     if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR)
     {
         // recreate swapchain

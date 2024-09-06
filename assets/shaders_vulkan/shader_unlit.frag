@@ -1,6 +1,6 @@
 #version 450
 
-//layout(set = 0, binding = 1) uniform sampler2D u_Texture;
+layout(set = 0, binding = 1) uniform sampler2D u_Texture;
 
 layout(location = 0) in vec2 v_UV;
 layout(location = 0) out vec4 out_Color;
