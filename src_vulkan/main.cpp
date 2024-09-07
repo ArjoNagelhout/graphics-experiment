@@ -1033,8 +1033,6 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         // on macOS this returned 290
 #if defined(__ANDROID__)
         app->config.assetsPath = "";
-//        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
-//                             "Hello World", "Set assets path", NULL);
 #else
         // desktop requires the assetsPath to be supplied as a program argument
         assert(argc > 1);
