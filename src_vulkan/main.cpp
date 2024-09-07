@@ -207,6 +207,7 @@ struct Buffer
     vma::raii::Allocation allocation = nullptr;
 };
 
+// texture is assumed to be gpu local, so will be uploaded to via a staging buffer
 struct TextureInfo
 {
     uint32_t width;
@@ -218,6 +219,7 @@ struct Texture
 {
     TextureInfo info{};
     vk::raii::Image image = nullptr;
+    vma::raii::Allocation allocation = nullptr;
     vk::raii::ImageView imageView = nullptr;
     vk::raii::Sampler sampler = nullptr;
 };
@@ -569,79 +571,12 @@ void onResize(App* app)
     }
 }
 
-[[nodiscard]] Texture createTextureFromData(TextureInfo info, std::vector<unsigned char>* data)
-{
-    // we successfully imported the png, so now we want to store it on the GPU
-
-    // how do we create a texture in Vulkan?
-    // Image, ImageView, Sampler
-
-    vk::Format format = vk::Format::eR8G8B8A8Srgb;
-
-    // create image
-    vk::ImageCreateInfo imageInfo{
-        .imageType = vk::ImageType::e2D,
-        .format = format,
-        .extent = vk::Extent3D{.width = info.width, .height = info.height, .depth = 1},
-        .mipLevels = 1,
-        .arrayLayers = 1,
-        .samples = vk::SampleCountFlagBits::e1,
-        .tiling = vk::ImageTiling::eOptimal,
-        .usage = vk::ImageUsageFlagBits::eSampled,
-        .sharingMode = vk::SharingMode::eExclusive,
-        .initialLayout = vk::ImageLayout::eShaderReadOnlyOptimal
-    };
-    //vmaCreateImage()
-    //outTexture->image = app->device.createImage(imageInfo).value();
-
-    // create image view
-    vk::ImageViewCreateInfo imageViewInfo{
-//        .image = outTexture->image,
-        .viewType = vk::ImageViewType::e2D,
-        .format = format,
-        .components = vk::ComponentMapping{
-            .r = vk::ComponentSwizzle::eIdentity,
-            .g = vk::ComponentSwizzle::eIdentity,
-            .b = vk::ComponentSwizzle::eIdentity,
-            .a = vk::ComponentSwizzle::eIdentity
-        },
-        .subresourceRange = vk::ImageSubresourceRange{
-            .aspectMask = vk::ImageAspectFlagBits::eColor,
-            .baseMipLevel = 0,
-            .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = 1
-        }
-    };
-    //outTexture->imageView = app->device.createImageView(imageViewInfo).value();
-
-    // create sampler
-    vk::SamplerCreateInfo samplerInfo{
-        .magFilter = vk::Filter::eLinear,
-        .minFilter = vk::Filter::eLinear,
-        .mipmapMode = vk::SamplerMipmapMode::eLinear,
-        .addressModeU = vk::SamplerAddressMode::eClampToEdge,
-        .addressModeV = vk::SamplerAddressMode::eClampToEdge,
-        .addressModeW = vk::SamplerAddressMode::eClampToEdge,
-        .mipLodBias = 0.0f,
-        .anisotropyEnable = false,
-        .maxAnisotropy = 0.0f,
-        .compareEnable = false,
-        .compareOp = vk::CompareOp::eLessOrEqual,
-        .minLod = 0.0f,
-        .maxLod = 1.0f,
-        .borderColor = vk::BorderColor::eFloatOpaqueWhite,
-        .unnormalizedCoordinates = false
-    };
-    //outTexture->sampler = app->device.createSampler(samplerInfo).value();
-
-    // upload data to texture using staging buffer
-
-}
-
 //
 [[nodiscard]] bool importPng(App* app, std::filesystem::path const& path, TextureInfo* outInfo, std::vector<unsigned char>* outData)
 {
+    assert(outInfo);
+    assert(outData);
+
     SDL_IOStream* stream = SDL_IOFromFile(path.c_str(), "r");
     if (!stream)
     {
@@ -657,8 +592,6 @@ void onResize(App* app)
 
     // import png using lodepng
     std::vector<unsigned char> png(fileSize);
-    unsigned int width;
-    unsigned int height;
     lodepng::State state;
 
     if (SDL_ReadIO(stream, png.data(), fileSize) != fileSize)
@@ -667,7 +600,7 @@ void onResize(App* app)
         return false;
     }
 
-    unsigned int error = lodepng::decode(*outData, width, height, state, png);
+    unsigned int error = lodepng::decode(*outData, outInfo->width, outInfo->height, state, png);
     if (error != 0)
     {
         std::cout << lodepng_error_text(error) << std::endl;
@@ -676,6 +609,8 @@ void onResize(App* app)
     LodePNGColorMode color = state.info_png.color;
     assert(color.bitdepth == 8);
     assert(color.colortype == LCT_RGBA);
+
+    outInfo->format = vk::Format::eR8G8B8A8Srgb;
 
     return true;
 }
@@ -1029,6 +964,115 @@ void uploadToBuffer(
         // get transfer queue
 
     }
+}
+
+[[nodiscard]] Texture createTexture(
+    vk::raii::Device const* device,
+    VmaAllocator allocator,
+    TextureInfo info)
+{
+    // how do we create a texture in Vulkan?
+    // Image, ImageView, Sampler
+
+    // create image
+    vk::ImageCreateInfo imageInfo{
+        .imageType = vk::ImageType::e2D,
+        .format = info.format,
+        .extent = vk::Extent3D{.width = info.width, .height = info.height, .depth = 1},
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = vk::SampleCountFlagBits::e1,
+        .tiling = vk::ImageTiling::eOptimal,
+        .usage = vk::ImageUsageFlagBits::eSampled,
+        .sharingMode = vk::SharingMode::eExclusive,
+        .initialLayout = vk::ImageLayout::eShaderReadOnlyOptimal
+    };
+
+    VmaAllocationCreateInfo allocationInfo{
+        .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    };
+
+    VmaAllocation allocation;
+    VkImage image;
+    vmaCreateImage(allocator,
+                   reinterpret_cast<VkImageCreateInfo*>(&imageInfo),
+                   &allocationInfo,
+                   &image,
+                   &allocation,
+                   nullptr);
+
+    // create image view
+    vk::ImageViewCreateInfo imageViewInfo{
+        .image = image,
+        .viewType = vk::ImageViewType::e2D,
+        .format = info.format,
+        .components = vk::ComponentMapping{
+            .r = vk::ComponentSwizzle::eIdentity,
+            .g = vk::ComponentSwizzle::eIdentity,
+            .b = vk::ComponentSwizzle::eIdentity,
+            .a = vk::ComponentSwizzle::eIdentity
+        },
+        .subresourceRange = vk::ImageSubresourceRange{
+            .aspectMask = vk::ImageAspectFlagBits::eColor,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        }
+    };
+    vk::raii::ImageView imageView = device->createImageView(imageViewInfo).value();
+
+    // create sampler
+    vk::SamplerCreateInfo samplerInfo{
+        .magFilter = vk::Filter::eLinear,
+        .minFilter = vk::Filter::eLinear,
+        .mipmapMode = vk::SamplerMipmapMode::eLinear,
+        .addressModeU = vk::SamplerAddressMode::eClampToEdge,
+        .addressModeV = vk::SamplerAddressMode::eClampToEdge,
+        .addressModeW = vk::SamplerAddressMode::eClampToEdge,
+        .mipLodBias = 0.0f,
+        .anisotropyEnable = false,
+        .maxAnisotropy = 0.0f,
+        .compareEnable = false,
+        .compareOp = vk::CompareOp::eLessOrEqual,
+        .minLod = 0.0f,
+        .maxLod = 1.0f,
+        .borderColor = vk::BorderColor::eFloatOpaqueWhite,
+        .unnormalizedCoordinates = false
+    };
+    vk::raii::Sampler sampler = device->createSampler(samplerInfo).value();
+
+    return Texture{
+        .info = info,
+        .image = vk::raii::Image(*device, image),
+        .allocation = vma::raii::Allocation(allocator, allocation),
+        .imageView = std::move(imageView),
+        .sampler = std::move(sampler)
+    };
+}
+
+// creates a staging buffer and uploads data to it
+void uploadToTexture(
+    vk::raii::Device const* device,
+    VmaAllocator allocator,
+    Texture* texture,
+    std::vector<unsigned char>* data)
+{
+    assert(device);
+    assert(allocator);
+    assert(texture);
+    assert(data);
+
+    // create staging buffer
+    BufferInfo stagingBufferInfo{
+        .size = data->size(),
+        .gpuOnly = false,
+        .usage = vk::BufferUsageFlagBits::eTransferSrc
+    };
+    Buffer stagingBuffer = createBuffer(device, allocator, stagingBufferInfo);
+    uploadToBuffer(device, allocator, &stagingBuffer, data->data(), data->size());
+
+    
 }
 
 SDL_AppResult onLaunch(App* app, int argc, char** argv)
