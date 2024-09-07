@@ -253,6 +253,17 @@ struct CameraData
     glm::mat4 viewProjection = glm::mat4(1);
 };
 
+struct UploadContext
+{
+    bool* separateTransferQueue = nullptr;
+    uint32_t* transferQueueFamilyIndex = nullptr;
+    vk::raii::Queue* transferQueue = nullptr;
+
+    vk::raii::CommandPool commandPool = nullptr;
+    vk::raii::CommandBuffer commandBuffer = nullptr;
+    vk::raii::Fence gpuHasFinishedExecutingCommandBuffer = nullptr;
+};
+
 struct App
 {
     AppConfig config;
@@ -316,9 +327,7 @@ struct App
     vma::raii::Allocator allocator = nullptr;
 
     // uploading from CPU to GPU
-    vk::raii::CommandPool uploadPool = nullptr;
-    vk::raii::CommandBuffer uploadBuffer = nullptr;
-    vk::raii::Fence gpuHasFinishedExecutingUploadBuffer = nullptr;
+    UploadContext uploadContext;
 
     // mesh
     Mesh mesh;
@@ -936,34 +945,41 @@ void onResize(App* app)
     };
 }
 
-void uploadToBuffer(
+// if the buffer is not gpu only, we can copy to it directly
+void copyToCpuVisibleBuffer(
     vk::raii::Device const* device,
     VmaAllocator allocator,
     Buffer* buffer, void* data, size_t length)
 {
     assert(buffer);
-    if (!buffer->info.gpuOnly)
-    {
-        // map memory directly
-        void* destination = nullptr;
-        vmaMapMemory(allocator, *buffer->allocation, &destination);
-        memcpy(destination, data, buffer->info.size);
-        vmaUnmapMemory(allocator, *buffer->allocation);
-    }
-    else
-    {
-        // create staging buffer
-        BufferInfo stagingBufferInfo{
-            .size = buffer->info.size,
-            .gpuOnly = false,
-            .usage = vk::BufferUsageFlagBits::eTransferSrc
-        };
-        Buffer stagingBuffer = createBuffer(device, allocator, stagingBufferInfo);
-        uploadToBuffer(device, allocator, &stagingBuffer, data, length);
+    assert(!buffer->info.gpuOnly);
 
-        // get transfer queue
+    // map memory directly
+    void* destination = nullptr;
+    vmaMapMemory(allocator, *buffer->allocation, &destination);
+    memcpy(destination, data, buffer->info.size);
+    vmaUnmapMemory(allocator, *buffer->allocation);
+}
 
-    }
+// if the buffer is gpu only, we need to first create a staging buffer
+void uploadToGpuOnlyBuffer(
+    vk::raii::Device const* device,
+    VmaAllocator allocator,
+    UploadContext* uploadContext,
+    Buffer* buffer, void* data, size_t length)
+{
+    assert(buffer);
+    assert(buffer->info.gpuOnly);
+    assert(uploadContext);
+
+    // create staging buffer
+    BufferInfo stagingBufferInfo{
+        .size = buffer->info.size,
+        .gpuOnly = false,
+        .usage = vk::BufferUsageFlagBits::eTransferSrc
+    };
+    Buffer stagingBuffer = createBuffer(device, allocator, stagingBufferInfo);
+    copyToCpuVisibleBuffer(device, allocator, &stagingBuffer, data, length);
 }
 
 [[nodiscard]] Texture createTexture(
@@ -1055,6 +1071,7 @@ void uploadToBuffer(
 void uploadToTexture(
     vk::raii::Device const* device,
     VmaAllocator allocator,
+    UploadContext* uploadContext,
     Texture* texture,
     std::vector<unsigned char>* data)
 {
@@ -1070,7 +1087,7 @@ void uploadToTexture(
         .usage = vk::BufferUsageFlagBits::eTransferSrc
     };
     Buffer stagingBuffer = createBuffer(device, allocator, stagingBufferInfo);
-    uploadToBuffer(device, allocator, &stagingBuffer, data->data(), data->size());
+    copyToCpuVisibleBuffer(device, allocator, &stagingBuffer, data->data(), data->size());
 }
 
 SDL_AppResult onLaunch(App* app, int argc, char** argv)
@@ -1478,21 +1495,27 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
 
     // create upload context (for uploading from CPU to GPU using staging buffers)
     {
+        app->uploadContext = UploadContext{
+            .separateTransferQueue = &app->separateTransferQueue,
+            .transferQueueFamilyIndex = &app->transferQueueFamilyIndex,
+            .transferQueue = &app->transferQueue
+        };
+
         // create pool
         vk::CommandPoolCreateInfo uploadPoolInfo{
             .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
             .queueFamilyIndex = app->graphicsQueueFamilyIndex
         };
-        app->uploadPool = app->device.createCommandPool(uploadPoolInfo).value();
+        app->uploadContext.commandPool = app->device.createCommandPool(uploadPoolInfo).value();
 
         // create command buffer
         vk::CommandBufferAllocateInfo bufferInfo{
-            .commandPool = app->uploadPool,
+            .commandPool = app->uploadContext.commandPool,
             .level = vk::CommandBufferLevel::ePrimary,
             .commandBufferCount = 1
         };
         std::vector<vk::raii::CommandBuffer> buffer = app->device.allocateCommandBuffers(bufferInfo).value();
-        app->uploadBuffer = std::move(buffer[0]);
+        app->uploadContext.commandBuffer = std::move(buffer[0]);
     }
 
     // create mesh
@@ -1540,8 +1563,8 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         mesh.indexBuffer = createBuffer(&app->device, *app->allocator, indexBufferInfo);
 
         // copy data from CPU to GPU
-        uploadToBuffer(&app->device, *app->allocator, &mesh.vertexBuffer, vertices.data(), vertexBufferSize);
-        uploadToBuffer(&app->device, *app->allocator, &mesh.indexBuffer, indices.data(), indexBufferSize);
+        copyToCpuVisibleBuffer(&app->device, *app->allocator, &mesh.vertexBuffer, vertices.data(), vertexBufferSize);
+        copyToCpuVisibleBuffer(&app->device, *app->allocator, &mesh.indexBuffer, indices.data(), indexBufferSize);
 
         app->mesh = std::move(mesh);
     }
@@ -1554,7 +1577,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
             .usage = vk::BufferUsageFlagBits::eUniformBuffer
         };
         app->cameraDataBuffer = createBuffer(&app->device, *app->allocator, descriptor);
-        uploadToBuffer(&app->device, *app->allocator, &app->cameraDataBuffer, &app->cameraData, sizeof(CameraData));
+        copyToCpuVisibleBuffer(&app->device, *app->allocator, &app->cameraDataBuffer, &app->cameraData, sizeof(CameraData));
     }
 
     // update descriptor sets (to point to the buffers with the relevant data)
@@ -1582,7 +1605,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         bool result = importPng(app->config.assetsPath / "textures" / "terrain.png", &info, &data);
         assert(result);
         app->texture = createTexture(&app->device, *app->allocator, info);
-        uploadToTexture(&app->device, *app->allocator, &app->texture, &data);
+        uploadToTexture(&app->device, *app->allocator, &app->uploadContext, &app->texture, &data);
     }
 
     return SDL_APP_CONTINUE;
@@ -1642,7 +1665,7 @@ void onDraw(App* app)
         app->cameraData.viewProjection = projection * view;
 
         // copy data to buffer
-        uploadToBuffer(&app->device, *app->allocator, &app->cameraDataBuffer, &app->cameraData, sizeof(CameraData));
+        copyToCpuVisibleBuffer(&app->device, *app->allocator, &app->cameraDataBuffer, &app->cameraData, sizeof(CameraData));
     }
 
     // acquire image
