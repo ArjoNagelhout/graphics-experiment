@@ -13,6 +13,9 @@
 //
 // this scope is rather large, so it can be implemented in small steps, shipping a small part of this larger vision
 // to ensure I'm building the right thing / receive feedback.
+//
+// first thing I want to have working:
+// a simple VR app with some user interactions (e.g. scaling an imported scene)
 
 #include <iostream>
 #include <cassert>
