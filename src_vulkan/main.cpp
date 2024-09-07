@@ -49,6 +49,8 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/transform.hpp>
 
+#include <lodepng.h>
+
 // constants
 constexpr int sdlTimerStepRateInMilliseconds = 125;
 constexpr uint32_t maxConcurrentFrames = 2;
@@ -175,19 +177,26 @@ namespace vma::raii
     };
 }
 
-struct BufferDescriptor
+struct BufferInfo
 {
     size_t size = 0;
     // if update frequently is turned on, we don't use a staging buffer
-    bool updateFrequently = false; // update or accessed frequently
+    bool gpuOnly = false; // update or accessed frequently
     vk::BufferUsageFlags usage;
 };
 
 struct Buffer
 {
-    BufferDescriptor descriptor; // we simply keep the descriptor
+    BufferInfo info; // we simply keep the descriptor
     vk::raii::Buffer buffer = nullptr;
     vma::raii::Allocation allocation = nullptr;
+};
+
+struct Texture
+{
+    vk::raii::Image image = nullptr;
+    vk::raii::ImageView imageView = nullptr;
+    vk::raii::Sampler sampler = nullptr;
 };
 
 struct Mesh
@@ -300,9 +309,7 @@ struct App
     Buffer cameraDataBuffer;
 
     // image
-    vk::raii::Image image = nullptr;
-    vk::raii::ImageView imageView = nullptr;
-    vk::raii::Sampler imageSampler = nullptr;
+    Texture texture;
 
     // input
     std::bitset<static_cast<size_t>(SDL_NUM_SCANCODES)> keys;
@@ -436,9 +443,6 @@ void onResize(App* app)
     app->swapchainImageViews.clear();
     app->framebuffers.clear();
 
-//    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
-//                             "Resized", "", NULL);
-
     // update surface capabilities (to retrieve width and height)
     app->surfaceCapabilities = app->physicalDevice.getSurfaceCapabilitiesKHR(app->surface);
 
@@ -542,15 +546,140 @@ void onResize(App* app)
     }
 }
 
-void importPng(std::filesystem::path const& path)
+//
+[[nodiscard]] bool importPng(App* app, std::filesystem::path const& path, Texture* outTexture)
 {
+    SDL_IOStream* stream = SDL_IOFromFile(path.c_str(), "r");
+    if (!stream)
+    {
+        return false;
+    }
 
+    Sint64 fileSize = SDL_GetIOSize(stream);
+    if (fileSize < 0)
+    {
+        SDL_CloseIO(stream);
+        return false;
+    }
+
+    // import png using lodepng
+    std::vector<unsigned char> png(fileSize);
+    unsigned int width;
+    unsigned int height;
+    lodepng::State state;
+
+    if (SDL_ReadIO(stream, png.data(), fileSize) != fileSize)
+    {
+        SDL_CloseIO(stream);
+        return false;
+    }
+
+    std::vector<unsigned char> image;
+    unsigned int error = lodepng::decode(image, width, height, state, png);
+    if (error != 0)
+    {
+        std::cout << lodepng_error_text(error) << std::endl;
+        return false;
+    }
+    LodePNGColorMode color = state.info_png.color;
+    assert(color.bitdepth == 8);
+    assert(color.colortype == LCT_RGBA);
+
+    // we successfully imported the png, so now we want to store it on the GPU
+
+    // how do we create a texture in Vulkan?
+    // Image, ImageView, Sampler
+
+    vk::Format format = vk::Format::eR8G8B8A8Srgb;
+//
+//    // create image
+//    vk::ImageCreateInfo imageInfo{
+//        .imageType = vk::ImageType::e2D,
+//        .format = format,
+//        .extent = vk::Extent3D{.width = width, .height = height, .depth = 1},
+//        .mipLevels = 1,
+//        .arrayLayers = 1,
+//        .samples = vk::SampleCountFlagBits::e1,
+//        .tiling = vk::ImageTiling::eOptimal,
+//        .usage = vk::ImageUsageFlagBits::eSampled,
+//        .sharingMode = vk::SharingMode::eExclusive,
+//        .initialLayout = vk::ImageLayout::eShaderReadOnlyOptimal
+//    };
+//    outTexture->image = app->device.createImage(imageInfo).value();
+//
+//    // create image view
+//    vk::ImageViewCreateInfo imageViewInfo{
+//        .image = outTexture->image,
+//        .viewType = vk::ImageViewType::e2D,
+//        .format = format,
+//        .components = vk::ComponentMapping{
+//            .r = vk::ComponentSwizzle::eIdentity,
+//            .g = vk::ComponentSwizzle::eIdentity,
+//            .b = vk::ComponentSwizzle::eIdentity,
+//            .a = vk::ComponentSwizzle::eIdentity
+//        },
+//        .subresourceRange = vk::ImageSubresourceRange{
+//            .aspectMask = vk::ImageAspectFlagBits::eColor,
+//            .baseMipLevel = 0,
+//            .levelCount = 1,
+//            .baseArrayLayer = 0,
+//            .layerCount = 1
+//        }
+//    };
+//    outTexture->imageView = app->device.createImageView(imageViewInfo).value();
+//
+//    // create sampler
+//    vk::SamplerCreateInfo samplerInfo{
+//        .magFilter = vk::Filter::eLinear,
+//        .minFilter = vk::Filter::eLinear,
+//        .mipmapMode = vk::SamplerMipmapMode::eLinear,
+//        .addressModeU = vk::SamplerAddressMode::eClampToEdge,
+//        .addressModeV = vk::SamplerAddressMode::eClampToEdge,
+//        .addressModeW = vk::SamplerAddressMode::eClampToEdge,
+//        .mipLodBias = 0.0f,
+//        .anisotropyEnable = false,
+//        .maxAnisotropy = 0.0f,
+//        .compareEnable = false,
+//        .compareOp = vk::CompareOp::eLessOrEqual,
+//        .minLod = 0.0f,
+//        .maxLod = 1.0f,
+//        .borderColor = vk::BorderColor::eFloatOpaqueWhite,
+//        .unnormalizedCoordinates = false
+//    };
+//    outTexture->sampler = app->device.createSampler(samplerInfo).value();
+//
+//    // upload data to texture using staging buffer
+//
+//    // 1. create staging buffer
+//    vk::BufferCreateInfo stagingBufferInfo{
+//        .size = image.size(),
+//        .usage = vk::BufferUsageFlagBits::eTransferSrc
+//    };
+//    VmaAllocationCreateInfo stagingBufferAllocationInfo{
+//        .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+//    };
+//
+//    VkBuffer stagingBuffer;
+//    VmaAllocation stagingBufferAllocation;
+//    vmaCreateBuffer(
+//        *app->allocator,
+//        (VkBufferCreateInfo*)&stagingBufferInfo,
+//        &stagingBufferAllocationInfo,
+//        &stagingBuffer,
+//        &stagingBufferAllocation,
+//        nullptr
+//    );
+
+    // copy data to staging buffer
+
+
+    return true;
 }
 
+// returns whether successful
 [[nodiscard]] bool readStringFromFile(std::filesystem::path const& path, std::string* outString)
 {
     SDL_IOStream* stream = SDL_IOFromFile(path.c_str(), "r");
-
     if (!stream)
     {
         return false;
@@ -833,28 +962,28 @@ void importPng(std::filesystem::path const& path)
 [[nodiscard]] Buffer createBuffer(
     vk::raii::Device const* device,
     VmaAllocator allocator,
-    BufferDescriptor descriptor)
+    BufferInfo info)
 {
-    vk::BufferCreateInfo info{
-        .size = descriptor.size,
-        .usage = descriptor.usage
+    vk::BufferCreateInfo bufferInfo{
+        .size = info.size,
+        .usage = info.usage
     };
     VmaAllocationCreateInfo allocationInfo{};
-    if (descriptor.updateFrequently)
+    if (info.gpuOnly)
     {
-        allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        // local in GPU memory (most performant, unless data needs to be frequently accessed)
+        allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     }
     else
     {
-        // if it's not frequently updated, we can keep it local in GPU memory
-        allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     }
 
     VkBuffer buffer;
     VmaAllocation allocation;
     vmaCreateBuffer(
         allocator,
-        (VkBufferCreateInfo*)&info,
+        reinterpret_cast<VkBufferCreateInfo*>(&bufferInfo),
         &allocationInfo,
         &buffer,
         &allocation,
@@ -862,31 +991,39 @@ void importPng(std::filesystem::path const& path)
     );
 
     return Buffer{
-        .descriptor = descriptor,
+        .info = info,
         .buffer = vk::raii::Buffer(*device, buffer),
         .allocation = vma::raii::Allocation(allocator, allocation)
     };
 }
 
 void uploadToBuffer(
+    vk::raii::Device const* device,
     VmaAllocator allocator,
     Buffer* buffer, void* data, size_t length)
 {
     assert(buffer);
-    if (buffer->descriptor.updateFrequently)
+    if (!buffer->info.gpuOnly)
     {
         // map memory directly
         void* destination = nullptr;
         vmaMapMemory(allocator, *buffer->allocation, &destination);
-        memcpy(destination, data, buffer->descriptor.size);
+        memcpy(destination, data, buffer->info.size);
         vmaUnmapMemory(allocator, *buffer->allocation);
     }
     else
     {
-        // use staging buffer
-        assert(false);
+        // create staging buffer
+        BufferInfo stagingBufferInfo{
+            .size = buffer->info.size,
+            .gpuOnly = false,
+            .usage = vk::BufferUsageFlagBits::eTransferSrc
+        };
+        Buffer stagingBuffer = createBuffer(device, allocator, stagingBufferInfo);
+        uploadToBuffer(device, allocator, &stagingBuffer, data, length);
 
-        // get queue
+        // get transfer queue
+
     }
 }
 
@@ -1071,7 +1208,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         };
 
         std::vector<vk::DeviceQueueCreateInfo> queues{
-                graphicsQueue
+            graphicsQueue
         };
 
         if (app->separateTransferQueue)
@@ -1343,37 +1480,37 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         size_t indexBufferSize = indices.size() * sizeof(uint32_t);
 
         // create vertex buffer
-        BufferDescriptor vertexBufferInfo{
+        BufferInfo vertexBufferInfo{
             .size = vertexBufferSize,
-            .updateFrequently = true,
+            .gpuOnly = false,
             .usage = vk::BufferUsageFlagBits::eVertexBuffer
         };
         mesh.vertexBuffer = createBuffer(&app->device, *app->allocator, vertexBufferInfo);
 
         // create index buffer
-        BufferDescriptor indexBufferInfo{
+        BufferInfo indexBufferInfo{
             .size = indexBufferSize,
-            .updateFrequently = true,
+            .gpuOnly = false,
             .usage = vk::BufferUsageFlagBits::eIndexBuffer
         };
         mesh.indexBuffer = createBuffer(&app->device, *app->allocator, indexBufferInfo);
 
         // copy data from CPU to GPU
-        uploadToBuffer(*app->allocator, &mesh.vertexBuffer, vertices.data(), vertexBufferSize);
-        uploadToBuffer(*app->allocator, &mesh.indexBuffer, indices.data(), indexBufferSize);
+        uploadToBuffer(&app->device, *app->allocator, &mesh.vertexBuffer, vertices.data(), vertexBufferSize);
+        uploadToBuffer(&app->device, *app->allocator, &mesh.indexBuffer, indices.data(), indexBufferSize);
 
         app->mesh = std::move(mesh);
     }
 
     // create camera data buffer
     {
-        BufferDescriptor descriptor{
+        BufferInfo descriptor{
             .size = sizeof(CameraData),
-            .updateFrequently = true,
+            .gpuOnly = false,
             .usage = vk::BufferUsageFlagBits::eUniformBuffer
         };
         app->cameraDataBuffer = createBuffer(&app->device, *app->allocator, descriptor);
-        uploadToBuffer(*app->allocator, &app->cameraDataBuffer, &app->cameraData, sizeof(CameraData));
+        uploadToBuffer(&app->device, *app->allocator, &app->cameraDataBuffer, &app->cameraData, sizeof(CameraData));
     }
 
     // update descriptor sets (to point to the buffers with the relevant data)
@@ -1396,7 +1533,8 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
 
     // import texture
     {
-
+        bool result = importPng(app, app->config.assetsPath / "textures" / "terrain.png", &app->texture);
+        assert(result);
     }
 
     return SDL_APP_CONTINUE;
@@ -1456,7 +1594,7 @@ void onDraw(App* app)
         app->cameraData.viewProjection = projection * view;
 
         // copy data to buffer
-        uploadToBuffer(*app->allocator, &app->cameraDataBuffer, &app->cameraData, sizeof(CameraData));
+        uploadToBuffer(&app->device, *app->allocator, &app->cameraDataBuffer, &app->cameraData, sizeof(CameraData));
     }
 
     // acquire image

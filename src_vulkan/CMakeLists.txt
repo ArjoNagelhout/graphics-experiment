@@ -13,6 +13,7 @@ endif ()
 target_link_libraries(graphics_experiment PRIVATE
         SDL3::SDL3
         glm
+        lodepng
         vulkan
         VulkanMemoryAllocator
 )
