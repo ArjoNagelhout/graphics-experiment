@@ -261,7 +261,7 @@ struct UploadContext
 
     vk::raii::CommandPool commandPool = nullptr;
     vk::raii::CommandBuffer commandBuffer = nullptr;
-    vk::raii::Fence gpuHasFinishedExecutingCommandBuffer = nullptr;
+    vk::raii::Fence gpuHasExecutedCommandBuffer = nullptr;
 };
 
 struct App
@@ -946,10 +946,11 @@ void onResize(App* app)
 }
 
 // if the buffer is not gpu only, we can copy to it directly
+// assumed for now that the data is the size of the buffer
 void copyToCpuVisibleBuffer(
     vk::raii::Device const* device,
     VmaAllocator allocator,
-    Buffer* buffer, void* data, size_t length)
+    Buffer* buffer, void* data)
 {
     assert(buffer);
     assert(!buffer->info.gpuOnly);
@@ -966,7 +967,7 @@ void uploadToGpuOnlyBuffer(
     vk::raii::Device const* device,
     VmaAllocator allocator,
     UploadContext* uploadContext,
-    Buffer* buffer, void* data, size_t length)
+    Buffer* buffer, void* data)
 {
     assert(buffer);
     assert(buffer->info.gpuOnly);
@@ -979,7 +980,41 @@ void uploadToGpuOnlyBuffer(
         .usage = vk::BufferUsageFlagBits::eTransferSrc
     };
     Buffer stagingBuffer = createBuffer(device, allocator, stagingBufferInfo);
-    copyToCpuVisibleBuffer(device, allocator, &stagingBuffer, data, length);
+    copyToCpuVisibleBuffer(device, allocator, &stagingBuffer, data);
+
+    // upload
+    // wait for the fence to be signaled
+    assert(device->waitForFences(*uploadContext->gpuHasExecutedCommandBuffer, true, UINT64_MAX) == vk::Result::eSuccess);
+    device->resetFences(*uploadContext->gpuHasExecutedCommandBuffer); // reset fence back to unsignaled state
+
+    // get command buffer, record to it, and submit it
+    vk::raii::CommandBuffer* cmd = &uploadContext->commandBuffer;
+    cmd->reset();
+
+    cmd->begin({});
+
+
+
+    // copy buffer
+    vk::BufferCopy region{
+        .srcOffset = 0,
+        .dstOffset = 0,
+        .size = buffer->info.size
+    };
+    cmd->copyBuffer(*stagingBuffer.buffer, buffer->buffer, region);
+
+    cmd->end();
+
+    vk::SubmitInfo submitInfo{
+        .waitSemaphoreCount = 0,
+        .pWaitSemaphores = nullptr,
+        .pWaitDstStageMask = 0,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &**cmd,
+        .signalSemaphoreCount = 0,
+        .pSignalSemaphores = nullptr
+    };
+    uploadContext->transferQueue->submit(submitInfo, uploadContext->gpuHasExecutedCommandBuffer);
 }
 
 [[nodiscard]] Texture createTexture(
@@ -1087,7 +1122,7 @@ void uploadToTexture(
         .usage = vk::BufferUsageFlagBits::eTransferSrc
     };
     Buffer stagingBuffer = createBuffer(device, allocator, stagingBufferInfo);
-    copyToCpuVisibleBuffer(device, allocator, &stagingBuffer, data->data(), data->size());
+    copyToCpuVisibleBuffer(device, allocator, &stagingBuffer, data->data());
 }
 
 SDL_AppResult onLaunch(App* app, int argc, char** argv)
@@ -1418,13 +1453,14 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     {
         for (size_t i = 0; i < maxConcurrentFrames; i++)
         {
+            // create fence in signaled state
             vk::raii::Fence fence = app->device.createFence(vk::FenceCreateInfo{.flags = vk::FenceCreateFlagBits::eSignaled}).value();
 
             FrameData frameData{
                 .acquiringImage = app->device.createSemaphore({}).value(),
                 .rendering = app->device.createSemaphore({}).value(),
                 .commandBuffer = std::move(commandBuffers[i]),
-                .gpuHasExecutedCommandBuffer = std::move(fence) // create in signaled state
+                .gpuHasExecutedCommandBuffer = std::move(fence)
             };
             app->frames.emplace_back(std::move(frameData));
         }
@@ -1501,6 +1537,9 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
             .transferQueue = &app->transferQueue
         };
 
+        // create fence in signaled state (signal means it is done)
+        app->uploadContext.gpuHasExecutedCommandBuffer = app->device.createFence(vk::FenceCreateInfo{.flags = vk::FenceCreateFlagBits::eSignaled}).value();
+
         // create pool
         vk::CommandPoolCreateInfo uploadPoolInfo{
             .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
@@ -1543,28 +1582,25 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         mesh.indexCount = indices.size();
         mesh.indexType = vk::IndexType::eUint32;
 
-        size_t vertexBufferSize = vertices.size() * sizeof(VertexData);
-        size_t indexBufferSize = indices.size() * sizeof(uint32_t);
-
         // create vertex buffer
         BufferInfo vertexBufferInfo{
-            .size = vertexBufferSize,
-            .gpuOnly = false,
+            .size = vertices.size() * sizeof(VertexData),
+            .gpuOnly = true,
             .usage = vk::BufferUsageFlagBits::eVertexBuffer
         };
         mesh.vertexBuffer = createBuffer(&app->device, *app->allocator, vertexBufferInfo);
 
         // create index buffer
         BufferInfo indexBufferInfo{
-            .size = indexBufferSize,
-            .gpuOnly = false,
+            .size = indices.size() * sizeof(uint32_t),
+            .gpuOnly = true,
             .usage = vk::BufferUsageFlagBits::eIndexBuffer
         };
         mesh.indexBuffer = createBuffer(&app->device, *app->allocator, indexBufferInfo);
 
         // copy data from CPU to GPU
-        copyToCpuVisibleBuffer(&app->device, *app->allocator, &mesh.vertexBuffer, vertices.data(), vertexBufferSize);
-        copyToCpuVisibleBuffer(&app->device, *app->allocator, &mesh.indexBuffer, indices.data(), indexBufferSize);
+        uploadToGpuOnlyBuffer(&app->device, *app->allocator, &app->uploadContext, &mesh.vertexBuffer, vertices.data());
+        uploadToGpuOnlyBuffer(&app->device, *app->allocator, &app->uploadContext, &mesh.indexBuffer, indices.data());
 
         app->mesh = std::move(mesh);
     }
@@ -1577,7 +1613,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
             .usage = vk::BufferUsageFlagBits::eUniformBuffer
         };
         app->cameraDataBuffer = createBuffer(&app->device, *app->allocator, descriptor);
-        copyToCpuVisibleBuffer(&app->device, *app->allocator, &app->cameraDataBuffer, &app->cameraData, sizeof(CameraData));
+        copyToCpuVisibleBuffer(&app->device, *app->allocator, &app->cameraDataBuffer, &app->cameraData);
     }
 
     // update descriptor sets (to point to the buffers with the relevant data)
@@ -1617,8 +1653,9 @@ void onDraw(App* app)
 
     // wait for the GPU to be done with the submitted command buffers of this frame data
     {
+        // wait for the fence to be signaled
         assert(app->device.waitForFences(*frame->gpuHasExecutedCommandBuffer, true, std::numeric_limits<uint64_t>::max()) == vk::Result::eSuccess);
-        app->device.resetFences(*frame->gpuHasExecutedCommandBuffer);
+        app->device.resetFences(*frame->gpuHasExecutedCommandBuffer); // set back to unsignaled state
         frame->commandBuffer.reset();
     }
 
@@ -1665,7 +1702,7 @@ void onDraw(App* app)
         app->cameraData.viewProjection = projection * view;
 
         // copy data to buffer
-        copyToCpuVisibleBuffer(&app->device, *app->allocator, &app->cameraDataBuffer, &app->cameraData, sizeof(CameraData));
+        copyToCpuVisibleBuffer(&app->device, *app->allocator, &app->cameraDataBuffer, &app->cameraData);
     }
 
     // acquire image
