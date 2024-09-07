@@ -1,6 +1,18 @@
 //
 // Created by Arjo Nagelhout on 17/08/2024.
 //
+// Goal: Build a VR design application using OpenXR and Vulkan for AEC use cases
+// - render and enable editing of BIM files (e.g. IFC)
+// - for design review / conceptual design (for presentation purposes existing architectural
+//   visualization solutions should suffice)
+// - simple CAD editing operations
+// - build on open source libraries (ifcOpenShell, OpenCascade, etc.)
+// - collaborative, multi-user (requires server / client split)
+// - model optimisations and streaming from central server (as on-board processing of Meta Quest Pro / 3 might
+//   not be powerful enough. (interesting to experiment with))
+//
+// this scope is rather large, so it can be implemented in small steps, shipping a small part of this larger vision
+// to ensure I'm building the right thing / receive feedback.
 
 #include <iostream>
 #include <cassert>
