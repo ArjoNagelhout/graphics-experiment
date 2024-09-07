@@ -572,7 +572,7 @@ void onResize(App* app)
 }
 
 //
-[[nodiscard]] bool importPng(App* app, std::filesystem::path const& path, TextureInfo* outInfo, std::vector<unsigned char>* outData)
+[[nodiscard]] bool importPng(std::filesystem::path const& path, TextureInfo* outInfo, std::vector<unsigned char>* outData)
 {
     assert(outInfo);
     assert(outData);
@@ -985,7 +985,7 @@ void uploadToBuffer(
         .tiling = vk::ImageTiling::eOptimal,
         .usage = vk::ImageUsageFlagBits::eSampled,
         .sharingMode = vk::SharingMode::eExclusive,
-        .initialLayout = vk::ImageLayout::eShaderReadOnlyOptimal
+        .initialLayout = vk::ImageLayout::eUndefined
     };
 
     VmaAllocationCreateInfo allocationInfo{
@@ -1071,8 +1071,6 @@ void uploadToTexture(
     };
     Buffer stagingBuffer = createBuffer(device, allocator, stagingBufferInfo);
     uploadToBuffer(device, allocator, &stagingBuffer, data->data(), data->size());
-
-    
 }
 
 SDL_AppResult onLaunch(App* app, int argc, char** argv)
@@ -1581,8 +1579,10 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     {
         TextureInfo info{};
         std::vector<unsigned char> data;
-        bool result = importPng(app, app->config.assetsPath / "textures" / "terrain.png", &info, &data);
+        bool result = importPng(app->config.assetsPath / "textures" / "terrain.png", &info, &data);
         assert(result);
+        app->texture = createTexture(&app->device, *app->allocator, info);
+        uploadToTexture(&app->device, *app->allocator, &app->texture, &data);
     }
 
     return SDL_APP_CONTINUE;
