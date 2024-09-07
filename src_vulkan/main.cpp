@@ -253,12 +253,20 @@ struct CameraData
     glm::mat4 viewProjection = glm::mat4(1);
 };
 
+struct Queues
+{
+    // graphics queue
+    uint32_t graphicsQueueFamilyIndex = 0;
+    vk::raii::Queue graphicsQueue = nullptr;
+
+    bool separateTransferQueue = false;
+    uint32_t transferQueueFamilyIndex = 0;
+    vk::raii::Queue transferQueue = nullptr;
+};
+
 struct UploadContext
 {
-    bool* separateTransferQueue = nullptr;
-    uint32_t* transferQueueFamilyIndex = nullptr;
-    vk::raii::Queue* transferQueue = nullptr;
-
+    Queues* queues = nullptr;
     vk::raii::CommandPool commandPool = nullptr;
     vk::raii::CommandBuffer commandBuffer = nullptr;
     vk::raii::Fence gpuHasExecutedCommandBuffer = nullptr;
@@ -280,13 +288,8 @@ struct App
     uint32_t physicalDeviceIndex = 0;
     vk::raii::Device device = nullptr;
 
-    // graphics queue (also used for transferring for now to reduce complexity in setup)
-    uint32_t graphicsQueueFamilyIndex = 0;
-    vk::raii::Queue graphicsQueue = nullptr;
-
-    bool separateTransferQueue = false;
-    uint32_t transferQueueFamilyIndex = 0;
-    vk::raii::Queue transferQueue = nullptr;
+    // queues
+    Queues queues;
 
     // surface
     vk::SurfaceFormatKHR surfaceFormat{
@@ -510,7 +513,7 @@ void onResize(App* app)
 
     // create swapchain
     {
-        std::vector<uint32_t> queueIndices{app->graphicsQueueFamilyIndex};
+        std::vector<uint32_t> queueIndices{app->queues.graphicsQueueFamilyIndex};
         app->swapchainExtent = app->surfaceCapabilities.currentExtent;
         vk::SwapchainCreateInfoKHR info{
             .surface = app->surface,
@@ -921,6 +924,7 @@ void onResize(App* app)
     {
         // local in GPU memory (most performant, unless data needs to be frequently accessed)
         allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        bufferInfo.usage |= vk::BufferUsageFlagBits::eTransferDst; // otherwise we can't copy to the buffer
     }
     else
     {
@@ -993,8 +997,6 @@ void uploadToGpuOnlyBuffer(
 
     cmd->begin({});
 
-
-
     // copy buffer
     vk::BufferCopy region{
         .srcOffset = 0,
@@ -1003,18 +1005,42 @@ void uploadToGpuOnlyBuffer(
     };
     cmd->copyBuffer(*stagingBuffer.buffer, buffer->buffer, region);
 
+    // Resources created with a VkSharingMode of VK_SHARING_MODE_EXCLUSIVE must have their ownership explicitly
+    // transferred from one queue family to another in order to access their content in a well-defined manner
+    // on a queue in a different queue family.
+    // https://www.khronos.org/blog/understanding-vulkan-synchronization and the spec
+
+    // "must be executed on both the source and destination queues"
+    // see: https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples
+
+    vk::BufferMemoryBarrier barrier{
+        .srcAccessMask = vk::AccessFlagBits::eMemoryWrite,
+        .srcQueueFamilyIndex = uploadContext->queues->transferQueueFamilyIndex,
+        .dstQueueFamilyIndex = uploadContext->queues->graphicsQueueFamilyIndex,
+        .buffer = buffer->buffer,
+        .offset = 0,
+        .size = buffer->info.size
+    };
+    cmd->pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eAllCommands,
+        vk::DependencyFlagBits::eDeviceGroup,
+        {},
+        barrier,
+        {});
+
     cmd->end();
 
     vk::SubmitInfo submitInfo{
         .waitSemaphoreCount = 0,
         .pWaitSemaphores = nullptr,
-        .pWaitDstStageMask = 0,
+        .pWaitDstStageMask = nullptr,
         .commandBufferCount = 1,
         .pCommandBuffers = &**cmd,
         .signalSemaphoreCount = 0,
         .pSignalSemaphores = nullptr
     };
-    uploadContext->transferQueue->submit(submitInfo, uploadContext->gpuHasExecutedCommandBuffer);
+    uploadContext->queues->transferQueue.submit(submitInfo, uploadContext->gpuHasExecutedCommandBuffer);
 }
 
 [[nodiscard]] Texture createTexture(
@@ -1253,12 +1279,12 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
                 vk::QueueFamilyProperties family = families[i];
                 if (!foundGraphics && family.queueFlags & vk::QueueFlagBits::eGraphics)
                 {
-                    app->graphicsQueueFamilyIndex = i;
+                    app->queues.graphicsQueueFamilyIndex = i;
                     foundGraphics = true;
                 }
                 else if (!foundTransfer && family.queueFlags & vk::QueueFlagBits::eTransfer)
                 {
-                    app->transferQueueFamilyIndex = i;
+                    app->queues.transferQueueFamilyIndex = i;
                     foundTransfer = true;
                 }
 
@@ -1270,27 +1296,27 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
 
             if (foundTransfer)
             {
-                app->separateTransferQueue = true;
+                app->queues.separateTransferQueue = true;
             }
             else
             {
                 // if we have 1 graphics queue, but haven't found a separate transfer queue,
                 // then we want to see if the graphics queue supports transfer
-                assert(families[app->graphicsQueueFamilyIndex].queueFlags & vk::QueueFlagBits::eTransfer);
+                assert(families[app->queues.graphicsQueueFamilyIndex].queueFlags & vk::QueueFlagBits::eTransfer);
             }
         }
         else
         {
             // only one queue, so we assume it can handle everything we want to do
-            app->graphicsQueueFamilyIndex = 0;
-            app->transferQueueFamilyIndex = 0;
+            app->queues.graphicsQueueFamilyIndex = 0;
+            app->queues.transferQueueFamilyIndex = 0;
 
             vk::QueueFamilyProperties family = families[0];
             assert((family.queueFlags & vk::QueueFlagBits::eGraphics) && (family.queueFlags & vk::QueueFlagBits::eTransfer));
         }
 
-        std::cout << "graphics queue family index: " << app->graphicsQueueFamilyIndex << std::endl;
-        std::cout << "transfer queue family index: " << app->transferQueueFamilyIndex << std::endl;
+        std::cout << "graphics queue family index: " << app->queues.graphicsQueueFamilyIndex << std::endl;
+        std::cout << "transfer queue family index: " << app->queues.transferQueueFamilyIndex << std::endl;
     }
 
     // create logical device / create device
@@ -1298,7 +1324,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         // we need to specify which queues need to be created
         float priority = 1.0f;
         vk::DeviceQueueCreateInfo graphicsQueue{
-            .queueFamilyIndex = app->graphicsQueueFamilyIndex,
+            .queueFamilyIndex = app->queues.graphicsQueueFamilyIndex,
             .queueCount = 1,
             .pQueuePriorities = &priority
         };
@@ -1307,10 +1333,10 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
             graphicsQueue
         };
 
-        if (app->separateTransferQueue)
+        if (app->queues.separateTransferQueue)
         {
             vk::DeviceQueueCreateInfo transferQueue{
-                .queueFamilyIndex = app->transferQueueFamilyIndex,
+                .queueFamilyIndex = app->queues.transferQueueFamilyIndex,
                 .queueCount = 1,
                 .pQueuePriorities = &priority
             };
@@ -1341,10 +1367,10 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
 
     // get queues
     {
-        app->graphicsQueue = app->device.getQueue(app->graphicsQueueFamilyIndex, 0).value();
-        if (app->separateTransferQueue)
+        app->queues.graphicsQueue = app->device.getQueue(app->queues.graphicsQueueFamilyIndex, 0).value();
+        if (app->queues.separateTransferQueue)
         {
-            app->transferQueue = app->device.getQueue(app->transferQueueFamilyIndex, 0).value();
+            app->queues.transferQueue = app->device.getQueue(app->queues.transferQueueFamilyIndex, 0).value();
         }
     }
 
@@ -1433,7 +1459,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     {
         vk::CommandPoolCreateInfo graphicsPoolInfo{
             .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-            .queueFamilyIndex = app->graphicsQueueFamilyIndex
+            .queueFamilyIndex = app->queues.graphicsQueueFamilyIndex
         };
         app->graphicsPool = app->device.createCommandPool(graphicsPoolInfo).value();
     }
@@ -1532,9 +1558,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     // create upload context (for uploading from CPU to GPU using staging buffers)
     {
         app->uploadContext = UploadContext{
-            .separateTransferQueue = &app->separateTransferQueue,
-            .transferQueueFamilyIndex = &app->transferQueueFamilyIndex,
-            .transferQueue = &app->transferQueue
+            .queues = &app->queues
         };
 
         // create fence in signaled state (signal means it is done)
@@ -1543,7 +1567,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         // create pool
         vk::CommandPoolCreateInfo uploadPoolInfo{
             .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-            .queueFamilyIndex = app->graphicsQueueFamilyIndex
+            .queueFamilyIndex = app->queues.transferQueueFamilyIndex
         };
         app->uploadContext.commandPool = app->device.createCommandPool(uploadPoolInfo).value();
 
@@ -1585,7 +1609,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         // create vertex buffer
         BufferInfo vertexBufferInfo{
             .size = vertices.size() * sizeof(VertexData),
-            .gpuOnly = true,
+            .gpuOnly = false,
             .usage = vk::BufferUsageFlagBits::eVertexBuffer
         };
         mesh.vertexBuffer = createBuffer(&app->device, *app->allocator, vertexBufferInfo);
@@ -1593,14 +1617,17 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         // create index buffer
         BufferInfo indexBufferInfo{
             .size = indices.size() * sizeof(uint32_t),
-            .gpuOnly = true,
+            .gpuOnly = false,
             .usage = vk::BufferUsageFlagBits::eIndexBuffer
         };
         mesh.indexBuffer = createBuffer(&app->device, *app->allocator, indexBufferInfo);
 
         // copy data from CPU to GPU
-        uploadToGpuOnlyBuffer(&app->device, *app->allocator, &app->uploadContext, &mesh.vertexBuffer, vertices.data());
-        uploadToGpuOnlyBuffer(&app->device, *app->allocator, &app->uploadContext, &mesh.indexBuffer, indices.data());
+        copyToCpuVisibleBuffer(&app->device, *app->allocator, &mesh.vertexBuffer, vertices.data());
+        copyToCpuVisibleBuffer(&app->device, *app->allocator, &mesh.indexBuffer, indices.data());
+
+//        uploadToGpuOnlyBuffer(&app->device, *app->allocator, &app->uploadContext, &mesh.vertexBuffer, vertices.data());
+//        uploadToGpuOnlyBuffer(&app->device, *app->allocator, &app->uploadContext, &mesh.indexBuffer, indices.data());
 
         app->mesh = std::move(mesh);
     }
@@ -1642,6 +1669,11 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         assert(result);
         app->texture = createTexture(&app->device, *app->allocator, info);
         uploadToTexture(&app->device, *app->allocator, &app->uploadContext, &app->texture, &data);
+    }
+
+    // wait for the app to be done with any upload tasks
+    {
+        assert(app->device.waitForFences(*app->uploadContext.gpuHasExecutedCommandBuffer, true, UINT64_MAX) == vk::Result::eSuccess);
     }
 
     return SDL_APP_CONTINUE;
@@ -1784,7 +1816,7 @@ void onDraw(App* app)
         .signalSemaphoreCount = 1,
         .pSignalSemaphores = &*frame->rendering
     };
-    app->graphicsQueue.submit(submitInfo, frame->gpuHasExecutedCommandBuffer);
+    app->queues.graphicsQueue.submit(submitInfo, frame->gpuHasExecutedCommandBuffer);
 
     // present queue
     // get queue
@@ -1795,7 +1827,7 @@ void onDraw(App* app)
         .pSwapchains = &*app->swapchain,
         .pImageIndices = &imageIndex
     };
-    vk::Result presentResult = app->graphicsQueue.presentKHR(presentInfo);
+    vk::Result presentResult = app->queues.graphicsQueue.presentKHR(presentInfo);
     if (presentResult == vk::Result::eErrorOutOfDateKHR || presentResult == vk::Result::eSuboptimalKHR)
     {
         onResize(app);
