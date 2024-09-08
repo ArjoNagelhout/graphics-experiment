@@ -583,7 +583,7 @@ void onResize(App* app)
     }
 }
 
-//
+// import png using lodepng, returns whether successful
 [[nodiscard]] bool importPng(std::filesystem::path const& path, TextureInfo* outInfo, std::vector<unsigned char>* outData)
 {
     assert(outInfo);
@@ -978,50 +978,101 @@ void copyToBufferGpuOnly(
     assert(buffer->info.gpuOnly);
     assert(uploadContext);
 
-    // if there is a separate transfer queue, we should perform a queue family ownership transfer (QFOT) operation
-    bool separateTransferQueue = uploadContext->queues->separateTransferQueue;
-
     // create staging buffer
-    BufferInfo stagingBufferInfo{
-        .size = buffer->info.size,
-        .gpuOnly = false,
-        .usage = vk::BufferUsageFlagBits::eTransferSrc
-    };
-    Buffer stagingBuffer = createBuffer(device, allocator, stagingBufferInfo);
-    copyToBufferCpuVisible(device, allocator, &stagingBuffer, data);
-
-    // upload
-    // wait for the fence to be signaled
-    assert(device->waitForFences(*uploadContext->gpuHasExecutedTransferCommandBuffer, true, UINT64_MAX) == vk::Result::eSuccess);
-    device->resetFences(*uploadContext->gpuHasExecutedTransferCommandBuffer); // reset fence back to unsignaled state
-
-    // get command buffer, record to it, and submit it
-    vk::raii::CommandBuffer* cmd = &uploadContext->transferCommandBuffer;
-    cmd->reset();
-
-    cmd->begin({});
-
-    // copy buffer
-    vk::BufferCopy region{
-        .srcOffset = 0,
-        .dstOffset = 0,
-        .size = buffer->info.size
-    };
-    cmd->copyBuffer(*stagingBuffer.buffer, buffer->buffer, region);
-
-    // Resources created with a VkSharingMode of VK_SHARING_MODE_EXCLUSIVE must have their ownership explicitly
-    // transferred from one queue family to another in order to access their content in a well-defined manner
-    // on a queue in a different queue family.
-    // See https://www.khronos.org/blog/understanding-vulkan-synchronization and the spec
-
-    // "must be executed on both the source and destination queues"
-    // see: https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples-(Legacy-synchronization-APIs)#transfer-dependencies
-
-    if (separateTransferQueue)
+    Buffer stagingBuffer;
     {
+        BufferInfo stagingBufferInfo{
+            .size = buffer->info.size,
+            .gpuOnly = false,
+            .usage = vk::BufferUsageFlagBits::eTransferSrc
+        };
+        stagingBuffer = createBuffer(device, allocator, stagingBufferInfo);
+        copyToBufferCpuVisible(device, allocator, &stagingBuffer, data);
+    }
+
+    // transfer
+    {
+        // wait for the fence to be signaled
+        assert(device->waitForFences(*uploadContext->gpuHasExecutedTransferCommandBuffer, true, UINT64_MAX) == vk::Result::eSuccess);
+        device->resetFences(*uploadContext->gpuHasExecutedTransferCommandBuffer); // reset fence back to unsignaled state
+
+        // get command buffer, record to it, and submit it
+        vk::raii::CommandBuffer* cmd = &uploadContext->transferCommandBuffer;
+        cmd->reset();
+
+        cmd->begin({});
+
+        // copy buffer
+        vk::BufferCopy region{
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = buffer->info.size
+        };
+        cmd->copyBuffer(*stagingBuffer.buffer, buffer->buffer, region);
+
+        // if there is a separate transfer queue, we should perform a queue family ownership transfer (QFOT) operation:
+        //
+        // "Resources created with a VkSharingMode of VK_SHARING_MODE_EXCLUSIVE must have their ownership explicitly
+        // transferred from one queue family to another in order to access their content in a well-defined manner
+        // on a queue in a different queue family."
+        // See https://www.khronos.org/blog/understanding-vulkan-synchronization and the spec
+        // "must be executed on both the source and destination queues"
+        // see: https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples-(Legacy-synchronization-APIs)#transfer-dependencies
+        // for an example implementation
+        if (uploadContext->queues->separateTransferQueue)
+        {
+            // release operation
+            vk::BufferMemoryBarrier barrier{
+                .srcAccessMask = vk::AccessFlagBits::eTransferWrite, // after transfer
+                // dstAccessMask ignored
+                .srcQueueFamilyIndex = uploadContext->queues->transferQueueFamilyIndex, // from transfer queue
+                .dstQueueFamilyIndex = uploadContext->queues->graphicsQueueFamilyIndex, // to graphics queue
+                .buffer = buffer->buffer,
+                .offset = 0,
+                .size = buffer->info.size
+            };
+            cmd->pipelineBarrier(
+                vk::PipelineStageFlagBits::eTransfer, // after transfer
+                {}, // dstStageMask ignored
+                vk::DependencyFlagBits::eDeviceGroup,
+                {},
+                barrier,
+                {});
+        }
+        cmd->end();
+
+        vk::SubmitInfo submitInfo{
+            .waitSemaphoreCount = 0,
+            .pWaitSemaphores = nullptr,
+            .pWaitDstStageMask = nullptr,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &**cmd,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = nullptr
+        };
+
+        if (uploadContext->queues->separateTransferQueue)
+        {
+            submitInfo.signalSemaphoreCount = 1;
+            submitInfo.pSignalSemaphores = &*uploadContext->uploadCompleted;
+        }
+        uploadContext->queues->transferQueue.submit(submitInfo, uploadContext->gpuHasExecutedTransferCommandBuffer);
+    }
+
+    // acquire in graphics queue if needed
+    if (uploadContext->queues->separateTransferQueue)
+    {
+        assert(device->waitForFences(*uploadContext->gpuHasExecutedGraphicsCommandBuffer, true, UINT64_MAX) == vk::Result::eSuccess);
+        device->resetFences(*uploadContext->gpuHasExecutedGraphicsCommandBuffer); // reset fence back to unsignaled state
+
+        vk::raii::CommandBuffer* cmd = &uploadContext->graphicsCommandBuffer;
+
+        cmd->begin({});
+
+        // acquire operation
         vk::BufferMemoryBarrier barrier{
-            .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
-            .dstAccessMask = vk::AccessFlagBits::eNone,
+            // srcAccessMask ignored
+            .dstAccessMask = vk::AccessFlagBits::eVertexAttributeRead,
             .srcQueueFamilyIndex = uploadContext->queues->transferQueueFamilyIndex,
             .dstQueueFamilyIndex = uploadContext->queues->graphicsQueueFamilyIndex,
             .buffer = buffer->buffer,
@@ -1029,41 +1080,27 @@ void copyToBufferGpuOnly(
             .size = buffer->info.size
         };
         cmd->pipelineBarrier(
-            vk::PipelineStageFlagBits::eTransfer, // execute after transfer has completed
-            vk::PipelineStageFlagBits::eBottomOfPipe, // and before the pipeline is completed
+            {}, // srcStageMask ignored
+            vk::PipelineStageFlagBits::eVertexInput,
             vk::DependencyFlagBits::eDeviceGroup,
             {},
             barrier,
             {});
+
+        cmd->end();
+
+        vk::PipelineStageFlags waitDstStageMask = vk::PipelineStageFlagBits::eTopOfPipe;
+        vk::SubmitInfo graphicsSubmitInfo{
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &*uploadContext->uploadCompleted,
+            .pWaitDstStageMask = &waitDstStageMask,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &**cmd,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = nullptr
+        };
+        uploadContext->queues->graphicsQueue.submit(graphicsSubmitInfo, uploadContext->gpuHasExecutedGraphicsCommandBuffer);
     }
-    cmd->end();
-
-    vk::SubmitInfo submitInfo{
-        .waitSemaphoreCount = 0,
-        .pWaitSemaphores = nullptr,
-        .pWaitDstStageMask = nullptr,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &**cmd,
-        .signalSemaphoreCount = 0,
-        .pSignalSemaphores = nullptr
-    };
-
-    if (separateTransferQueue)
-    {
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = &*uploadContext->uploadCompleted;
-    }
-    uploadContext->queues->transferQueue.submit(submitInfo, uploadContext->gpuHasExecutedTransferCommandBuffer);
-
-    if (separateTransferQueue)
-    {
-
-    }
-
-    vk::SubmitInfo graphicsSubmitInfo{
-
-    };
-    uploadContext->queues->graphicsQueue.submit(graphicsSubmitInfo);
 }
 
 // either uses staging buffer or copies directly depending on the buffer's gpuOnly property
@@ -1430,7 +1467,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
                 .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
                 .queueFamilyIndex = app->queues.transferQueueFamilyIndex
             };
-            app->transferCommandPool = app->device.createCommandPool(graphicsPoolInfo).value();
+            app->transferCommandPool = app->device.createCommandPool(transferPoolInfo).value();
         }
     }
 
@@ -1660,7 +1697,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         // create vertex buffer
         BufferInfo vertexBufferInfo{
             .size = vertices.size() * sizeof(VertexData),
-            .gpuOnly = false,
+            .gpuOnly = true,
             .usage = vk::BufferUsageFlagBits::eVertexBuffer
         };
         mesh.vertexBuffer = createBuffer(&app->device, *app->allocator, vertexBufferInfo);
@@ -1668,7 +1705,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         // create index buffer
         BufferInfo indexBufferInfo{
             .size = indices.size() * sizeof(uint32_t),
-            .gpuOnly = false,
+            .gpuOnly = true,
             .usage = vk::BufferUsageFlagBits::eIndexBuffer
         };
         mesh.indexBuffer = createBuffer(&app->device, *app->allocator, indexBufferInfo);
