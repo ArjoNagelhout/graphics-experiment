@@ -1033,7 +1033,7 @@ void copyToBufferGpuOnly(
             };
             cmd->pipelineBarrier(
                 vk::PipelineStageFlagBits::eTransfer, // after transfer
-                {}, // dstStageMask ignored
+                vk::PipelineStageFlagBits::eBottomOfPipe,
                 vk::DependencyFlagBits::eDeviceGroup,
                 {},
                 barrier,
@@ -1056,7 +1056,8 @@ void copyToBufferGpuOnly(
             submitInfo.signalSemaphoreCount = 1;
             submitInfo.pSignalSemaphores = &*uploadContext->uploadCompleted;
         }
-        uploadContext->queues->transferQueue.submit(submitInfo, uploadContext->gpuHasExecutedTransferCommandBuffer);
+        vk::raii::Queue* queue = uploadContext->queues->separateTransferQueue ? &uploadContext->queues->transferQueue : &uploadContext->queues->graphicsQueue;
+        queue->submit(submitInfo, uploadContext->gpuHasExecutedTransferCommandBuffer);
     }
 
     // acquire in graphics queue if needed
@@ -1080,7 +1081,7 @@ void copyToBufferGpuOnly(
             .size = buffer->info.size
         };
         cmd->pipelineBarrier(
-            {}, // srcStageMask ignored
+            vk::PipelineStageFlagBits::eTopOfPipe,
             vk::PipelineStageFlagBits::eVertexInput,
             vk::DependencyFlagBits::eDeviceGroup,
             {},
@@ -1392,6 +1393,8 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
             vk::QueueFamilyProperties family = families[0];
             assert((family.queueFlags & vk::QueueFlagBits::eGraphics) && (family.queueFlags & vk::QueueFlagBits::eTransfer));
         }
+
+        //app->queues.separateTransferQueue = false;
 
         std::cout << "graphics queue family index: " << app->queues.graphicsQueueFamilyIndex << std::endl;
         std::cout << "transfer queue family index: " << app->queues.transferQueueFamilyIndex << std::endl;
@@ -1705,7 +1708,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         // create index buffer
         BufferInfo indexBufferInfo{
             .size = indices.size() * sizeof(uint32_t),
-            .gpuOnly = true,
+            .gpuOnly = false,
             .usage = vk::BufferUsageFlagBits::eIndexBuffer
         };
         mesh.indexBuffer = createBuffer(&app->device, *app->allocator, indexBufferInfo);
