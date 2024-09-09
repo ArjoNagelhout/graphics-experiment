@@ -979,16 +979,13 @@ void copyToBufferGpuOnly(
     assert(uploadContext);
 
     // create staging buffer
-    Buffer stagingBuffer;
-    {
-        BufferInfo stagingBufferInfo{
-            .size = buffer->info.size,
-            .gpuOnly = false,
-            .usage = vk::BufferUsageFlagBits::eTransferSrc
-        };
-        stagingBuffer = createBuffer(device, allocator, stagingBufferInfo);
-        copyToBufferCpuVisible(device, allocator, &stagingBuffer, data);
-    }
+    BufferInfo stagingBufferInfo{
+        .size = buffer->info.size,
+        .gpuOnly = false,
+        .usage = vk::BufferUsageFlagBits::eTransferSrc
+    };
+    Buffer stagingBuffer = createBuffer(device, allocator, stagingBufferInfo);
+    copyToBufferCpuVisible(device, allocator, &stagingBuffer, data);
 
     // transfer
     {
@@ -1034,7 +1031,7 @@ void copyToBufferGpuOnly(
             cmd->pipelineBarrier(
                 vk::PipelineStageFlagBits::eTransfer, // after transfer
                 vk::PipelineStageFlagBits::eBottomOfPipe,
-                vk::DependencyFlagBits::eDeviceGroup,
+                {},
                 {},
                 barrier,
                 {});
@@ -1053,6 +1050,7 @@ void copyToBufferGpuOnly(
 
         if (uploadContext->queues->separateTransferQueue)
         {
+            // semaphore signal operation
             submitInfo.signalSemaphoreCount = 1;
             submitInfo.pSignalSemaphores = &*uploadContext->uploadCompleted;
         }
@@ -1063,11 +1061,12 @@ void copyToBufferGpuOnly(
     // acquire in graphics queue if needed
     if (uploadContext->queues->separateTransferQueue)
     {
+        // wait until signaled (first time always signaled)
         assert(device->waitForFences(*uploadContext->gpuHasExecutedGraphicsCommandBuffer, true, UINT64_MAX) == vk::Result::eSuccess);
         device->resetFences(*uploadContext->gpuHasExecutedGraphicsCommandBuffer); // reset fence back to unsignaled state
 
         vk::raii::CommandBuffer* cmd = &uploadContext->graphicsCommandBuffer;
-
+        cmd->reset();
         cmd->begin({});
 
         // acquire operation
@@ -1083,14 +1082,14 @@ void copyToBufferGpuOnly(
         cmd->pipelineBarrier(
             vk::PipelineStageFlagBits::eTopOfPipe,
             vk::PipelineStageFlagBits::eVertexInput,
-            vk::DependencyFlagBits::eDeviceGroup,
+            {},
             {},
             barrier,
             {});
 
         cmd->end();
 
-        vk::PipelineStageFlags waitDstStageMask = vk::PipelineStageFlagBits::eTopOfPipe;
+        vk::PipelineStageFlags waitDstStageMask = vk::PipelineStageFlagBits::eVertexInput;
         vk::SubmitInfo graphicsSubmitInfo{
             .waitSemaphoreCount = 1,
             .pWaitSemaphores = &*uploadContext->uploadCompleted,
@@ -1102,6 +1101,12 @@ void copyToBufferGpuOnly(
         };
         uploadContext->queues->graphicsQueue.submit(graphicsSubmitInfo, uploadContext->gpuHasExecutedGraphicsCommandBuffer);
     }
+
+    // wait for the transfer to be completed
+    // otherwise the staging buffer goes out of scope and gets destroyed, before the GPU has time to copy its data
+    // ideally, we would reuse a larger staging buffer / schedule a bunch of buffers to be copied. This would be a more involved design, so for now
+    // this suffices.
+    assert(device->waitForFences(*uploadContext->gpuHasExecutedTransferCommandBuffer, VK_TRUE, UINT64_MAX) == vk::Result::eSuccess);
 }
 
 // either uses staging buffer or copies directly depending on the buffer's gpuOnly property
@@ -1287,7 +1292,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         }
 
         // set layers
-        std::vector<char const*> desiredLayers{"VK_LAYER_KHRONOS_validation"};
+        std::vector<char const*> desiredLayers{"VK_LAYER_KHRONOS_validation"};//, "VK_LAYER_LUNARG_api_dump"};
         std::vector<vk::LayerProperties> supportedLayers = app->context.enumerateInstanceLayerProperties();
 
         std::vector<char const*> enabledLayers;
@@ -1708,7 +1713,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         // create index buffer
         BufferInfo indexBufferInfo{
             .size = indices.size() * sizeof(uint32_t),
-            .gpuOnly = false,
+            .gpuOnly = true,
             .usage = vk::BufferUsageFlagBits::eIndexBuffer
         };
         mesh.indexBuffer = createBuffer(&app->device, *app->allocator, indexBufferInfo);
