@@ -840,13 +840,14 @@ void onResize(App* app)
         .descriptorCount = 1,
         .stageFlags = vk::ShaderStageFlagBits::eVertex
     };
+    // fragment stage:
     vk::DescriptorSetLayoutBinding fragmentTexture{
         .binding = 1,
         .descriptorType = vk::DescriptorType::eCombinedImageSampler,
         .descriptorCount = 1,
         .stageFlags = vk::ShaderStageFlagBits::eFragment
     };
-    std::vector<vk::DescriptorSetLayoutBinding> descriptorSetBindings{vertexCameraBuffer};//, fragmentTexture};
+    std::vector<vk::DescriptorSetLayoutBinding> descriptorSetBindings{vertexCameraBuffer, fragmentTexture};
     vk::DescriptorSetLayoutCreateInfo descriptorSet1Info{
         .bindingCount = (uint32_t)descriptorSetBindings.size(),
         .pBindings = descriptorSetBindings.data()
@@ -1096,7 +1097,7 @@ void copyToBuffer(vk::raii::Device const* device,
     vk::SamplerCreateInfo samplerInfo{
         .magFilter = vk::Filter::eLinear,
         .minFilter = vk::Filter::eLinear,
-        .mipmapMode = vk::SamplerMipmapMode::eLinear,
+        .mipmapMode = vk::SamplerMipmapMode::eNearest,
         .addressModeU = vk::SamplerAddressMode::eClampToEdge,
         .addressModeV = vk::SamplerAddressMode::eClampToEdge,
         .addressModeW = vk::SamplerAddressMode::eClampToEdge,
@@ -1107,7 +1108,7 @@ void copyToBuffer(vk::raii::Device const* device,
         .compareOp = vk::CompareOp::eLessOrEqual,
         .minLod = 0.0f,
         .maxLod = 1.0f,
-        .borderColor = vk::BorderColor::eFloatOpaqueWhite,
+        .borderColor = vk::BorderColor::eIntOpaqueBlack,
         .unnormalizedCoordinates = false
     };
     vk::raii::Sampler sampler = device->createSampler(samplerInfo).value();
@@ -1158,21 +1159,6 @@ void copyToTexture(
 
         cmd->begin({});
 
-        // copy buffer to image
-        vk::BufferImageCopy region{
-            .bufferOffset = 0,
-            .bufferRowLength = 1,
-            .bufferImageHeight = 1,
-            .imageSubresource{
-                .aspectMask = vk::ImageAspectFlagBits::eColor,
-                .mipLevel = 0,
-                .baseArrayLayer = 0,
-                .layerCount = 1
-            },
-            .imageOffset = vk::Offset3D{0, 0, 0},
-            .imageExtent = vk::Extent3D{1, 1, 1}
-        };
-
         vk::ImageMemoryBarrier toTransferDst{
             .srcAccessMask = vk::AccessFlagBits::eNone,
             .dstAccessMask = vk::AccessFlagBits::eTransferWrite,
@@ -1197,7 +1183,46 @@ void copyToTexture(
             {},
             toTransferDst);
 
+        // copy buffer to image
+        vk::BufferImageCopy region{
+            .bufferOffset = 0,
+            .bufferRowLength = texture->info.width,
+            .bufferImageHeight = 0,
+            .imageSubresource{
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .mipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 1
+            },
+            .imageOffset = vk::Offset3D{0, 0, 0},
+            .imageExtent = vk::Extent3D{texture->info.width, texture->info.height, 1}
+        };
         cmd->copyBufferToImage(*stagingBuffer.buffer, texture->image, vk::ImageLayout::eTransferDstOptimal, region);
+
+        vk::ImageMemoryBarrier toShaderRead{
+            .srcAccessMask = vk::AccessFlagBits::eNone,
+            .dstAccessMask = vk::AccessFlagBits::eShaderRead,
+            .oldLayout = vk::ImageLayout::eUndefined,
+            .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+            .srcQueueFamilyIndex = uploadContext->queues->graphicsQueueFamilyIndex,
+            .dstQueueFamilyIndex = uploadContext->queues->graphicsQueueFamilyIndex,
+            .image = texture->image,
+            .subresourceRange{
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1
+            }
+        };
+        cmd->pipelineBarrier(
+            vk::PipelineStageFlagBits::eTransfer,
+            vk::PipelineStageFlagBits::eFragmentShader,
+            {},
+            {},
+            {},
+            toShaderRead);
+
         cmd->end();
 
         vk::SubmitInfo submitInfo{
@@ -1583,10 +1608,10 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         float maxX = 0.5f;
         float maxY = 0.5f;
         std::vector<VertexData> vertices = std::vector<VertexData>{
-            VertexData{.position{minX, minY, 0.0f}},
-            VertexData{.position{maxX, minY, 0.0f}},
-            VertexData{.position{maxX, maxY, 0.0f}},
-            VertexData{.position{minX, maxY, 0.0f}},
+            VertexData{.position{minX, minY, 0.0f}, .uv{0, 0}},
+            VertexData{.position{maxX, minY, 0.0f}, .uv{0, 1}},
+            VertexData{.position{maxX, maxY, 0.0f}, .uv{1, 1}},
+            VertexData{.position{minX, maxY, 0.0f}, .uv{1, 0}},
         };
         mesh.vertexCount = vertices.size();
 
@@ -1632,6 +1657,16 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         copyToBufferCpuVisible(&app->device, *app->allocator, &app->cameraDataBuffer, &app->cameraData);
     }
 
+    // import texture / load texture / create texture
+    {
+        TextureInfo info{};
+        std::vector<unsigned char> data;
+        bool result = importPng(app->config.assetsPath / "textures" / "terrain_green.png", &info, &data);
+        assert(result);
+        app->texture = createTexture(&app->device, *app->allocator, info);
+        copyToTexture(&app->device, *app->allocator, &app->uploadContext, &app->texture, &data);
+    }
+
     // update descriptor sets (to point to the buffers with the relevant data)
     {
         vk::DescriptorBufferInfo bufferInfo{
@@ -1647,17 +1682,20 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
             .descriptorType = vk::DescriptorType::eUniformBuffer,
             .pBufferInfo = &bufferInfo
         };
-        app->device.updateDescriptorSets(cameraData, {});
-    }
-
-    // import texture
-    {
-        TextureInfo info{};
-        std::vector<unsigned char> data;
-        bool result = importPng(app->config.assetsPath / "textures" / "terrain.png", &info, &data);
-        assert(result);
-        app->texture = createTexture(&app->device, *app->allocator, info);
-        copyToTexture(&app->device, *app->allocator, &app->uploadContext, &app->texture, &data);
+        vk::DescriptorImageInfo imageInfo{
+            .sampler = app->texture.sampler,
+            .imageView = app->texture.imageView,
+            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
+        };
+        vk::WriteDescriptorSet texture{
+            .dstSet = app->shader->descriptorSet,
+            .dstBinding = 1,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+            .pImageInfo = &imageInfo
+        };
+        app->device.updateDescriptorSets({cameraData, texture}, {});
     }
 
     return SDL_APP_CONTINUE;
