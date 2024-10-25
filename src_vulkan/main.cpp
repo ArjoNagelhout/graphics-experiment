@@ -1053,7 +1053,7 @@ void copyToBuffer(vk::raii::Device const* device,
         .arrayLayers = 1,
         .samples = vk::SampleCountFlagBits::e1,
         .tiling = vk::ImageTiling::eOptimal,
-        .usage = vk::ImageUsageFlagBits::eSampled,
+        .usage = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
         .sharingMode = vk::SharingMode::eExclusive,
         .initialLayout = vk::ImageLayout::eUndefined
     };
@@ -1173,7 +1173,31 @@ void copyToTexture(
             .imageExtent = vk::Extent3D{1, 1, 1}
         };
 
-        cmd->copyBufferToImage(*stagingBuffer.buffer, texture->image, vk::ImageLayout::eShaderReadOnlyOptimal, region);
+        vk::ImageMemoryBarrier toTransferDst{
+            .srcAccessMask = vk::AccessFlagBits::eNone,
+            .dstAccessMask = vk::AccessFlagBits::eTransferWrite,
+            .oldLayout = vk::ImageLayout::eUndefined,
+            .newLayout = vk::ImageLayout::eTransferDstOptimal,
+            .srcQueueFamilyIndex = uploadContext->queues->graphicsQueueFamilyIndex,
+            .dstQueueFamilyIndex = uploadContext->queues->graphicsQueueFamilyIndex,
+            .image = texture->image,
+            .subresourceRange{
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1
+            }
+        };
+        cmd->pipelineBarrier(
+            vk::PipelineStageFlagBits::eTopOfPipe,
+            vk::PipelineStageFlagBits::eTransfer,
+            {},
+            {},
+            {},
+            toTransferDst);
+
+        cmd->copyBufferToImage(*stagingBuffer.buffer, texture->image, vk::ImageLayout::eTransferDstOptimal, region);
         cmd->end();
 
         vk::SubmitInfo submitInfo{
