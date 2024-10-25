@@ -255,23 +255,16 @@ struct CameraData
 
 struct Queues
 {
-    // graphics queue
+    // graphics queue (we'll use this for transfer too for now)
     uint32_t graphicsQueueFamilyIndex = 0;
     vk::raii::Queue graphicsQueue = nullptr;
-
-    bool separateTransferQueue = false;
-    uint32_t transferQueueFamilyIndex = 0;
-    vk::raii::Queue transferQueue = nullptr;
 };
 
 struct UploadContext
 {
     Queues* queues = nullptr;
-    vk::raii::CommandBuffer transferCommandBuffer = nullptr; // if not separate transfer queue, this will be allocated from the graphicsCommandPool
-    vk::raii::CommandBuffer graphicsCommandBuffer = nullptr; // only set if separate transfer queue
-    vk::raii::Fence gpuHasExecutedTransferCommandBuffer = nullptr;
-    vk::raii::Fence gpuHasExecutedGraphicsCommandBuffer = nullptr; // only if separate transfer queue
-    vk::raii::Semaphore uploadCompleted = nullptr; // for when the transfer is completed, and we can run the queue family ownership transfer to the graphics queue
+    vk::raii::CommandBuffer commandBuffer = nullptr;
+    vk::raii::Fence gpuHasExecutedCommandBuffer = nullptr;
 };
 
 struct App
@@ -295,7 +288,6 @@ struct App
 
     // command pools (one per queue and set of required flags, these now contain the ability to reset the allocated command buffers)
     vk::raii::CommandPool graphicsCommandPool = nullptr;
-    vk::raii::CommandPool transferCommandPool = nullptr;
 
     // surface
     vk::SurfaceFormatKHR surfaceFormat{
@@ -990,11 +982,11 @@ void copyToBufferGpuOnly(
     // transfer
     {
         // wait for the fence to be signaled
-        assert(device->waitForFences(*uploadContext->gpuHasExecutedTransferCommandBuffer, true, UINT64_MAX) == vk::Result::eSuccess);
-        device->resetFences(*uploadContext->gpuHasExecutedTransferCommandBuffer); // reset fence back to unsignaled state
+        assert(device->waitForFences(*uploadContext->gpuHasExecutedCommandBuffer, true, UINT64_MAX) == vk::Result::eSuccess);
+        device->resetFences(*uploadContext->gpuHasExecutedCommandBuffer); // reset fence back to unsignaled state
 
         // get command buffer, record to it, and submit it
-        vk::raii::CommandBuffer* cmd = &uploadContext->transferCommandBuffer;
+        vk::raii::CommandBuffer* cmd = &uploadContext->commandBuffer;
         cmd->reset();
 
         cmd->begin({});
@@ -1006,36 +998,6 @@ void copyToBufferGpuOnly(
             .size = buffer->info.size
         };
         cmd->copyBuffer(*stagingBuffer.buffer, buffer->buffer, region);
-
-        // if there is a separate transfer queue, we should perform a queue family ownership transfer (QFOT) operation:
-        //
-        // "Resources created with a VkSharingMode of VK_SHARING_MODE_EXCLUSIVE must have their ownership explicitly
-        // transferred from one queue family to another in order to access their content in a well-defined manner
-        // on a queue in a different queue family."
-        // See https://www.khronos.org/blog/understanding-vulkan-synchronization and the spec
-        // "must be executed on both the source and destination queues"
-        // see: https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples-(Legacy-synchronization-APIs)#transfer-dependencies
-        // for an example implementation
-        if (uploadContext->queues->separateTransferQueue)
-        {
-            // release operation
-            vk::BufferMemoryBarrier barrier{
-                .srcAccessMask = vk::AccessFlagBits::eTransferWrite, // after transfer
-                // dstAccessMask ignored
-                .srcQueueFamilyIndex = uploadContext->queues->transferQueueFamilyIndex, // from transfer queue
-                .dstQueueFamilyIndex = uploadContext->queues->graphicsQueueFamilyIndex, // to graphics queue
-                .buffer = buffer->buffer,
-                .offset = 0,
-                .size = buffer->info.size
-            };
-            cmd->pipelineBarrier(
-                vk::PipelineStageFlagBits::eTransfer, // after transfer
-                vk::PipelineStageFlagBits::eBottomOfPipe,
-                {},
-                {},
-                barrier,
-                {});
-        }
         cmd->end();
 
         vk::SubmitInfo submitInfo{
@@ -1047,66 +1009,14 @@ void copyToBufferGpuOnly(
             .signalSemaphoreCount = 0,
             .pSignalSemaphores = nullptr
         };
-
-        if (uploadContext->queues->separateTransferQueue)
-        {
-            // semaphore signal operation
-            submitInfo.signalSemaphoreCount = 1;
-            submitInfo.pSignalSemaphores = &*uploadContext->uploadCompleted;
-        }
-        vk::raii::Queue* queue = uploadContext->queues->separateTransferQueue ? &uploadContext->queues->transferQueue : &uploadContext->queues->graphicsQueue;
-        queue->submit(submitInfo, uploadContext->gpuHasExecutedTransferCommandBuffer);
-    }
-
-    // acquire in graphics queue if needed
-    if (uploadContext->queues->separateTransferQueue)
-    {
-        // wait until signaled (first time always signaled)
-        assert(device->waitForFences(*uploadContext->gpuHasExecutedGraphicsCommandBuffer, true, UINT64_MAX) == vk::Result::eSuccess);
-        device->resetFences(*uploadContext->gpuHasExecutedGraphicsCommandBuffer); // reset fence back to unsignaled state
-
-        vk::raii::CommandBuffer* cmd = &uploadContext->graphicsCommandBuffer;
-        cmd->reset();
-        cmd->begin({});
-
-        // acquire operation
-        vk::BufferMemoryBarrier barrier{
-            // srcAccessMask ignored
-            .dstAccessMask = vk::AccessFlagBits::eVertexAttributeRead,
-            .srcQueueFamilyIndex = uploadContext->queues->transferQueueFamilyIndex,
-            .dstQueueFamilyIndex = uploadContext->queues->graphicsQueueFamilyIndex,
-            .buffer = buffer->buffer,
-            .offset = 0,
-            .size = buffer->info.size
-        };
-        cmd->pipelineBarrier(
-            vk::PipelineStageFlagBits::eTopOfPipe,
-            vk::PipelineStageFlagBits::eVertexInput,
-            {},
-            {},
-            barrier,
-            {});
-
-        cmd->end();
-
-        vk::PipelineStageFlags waitDstStageMask = vk::PipelineStageFlagBits::eVertexInput;
-        vk::SubmitInfo graphicsSubmitInfo{
-            .waitSemaphoreCount = 1,
-            .pWaitSemaphores = &*uploadContext->uploadCompleted,
-            .pWaitDstStageMask = &waitDstStageMask,
-            .commandBufferCount = 1,
-            .pCommandBuffers = &**cmd,
-            .signalSemaphoreCount = 0,
-            .pSignalSemaphores = nullptr
-        };
-        uploadContext->queues->graphicsQueue.submit(graphicsSubmitInfo, uploadContext->gpuHasExecutedGraphicsCommandBuffer);
+        uploadContext->queues->graphicsQueue.submit(submitInfo, uploadContext->gpuHasExecutedCommandBuffer);
     }
 
     // wait for the transfer to be completed
     // otherwise the staging buffer goes out of scope and gets destroyed, before the GPU has time to copy its data
     // ideally, we would reuse a larger staging buffer / schedule a bunch of buffers to be copied. This would be a more involved design, so for now
     // this suffices.
-    assert(device->waitForFences(*uploadContext->gpuHasExecutedTransferCommandBuffer, VK_TRUE, UINT64_MAX) == vk::Result::eSuccess);
+    assert(device->waitForFences(*uploadContext->gpuHasExecutedCommandBuffer, VK_TRUE, UINT64_MAX) == vk::Result::eSuccess);
 }
 
 // either uses staging buffer or copies directly depending on the buffer's gpuOnly property
@@ -1212,7 +1122,7 @@ void copyToBuffer(vk::raii::Device const* device,
 }
 
 // creates a staging buffer and uploads data to it
-void uploadToTexture(
+void copyToTexture(
     vk::raii::Device const* device,
     VmaAllocator allocator,
     UploadContext* uploadContext,
@@ -1232,6 +1142,57 @@ void uploadToTexture(
     };
     Buffer stagingBuffer = createBuffer(device, allocator, stagingBufferInfo);
     copyToBufferCpuVisible(device, allocator, &stagingBuffer, data->data());
+
+    // now that we have created the staging buffer, we want to execute a command on the
+    // GPU where it copies from the buffer to the texture
+
+    // transfer
+    {
+        // wait for the fence to be signaled
+        assert(device->waitForFences(*uploadContext->gpuHasExecutedCommandBuffer, true, UINT64_MAX) == vk::Result::eSuccess);
+        device->resetFences(*uploadContext->gpuHasExecutedCommandBuffer); // reset fence back to unsignaled state
+
+        // get command buffer, record to it, and submit it
+        vk::raii::CommandBuffer* cmd = &uploadContext->commandBuffer;
+        cmd->reset();
+
+        cmd->begin({});
+
+        // copy buffer to image
+        vk::BufferImageCopy region{
+            .bufferOffset = 0,
+            .bufferRowLength = 1,
+            .bufferImageHeight = 1,
+            .imageSubresource{
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .mipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 1
+            },
+            .imageOffset = vk::Offset3D{0, 0, 0},
+            .imageExtent = vk::Extent3D{1, 1, 1}
+        };
+
+        cmd->copyBufferToImage(*stagingBuffer.buffer, texture->image, vk::ImageLayout::eShaderReadOnlyOptimal, region);
+        cmd->end();
+
+        vk::SubmitInfo submitInfo{
+            .waitSemaphoreCount = 0,
+            .pWaitSemaphores = nullptr,
+            .pWaitDstStageMask = nullptr,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &**cmd,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = nullptr
+        };
+        uploadContext->queues->graphicsQueue.submit(submitInfo, uploadContext->gpuHasExecutedCommandBuffer);
+    }
+
+    // wait for the transfer to be completed
+    // otherwise the staging buffer goes out of scope and gets destroyed, before the GPU has time to copy its data
+    // ideally, we would reuse a larger staging buffer / schedule a bunch of buffers to be copied. This would be a more involved design, so for now
+    // this suffices.
+    assert(device->waitForFences(*uploadContext->gpuHasExecutedCommandBuffer, VK_TRUE, UINT64_MAX) == vk::Result::eSuccess);
 }
 
 // allocates a single command buffer from the pool
@@ -1348,61 +1309,10 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         // loop through all available families
         std::vector<vk::QueueFamilyProperties> families = app->physicalDevice.getQueueFamilyProperties();
         assert(!families.empty());
-
-        if (families.size() > 1)
-        {
-            bool foundGraphics = false;
-            bool foundTransfer = false;
-
-            // see if we can get a separate transfer family
-            // when do we want a separate transfer family?
-            // let's say we have 4 queues, that all support transfer *and* graphics
-            // then we want 1 graphics queue and separate 1 transfer queue
-            for (int i = 0; i < families.size(); i++)
-            {
-                vk::QueueFamilyProperties family = families[i];
-                if (!foundGraphics && family.queueFlags & vk::QueueFlagBits::eGraphics)
-                {
-                    app->queues.graphicsQueueFamilyIndex = i;
-                    foundGraphics = true;
-                }
-                else if (!foundTransfer && family.queueFlags & vk::QueueFlagBits::eTransfer)
-                {
-                    app->queues.transferQueueFamilyIndex = i;
-                    foundTransfer = true;
-                }
-
-                if (foundGraphics && foundTransfer)
-                {
-                    break;
-                }
-            }
-
-            if (foundTransfer)
-            {
-                app->queues.separateTransferQueue = true;
-            }
-            else
-            {
-                // if we have 1 graphics queue, but haven't found a separate transfer queue,
-                // then we want to see if the graphics queue supports transfer
-                assert(families[app->queues.graphicsQueueFamilyIndex].queueFlags & vk::QueueFlagBits::eTransfer);
-            }
-        }
-        else
-        {
-            // only one queue, so we assume it can handle everything we want to do
-            app->queues.graphicsQueueFamilyIndex = 0;
-            app->queues.transferQueueFamilyIndex = 0;
-
-            vk::QueueFamilyProperties family = families[0];
-            assert((family.queueFlags & vk::QueueFlagBits::eGraphics) && (family.queueFlags & vk::QueueFlagBits::eTransfer));
-        }
-
-        //app->queues.separateTransferQueue = false;
+        vk::QueueFamilyProperties family = families[0];
+        assert((family.queueFlags & vk::QueueFlagBits::eGraphics) && (family.queueFlags & vk::QueueFlagBits::eTransfer));
 
         std::cout << "graphics queue family index: " << app->queues.graphicsQueueFamilyIndex << std::endl;
-        std::cout << "transfer queue family index: " << app->queues.transferQueueFamilyIndex << std::endl;
     }
 
     // create logical device / create device
@@ -1418,17 +1328,6 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         std::vector<vk::DeviceQueueCreateInfo> queues{
             graphicsQueue
         };
-
-        if (app->queues.separateTransferQueue)
-        {
-            vk::DeviceQueueCreateInfo transferQueue{
-                .queueFamilyIndex = app->queues.transferQueueFamilyIndex,
-                .queueCount = 1,
-                .pQueuePriorities = &priority
-            };
-            queues.emplace_back(transferQueue);
-        }
-
         std::vector<char const*> enabledLayers;
         std::vector<char const*> enabledExtensions{
             vk::KHRSwapchainExtensionName
@@ -1454,10 +1353,6 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     // get queues
     {
         app->queues.graphicsQueue = app->device.getQueue(app->queues.graphicsQueueFamilyIndex, 0).value();
-        if (app->queues.separateTransferQueue)
-        {
-            app->queues.transferQueue = app->device.getQueue(app->queues.transferQueueFamilyIndex, 0).value();
-        }
     }
 
     // create command pools
@@ -1467,16 +1362,6 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
             .queueFamilyIndex = app->queues.graphicsQueueFamilyIndex
         };
         app->graphicsCommandPool = app->device.createCommandPool(graphicsPoolInfo).value();
-
-        if (app->queues.separateTransferQueue)
-        {
-            // also create a transfer pool
-            vk::CommandPoolCreateInfo transferPoolInfo{
-                .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-                .queueFamilyIndex = app->queues.transferQueueFamilyIndex
-            };
-            app->transferCommandPool = app->device.createCommandPool(transferPoolInfo).value();
-        }
     }
 
     // create render pass
@@ -1654,27 +1539,14 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     // create upload context (for uploading from CPU to GPU using staging buffers)
     {
         // allocate transfer command buffer from graphics command pool if no separate transfer queue, otherwise use the transfer command pool
-        vk::raii::CommandPool* pool = app->queues.separateTransferQueue ? &app->transferCommandPool : &app->graphicsCommandPool;
+        vk::raii::CommandPool* pool = &app->graphicsCommandPool;
 
         app->uploadContext = UploadContext{
             .queues = &app->queues,
-            .transferCommandBuffer = allocateCommandBuffer(&app->device, pool),
+            .commandBuffer = allocateCommandBuffer(&app->device, pool),
             // create fence in signaled state (signal means it is done)
-            .gpuHasExecutedTransferCommandBuffer = app->device.createFence(vk::FenceCreateInfo{.flags = vk::FenceCreateFlagBits::eSignaled}).value(),
+            .gpuHasExecutedCommandBuffer = app->device.createFence(vk::FenceCreateInfo{.flags = vk::FenceCreateFlagBits::eSignaled}).value(),
         };
-
-        if (app->queues.separateTransferQueue)
-        {
-            // create semaphore to synchronize between transfer and graphics queue
-            app->uploadContext.uploadCompleted = app->device.createSemaphore({}).value();
-
-            // create graphics command buffer (for queue family ownership transfer)
-            app->uploadContext.graphicsCommandBuffer = allocateCommandBuffer(&app->device, &app->graphicsCommandPool);
-
-            // create fence to make sure we know it has finished executing when accessing (might be redundant in this case)
-            app->uploadContext.gpuHasExecutedGraphicsCommandBuffer =
-                app->device.createFence(vk::FenceCreateInfo{.flags = vk::FenceCreateFlagBits::eSignaled}).value();
-        }
     }
 
     // create mesh
@@ -1761,17 +1633,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         bool result = importPng(app->config.assetsPath / "textures" / "terrain.png", &info, &data);
         assert(result);
         app->texture = createTexture(&app->device, *app->allocator, info);
-        uploadToTexture(&app->device, *app->allocator, &app->uploadContext, &app->texture, &data);
-    }
-
-    // wait for the app to be done with any upload tasks
-    {
-        std::vector<vk::Fence> fences{app->uploadContext.gpuHasExecutedTransferCommandBuffer};
-        if (app->queues.separateTransferQueue)
-        {
-            fences.emplace_back(app->uploadContext.gpuHasExecutedGraphicsCommandBuffer);
-        }
-        assert(app->device.waitForFences(fences, true, UINT64_MAX) == vk::Result::eSuccess);
+        copyToTexture(&app->device, *app->allocator, &app->uploadContext, &app->texture, &data);
     }
 
     return SDL_APP_CONTINUE;
