@@ -1606,15 +1606,15 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         Mesh mesh;
 
         // vertices
-        float minX = -0.5f;
-        float minY = -0.5f;
-        float maxX = 0.5f;
-        float maxY = 0.5f;
+        float minX = 0;//-0.5f;
+        float minY = 0;//-0.5f;
+        float maxX = 10;//0.5f;
+        float maxY = 10;//0.5f;
         std::vector<VertexData> vertices = std::vector<VertexData>{
-            VertexData{.position{minX, minY, 0.0f, 1.0f}, .uv{0, 0}},
-            VertexData{.position{maxX, minY, 0.0f, 1.0f}, .uv{1, 0}},
-            VertexData{.position{maxX, maxY, 0.0f, 1.0f}, .uv{1, 1}},
-            VertexData{.position{minX, maxY, 0.0f, 1.0f}, .uv{0, 1}},
+            VertexData{.position{minX, minY, 0.0f, 1.0f}, .uv{0, 1}},
+            VertexData{.position{maxX, minY, 0.0f, 1.0f}, .uv{1, 1}},
+            VertexData{.position{maxX, maxY, 0.0f, 1.0f}, .uv{1, 0}},
+            VertexData{.position{minX, maxY, 0.0f, 1.0f}, .uv{0, 0}},
         };
         mesh.vertexCount = vertices.size();
 
@@ -1664,7 +1664,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     {
         TextureInfo info{};
         std::vector<unsigned char> data;
-        bool result = importPng(app->config.assetsPath / "textures" / "terrain_green.png", &info, &data);
+        bool result = importPng(app->config.assetsPath / "textures" / "tree.png", &info, &data);
         assert(result);
         app->texture = createTexture(&app->device, *app->allocator, info);
         copyToTexture(&app->device, *app->allocator, &app->uploadContext, &app->texture, &data);
