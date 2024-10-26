@@ -111,9 +111,9 @@ struct Shader
 
 struct VertexData
 {
-    glm::vec3 position;
+    glm::vec4 position;
     glm::vec2 uv;
-    glm::vec3 normal;
+    glm::vec4 normal;
 };
 
 // because I'm too lazy to call vmaDestroyAllocation for each allocation
@@ -712,7 +712,7 @@ void onResize(App* app)
     // bindings
     vk::VertexInputBindingDescription binding{
         .binding = 0,
-        .stride = sizeof(float) * (3 + 2 + 3),
+        .stride = sizeof(VertexData),
         .inputRate = vk::VertexInputRate::eVertex
     };
     std::vector<vk::VertexInputBindingDescription> bindings{binding};
@@ -724,17 +724,20 @@ void onResize(App* app)
     vk::VertexInputAttributeDescription position{
         .location = 0,
         .binding = 0,
-        .format = vk::Format::eR32G32B32Sfloat
+        .format = vk::Format::eR32G32B32A32Sfloat,
+        .offset = offsetof(VertexData, position)
     };
     vk::VertexInputAttributeDescription uv{
         .location = 1,
         .binding = 0,
-        .format = vk::Format::eR32G32Sfloat
+        .format = vk::Format::eR32G32Sfloat,
+        .offset = offsetof(VertexData, uv)
     };
     vk::VertexInputAttributeDescription normal{
         .location = 2,
         .binding = 0,
-        .format = vk::Format::eR32G32B32Sfloat
+        .format = vk::Format::eR32G32B32A32Sfloat,
+        .offset = offsetof(VertexData, normal)
     };
     std::vector<vk::VertexInputAttributeDescription> attributes{position, uv, normal};
 
@@ -820,7 +823,7 @@ void onResize(App* app)
         .logicOp = vk::LogicOp::eCopy,
         .attachmentCount = (uint32_t)colorBlendAttachments.size(),
         .pAttachments = colorBlendAttachments.data(),
-        .blendConstants = std::array < float, 4 > {0.0f, 0.0f, 0.0f, 0.0f}
+        .blendConstants = std::array<float, 4>{0.0f, 0.0f, 0.0f, 0.0f}
     };
 
     std::vector<vk::DynamicState> dynamicStates{
@@ -867,7 +870,7 @@ void onResize(App* app)
     vk::PushConstantRange vertexPushConstants{
         .stageFlags = vk::ShaderStageFlagBits::eVertex,
         .offset = 0,
-        .size = 64
+        .size = sizeof(glm::mat4)
     };
     std::vector<vk::PushConstantRange> pushConstants{vertexPushConstants};
 
@@ -1098,9 +1101,9 @@ void copyToBuffer(vk::raii::Device const* device,
         .magFilter = vk::Filter::eLinear,
         .minFilter = vk::Filter::eLinear,
         .mipmapMode = vk::SamplerMipmapMode::eNearest,
-        .addressModeU = vk::SamplerAddressMode::eClampToEdge,
-        .addressModeV = vk::SamplerAddressMode::eClampToEdge,
-        .addressModeW = vk::SamplerAddressMode::eClampToEdge,
+        .addressModeU = vk::SamplerAddressMode::eClampToBorder,
+        .addressModeV = vk::SamplerAddressMode::eClampToBorder,
+        .addressModeW = vk::SamplerAddressMode::eClampToBorder,
         .mipLodBias = 0.0f,
         .anisotropyEnable = false,
         .maxAnisotropy = 0.0f,
@@ -1108,7 +1111,7 @@ void copyToBuffer(vk::raii::Device const* device,
         .compareOp = vk::CompareOp::eLessOrEqual,
         .minLod = 0.0f,
         .maxLod = 1.0f,
-        .borderColor = vk::BorderColor::eIntOpaqueBlack,
+        .borderColor = vk::BorderColor::eIntOpaqueWhite,
         .unnormalizedCoordinates = false
     };
     vk::raii::Sampler sampler = device->createSampler(samplerInfo).value();
@@ -1479,7 +1482,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     // create window
     {
         SDL_WindowFlags windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN;
-        app->window = SDL_CreateWindow("vulkan sld loader experiment", 600, 400, windowFlags);
+        app->window = SDL_CreateWindow("graphics experiment - vulkan", 600, 400, windowFlags);
         assert(app->window);
     }
 
@@ -1608,10 +1611,10 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
         float maxX = 0.5f;
         float maxY = 0.5f;
         std::vector<VertexData> vertices = std::vector<VertexData>{
-            VertexData{.position{minX, minY, 0.0f}, .uv{0, 0}},
-            VertexData{.position{maxX, minY, 0.0f}, .uv{0, 1}},
-            VertexData{.position{maxX, maxY, 0.0f}, .uv{1, 1}},
-            VertexData{.position{minX, maxY, 0.0f}, .uv{1, 0}},
+            VertexData{.position{minX, minY, 0.0f, 1.0f}, .uv{0, 0}},
+            VertexData{.position{maxX, minY, 0.0f, 1.0f}, .uv{1, 0}},
+            VertexData{.position{maxX, maxY, 0.0f, 1.0f}, .uv{1, 1}},
+            VertexData{.position{minX, maxY, 0.0f, 1.0f}, .uv{0, 1}},
         };
         mesh.vertexCount = vertices.size();
 
