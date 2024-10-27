@@ -1704,6 +1704,32 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     return SDL_APP_CONTINUE;
 }
 
+struct RenderState
+{
+    vk::raii::CommandBuffer* cmd;
+    Shader* currentShader;
+};
+
+void setShader(RenderState* state, Shader* shader)
+{
+    state->currentShader = shader;
+    state->cmd->bindPipeline(vk::PipelineBindPoint::eGraphics, shader->pipeline);
+    state->cmd->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, shader->pipelineLayout, 0, *shader->descriptorSet, {});
+}
+
+void drawMesh(RenderState* state, Mesh* mesh, glm::mat4 localToWorld)
+{
+    assert(state->currentShader);
+    state->cmd->pushConstants(
+        *state->currentShader->pipelineLayout,
+        vk::ShaderStageFlagBits::eVertex,
+        0,
+        vk::ArrayProxy<glm::mat4 const>(localToWorld));
+    state->cmd->bindIndexBuffer(*mesh->indexBuffer.buffer, 0, vk::IndexType::eUint32);
+    state->cmd->bindVertexBuffers(0, *mesh->vertexBuffer.buffer, {0});
+    state->cmd->drawIndexed(mesh->indexCount, 1, 0, 0, 0);
+}
+
 void onDraw(App* app)
 {
     FrameData* frame = &app->frames[app->currentFrame];
@@ -1777,6 +1803,11 @@ void onDraw(App* app)
     }
 
     vk::raii::CommandBuffer* cmd = &frame->commandBuffer;
+    RenderState state{
+        .cmd = cmd,
+        .currentShader = nullptr
+    };
+
     cmd->begin({});
 
     // main render pass
@@ -1813,20 +1844,11 @@ void onDraw(App* app)
         cmd->setScissor(0, scissor);
     }
 
-    cmd->bindPipeline(vk::PipelineBindPoint::eGraphics, app->shader->pipeline);
-
-    glm::mat4 localToWorld(1); // identity
-
-    vkCmdPushConstants(**cmd, *app->shader->pipelineLayout, (VkShaderStageFlags)vk::ShaderStageFlagBits::eVertex, 0, sizeof(glm::mat4), &localToWorld);
-
-    cmd->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, app->shader->pipelineLayout, 0, *app->shader->descriptorSet, {});
+    // set shader
+    setShader(&state, app->shader.get());
 
     // draw mesh
-    {
-        cmd->bindIndexBuffer(*app->mesh.indexBuffer.buffer, 0, vk::IndexType::eUint32);
-        cmd->bindVertexBuffers(0, *app->mesh.vertexBuffer.buffer, {0});
-        cmd->drawIndexed(app->mesh.indexCount, 1, 0, 0, 0);
-    }
+    drawMesh(&state, &app->mesh, glm::mat4(1));
 
     cmd->endRenderPass();
     cmd->end();
