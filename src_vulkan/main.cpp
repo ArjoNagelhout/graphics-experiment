@@ -1664,7 +1664,7 @@ SDL_AppResult onLaunch(App* app, int argc, char** argv)
     {
         TextureInfo info{};
         std::vector<unsigned char> data;
-        bool result = importPng(app->config.assetsPath / "textures" / "tree.png", &info, &data);
+        bool result = importPng(app->config.assetsPath / "textures" / "terrain.png", &info, &data);
         assert(result);
         app->texture = createTexture(&app->device, *app->allocator, info);
         copyToTexture(&app->device, *app->allocator, &app->uploadContext, &app->texture, &data);
@@ -1849,6 +1849,7 @@ void onDraw(App* app)
 
     // draw mesh
     drawMesh(&state, &app->mesh, glm::mat4(1));
+    drawMesh(&state, &app->mesh, glm::translate(glm::vec3(1, 5, 1)));
 
     cmd->endRenderPass();
     cmd->end();
